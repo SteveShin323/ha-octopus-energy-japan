@@ -143,8 +143,11 @@ scoped to `readings`, `importReadings`, `exportReadings`, `devices`, or
 (`KT-CT-4177`), unscoped authorization errors, and a null root `supplyPoint`
 are propagated instead of being hidden by legacy fallback.
 
-Every provider result records the selected provider and an allow-listed
-fallback reason for later diagnostics.
+Every provider result records the selected provider, an allow-listed fallback
+reason, the exact queried series (including series with zero returned
+intervals), and the source families replaced by that successful batch. This
+metadata lets the ledger delete stale topology and provider-transition rows
+without guessing authority from a non-empty response.
 
 ## Privacy boundary
 
