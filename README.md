@@ -9,14 +9,31 @@ Unofficial Home Assistant custom integration for Octopus Energy Japan (OEJP).
 
 Early development. The initial target is read-only access to OEJP account and half-hourly electricity consumption data through the official OEJP GraphQL API.
 
+## Technical design
+
+The current normative architecture and implementation plan is:
+
+- [`docs/MASTER_TECHNICAL_DESIGN_V2.md`](docs/MASTER_TECHNICAL_DESIGN_V2.md)
+
+It incorporates the official OEJP GraphQL documentation and code-level reviews of:
+
+- `mapplebox/oejp`
+- `Shuangbing/oejp-hacs`
+- `lvctr/hass-oejp`
+- `strongbugman/ha-octopusenergy-oejp`
+
+The earlier architecture documents remain as research history. Where they conflict with the master v2 design, the master v2 design takes precedence.
+
 ## Planned MVP
 
 - UI-based setup with email and password
-- Account and supply-point discovery
+- Multiple-account and supply-point discovery
+- Cached access-token lifecycle and reauthentication
 - Half-hourly electricity consumption
-- Today, yesterday, and current-month energy sensors
-- Home Assistant Energy Dashboard compatibility
-- Reauthentication and diagnostics
+- Persistent correction-aware interval ledger
+- Today, yesterday, week, and current-month energy sensors
+- Home Assistant Energy Dashboard compatibility through deterministic statistics
+- Diagnostics with identifier and credential redaction
 - HACS-compatible repository layout
 
 ## API
