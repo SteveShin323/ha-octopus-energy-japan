@@ -48,17 +48,25 @@ line-length = 100
 src = ["custom_components", "tests"]
 
 [tool.ruff.lint]
-select = ["ALL"]
+select = [
+  "E4",
+  "E7",
+  "E9",
+  "F",
+  "I",
+  "UP",
+  "B",
+  "ASYNC",
+  "DTZ",
+  "SIM",
+  "RUF",
+]
 ignore = [
-  "ANN401",
-  "COM812",
-  "D203",
-  "D212",
-  "ISC001",
+  "RUF012",
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["ANN", "D", "S101"]
+"tests/*" = ["S101"]
 
 [tool.mypy]
 python_version = "3.13"
