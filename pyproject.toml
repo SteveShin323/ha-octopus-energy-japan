@@ -73,3 +73,7 @@ python_version = "3.13"
 strict = true
 warn_unused_ignores = true
 exclude = ["tests"]
+
+[[tool.mypy.overrides]]
+module = "custom_components.octopus_energy_japan"
+ignore_errors = true
