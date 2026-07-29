@@ -148,6 +148,8 @@ class ReadingBatch:
     readings: tuple[EnergyReading, ...]
     provider: ReadingProviderName
     fallback_reason: ReadingFallbackReason | None = None
+    authoritative_series: frozenset[ReadingSeriesKey] = frozenset()
+    authoritative_sources: frozenset[ReadingSource] = frozenset()
 
 
 class ReadingProvider(Protocol):
@@ -236,18 +238,7 @@ class GenericReadingsProvider:
         return _deduplicate_readings(readings)
 
     def _directions(self) -> tuple[ReadingDirection, ...]:
-        directions: list[ReadingDirection] = []
-        if (
-            self._capabilities.availability(Capability.IMPORT_READINGS)
-            is CapabilityAvailability.SUPPORTED
-        ):
-            directions.append(ReadingDirection.IMPORT)
-        if (
-            self._capabilities.availability(Capability.EXPORT_READINGS)
-            is CapabilityAvailability.SUPPORTED
-        ):
-            directions.append(ReadingDirection.EXPORT)
-        return tuple(directions)
+        return _generic_directions(self._capabilities)
 
     async def _async_fetch_series(
         self,
@@ -464,7 +455,19 @@ class ReadingProviderRouter:
                 end_at,
                 ReadingFallbackReason.GENERIC_FIELD_DISABLED,
             )
-        return ReadingBatch(readings, ReadingProviderName.GENERIC)
+        return ReadingBatch(
+            readings=readings,
+            provider=ReadingProviderName.GENERIC,
+            authoritative_series=_generic_authoritative_series(
+                supply_point,
+                self._capabilities,
+            ),
+            authoritative_sources=frozenset(
+                {
+                    ReadingSource.SUPPLY_POINT_READINGS,
+                }
+            ),
+        )
 
     async def _legacy_batch(
         self,
@@ -474,7 +477,22 @@ class ReadingProviderRouter:
         reason: ReadingFallbackReason,
     ) -> ReadingBatch:
         readings = await self._legacy.async_get_readings(supply_point, start_at, end_at)
-        return ReadingBatch(readings, ReadingProviderName.LEGACY, reason)
+        authoritative_series = _legacy_authoritative_series(
+            supply_point,
+            self._capabilities,
+        )
+        return ReadingBatch(
+            readings=readings,
+            provider=ReadingProviderName.LEGACY,
+            fallback_reason=reason,
+            authoritative_series=authoritative_series,
+            authoritative_sources=frozenset(
+                {
+                    ReadingSource.SUPPLY_POINT_READINGS,
+                    *(series.source for series in authoritative_series),
+                }
+            ),
+        )
 
 
 def build_generic_readings_query(
@@ -812,6 +830,68 @@ def _generic_targets(supply_point: OejpSupplyPoint) -> tuple[GenericReadingTarge
         else:
             targets.append(GenericReadingTarget(device_id=device.id))
     return tuple(targets) or (GenericReadingTarget(),)
+
+
+def _generic_directions(
+    capabilities: CapabilitySnapshot,
+) -> tuple[ReadingDirection, ...]:
+    directions: list[ReadingDirection] = []
+    if capabilities.availability(Capability.IMPORT_READINGS) is CapabilityAvailability.SUPPORTED:
+        directions.append(ReadingDirection.IMPORT)
+    if capabilities.availability(Capability.EXPORT_READINGS) is CapabilityAvailability.SUPPORTED:
+        directions.append(ReadingDirection.EXPORT)
+    return tuple(directions)
+
+
+def _generic_authoritative_series(
+    supply_point: OejpSupplyPoint,
+    capabilities: CapabilitySnapshot,
+) -> frozenset[ReadingSeriesKey]:
+    return frozenset(
+        ReadingSeriesKey(
+            account_id=supply_point.account_number,
+            supply_point_id=supply_point.id,
+            device_id=target.device_id,
+            register_id=target.register_id,
+            direction=direction,
+            unit=unit,
+            source=ReadingSource.SUPPLY_POINT_READINGS,
+        )
+        for target in _generic_targets(supply_point)
+        for direction in _generic_directions(capabilities)
+        for unit in EnergyUnit
+    )
+
+
+def _legacy_authoritative_series(
+    supply_point: OejpSupplyPoint,
+    capabilities: CapabilitySnapshot,
+) -> frozenset[ReadingSeriesKey]:
+    excluded = {
+        CapabilityAvailability.UNSUPPORTED,
+        CapabilityAvailability.FORBIDDEN,
+    }
+    source_capabilities = (
+        (
+            ReadingSource.LEGACY_HALF_HOURLY,
+            Capability.LEGACY_HALF_HOURLY_READINGS,
+        ),
+        (
+            ReadingSource.LEGACY_INTERVAL,
+            Capability.LEGACY_INTERVAL_READINGS,
+        ),
+    )
+    return frozenset(
+        ReadingSeriesKey(
+            account_id=supply_point.account_number,
+            supply_point_id=supply_point.id,
+            direction=_legacy_direction(supply_point),
+            unit=EnergyUnit.KWH,
+            source=source,
+        )
+        for source, capability in source_capabilities
+        if capabilities.availability(capability) not in excluded
+    )
 
 
 def _legacy_supply_point(

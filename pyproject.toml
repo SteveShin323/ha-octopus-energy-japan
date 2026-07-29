@@ -23,6 +23,7 @@ test = [
   "pytest>=8.3",
   "pytest-asyncio>=0.25",
   "pytest-cov>=6.0",
+  "hypothesis>=6.100",
   "ruff>=0.11",
   "mypy>=1.15",
   "aiohttp>=3.11",

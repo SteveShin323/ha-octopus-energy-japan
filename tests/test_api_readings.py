@@ -1036,6 +1036,17 @@ async def test_router_falls_back_from_observed_capability_gap(
 
     assert batch.provider is ReadingProviderName.LEGACY
     assert batch.fallback_reason is reason
+    assert {series.source for series in batch.authoritative_series} == {
+        ReadingSource.LEGACY_HALF_HOURLY,
+        ReadingSource.LEGACY_INTERVAL,
+    }
+    assert batch.authoritative_sources == frozenset(
+        {
+            ReadingSource.SUPPLY_POINT_READINGS,
+            ReadingSource.LEGACY_HALF_HOURLY,
+            ReadingSource.LEGACY_INTERVAL,
+        }
+    )
     assert generic.calls == 0
     assert legacy.calls == 1
 
@@ -1133,7 +1144,19 @@ async def test_router_reports_generic_selection_without_fallback() -> None:
         _capabilities(),
     ).async_get_readings(_point(), START, END)
 
-    assert batch == batch.__class__((), ReadingProviderName.GENERIC)
+    assert batch.readings == ()
+    assert batch.provider is ReadingProviderName.GENERIC
+    assert batch.fallback_reason is None
+    assert len(batch.authoritative_series) == len(EnergyUnit)
+    assert {series.unit for series in batch.authoritative_series} == set(EnergyUnit)
+    assert {series.source for series in batch.authoritative_series} == {
+        ReadingSource.SUPPLY_POINT_READINGS
+    }
+    assert batch.authoritative_sources == frozenset(
+        {
+            ReadingSource.SUPPLY_POINT_READINGS,
+        }
+    )
     assert generic.calls == 1
     assert legacy.calls == 0
 
