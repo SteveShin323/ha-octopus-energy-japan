@@ -1,0 +1,23 @@
+{
+  "title": "Octopus Energy Japan",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Octopus Energy Japan",
+        "description": "Enter the email address and password used for your Octopus Energy Japan account.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid authentication",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "This account is already configured"
+    }
+  }
+}
