@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from copy import deepcopy
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -19,6 +20,7 @@ from custom_components.octopus_energy_japan.api import (
     CapabilityAvailability,
     CapabilitySnapshot,
     CapabilityStatus,
+    EnergyReading,
     EnergyUnit,
     GenericReadingsProvider,
     GenericReadingTarget,
@@ -96,6 +98,20 @@ def _point(
         account_number="account-id",
         direction=direction,
         devices=devices,
+    )
+
+
+def _reading(*, fetched_at: datetime | None = FETCHED) -> EnergyReading:
+    return EnergyReading(
+        account_id="account-id",
+        supply_point_id="supply-id",
+        direction=ReadingDirection.IMPORT,
+        start_at=START,
+        end_at=START + timedelta(minutes=30),
+        value=Decimal("0.375"),
+        unit=EnergyUnit.KWH,
+        source=ReadingSource.SUPPLY_POINT_READINGS,
+        fetched_at=fetched_at,
     )
 
 
@@ -1142,10 +1158,12 @@ async def test_router_reports_generic_selection_without_fallback() -> None:
         generic,
         legacy,
         _capabilities(),
+        now=lambda: FETCHED,
     ).async_get_readings(_point(), START, END)
 
     assert batch.readings == ()
     assert batch.provider is ReadingProviderName.GENERIC
+    assert batch.observed_at == FETCHED
     assert batch.fallback_reason is None
     assert len(batch.authoritative_series) == len(EnergyUnit)
     assert {series.unit for series in batch.authoritative_series} == set(EnergyUnit)
@@ -1159,6 +1177,42 @@ async def test_router_reports_generic_selection_without_fallback() -> None:
     )
     assert generic.calls == 1
     assert legacy.calls == 0
+
+
+@pytest.mark.parametrize(
+    "readings",
+    [
+        (_reading(fetched_at=None),),
+        (
+            _reading(),
+            replace(
+                _reading(),
+                start_at=START + timedelta(minutes=30),
+                end_at=END,
+                fetched_at=FETCHED + timedelta(seconds=1),
+            ),
+        ),
+    ],
+)
+async def test_router_rejects_invalid_provider_observation_times(
+    readings: tuple[EnergyReading, ...],
+) -> None:
+    with pytest.raises(OejpInvalidResponseError, match="observation time"):
+        await ReadingProviderRouter(
+            _ProviderStub(result=readings),
+            _ProviderStub(),
+            _capabilities(),
+        ).async_get_readings(_point(), START, END)
+
+
+async def test_router_rejects_naive_empty_batch_clock() -> None:
+    with pytest.raises(ValueError, match="Provider router clock"):
+        await ReadingProviderRouter(
+            _ProviderStub(),
+            _ProviderStub(),
+            _capabilities(),
+            now=lambda: FETCHED.replace(tzinfo=None),
+        ).async_get_readings(_point(), START, END)
 
 
 async def test_generic_null_supply_point_is_not_a_fallback_signal() -> None:

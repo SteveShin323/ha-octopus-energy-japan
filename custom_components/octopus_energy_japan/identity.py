@@ -45,6 +45,23 @@ def stable_account_identity(secret: str, account_number: str) -> str:
     return stable_resource_identity(secret, "account", account_number)
 
 
+def stable_supply_point_identity(
+    secret: str,
+    account_number: str,
+    supply_point_id: str,
+) -> str:
+    """Create an account-scoped identity for one electricity supply point."""
+    canonical_account = account_number.strip()
+    canonical_supply_point = supply_point_id.strip()
+    if not canonical_account or not canonical_supply_point:
+        raise ValueError("Account and supply-point identifiers are required")
+    return stable_resource_identity(
+        secret,
+        "supply-point",
+        f"{canonical_account}\0{canonical_supply_point}",
+    )
+
+
 def stable_resource_identity(secret: str, resource_type: str, provider_id: str) -> str:
     """Create a stable installation-local identity for a provider resource."""
     canonical_type = resource_type.strip().lower()
