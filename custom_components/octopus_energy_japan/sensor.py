@@ -122,8 +122,9 @@ async def async_setup_entry(
                     account.number,
                     point.id,
                 )
-                if status.unique_id not in created:
-                    created.add(status.unique_id)
+                status_unique_id = _required_unique_id(status)
+                if status_unique_id not in created:
+                    created.add(status_unique_id)
                     entities.append(status)
                 for direction in entity_directions(
                     point,
@@ -138,14 +139,22 @@ async def async_setup_entry(
                             direction,
                             description,
                         )
-                        if entity.unique_id not in created:
-                            created.add(entity.unique_id)
+                        entity_unique_id = _required_unique_id(entity)
+                        if entity_unique_id not in created:
+                            created.add(entity_unique_id)
                             entities.append(entity)
         if entities:
             async_add_entities(entities)
 
     add_discovered_entities()
     entry.async_on_unload(coordinator.async_add_listener(add_discovered_entities))
+
+
+def _required_unique_id(entity: SensorEntity) -> str:
+    unique_id = entity.unique_id
+    if unique_id is None:
+        raise RuntimeError("OEJP entity was created without a unique ID")
+    return unique_id
 
 
 class OejpConsumptionSensor(OejpSupplyPointEntity, SensorEntity):

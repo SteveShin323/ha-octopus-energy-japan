@@ -46,8 +46,11 @@ async def async_setup_entry(
                         point.id,
                         direction,
                     )
-                    if entity.unique_id not in created:
-                        created.add(entity.unique_id)
+                    unique_id = entity.unique_id
+                    if unique_id is None:
+                        raise RuntimeError("OEJP entity was created without a unique ID")
+                    if unique_id not in created:
+                        created.add(unique_id)
                         entities.append(entity)
         if entities:
             async_add_entities(entities)
