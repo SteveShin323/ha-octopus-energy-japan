@@ -61,6 +61,12 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
+# Local OEJP probe credentials and raw captures
+.env
+.env.*
+probe-output/
+raw-fixtures/
+
 # Flask stuff:
 instance/
 .webassets-cache
