@@ -23,7 +23,11 @@ jobs:
       - run: pip install -e ".[test]"
       - run: ruff check custom_components tests
       - run: ruff format --check custom_components tests
-      - run: mypy custom_components/octopus_energy_japan/api
+      - run: >-
+          mypy
+          custom_components/octopus_energy_japan/api/client.py
+          custom_components/octopus_energy_japan/api/errors.py
+          custom_components/octopus_energy_japan/api/models.py
       - run: pytest --cov --cov-report=term-missing
 
   hassfest:
