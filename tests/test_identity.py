@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, Mock, patch
+
 from custom_components.octopus_energy_japan.identity import (
     async_get_identity_secret,
     stable_account_identity,
@@ -16,6 +18,29 @@ async def test_identity_secret_is_persisted(hass: HomeAssistant) -> None:
 
     assert first == second
     assert len(bytes.fromhex(first)) == 32
+
+
+async def test_invalid_stored_identity_secret_is_replaced(
+    hass: HomeAssistant,
+) -> None:
+    store = Mock()
+    store.async_load = AsyncMock(return_value={"secret": "not-hex"})
+    store.async_save = AsyncMock()
+    replacement = "02" * 32
+
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.identity.Store",
+            return_value=store,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.identity.secrets.token_hex",
+            return_value=replacement,
+        ),
+    ):
+        assert await async_get_identity_secret(hass) == replacement
+
+    store.async_save.assert_awaited_once_with({"secret": replacement})
 
 
 def test_account_identity_is_order_independent_and_secret_specific() -> None:

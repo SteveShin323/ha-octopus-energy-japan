@@ -87,11 +87,10 @@ class OejpPkceAuthSession(AuthSession):
         if isinstance(client_id, str) and client_id:
             request_data["client_id"] = client_id
         try:
-            response = await async_get_clientsession(self._hass).post(
+            async with async_get_clientsession(self._hass).post(
                 self._metadata.revocation_url,
                 data=request_data,
-            )
-            async with response:
+            ) as response:
                 await response.read()
                 if response.status >= 400:
                     raise OejpOAuthRevocationError("OEJP OAuth revocation was rejected")

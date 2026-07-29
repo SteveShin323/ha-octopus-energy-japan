@@ -203,4 +203,4 @@ def _positive_int(
     value = payload.get(key, default)
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise DeviceAuthorizationError(f"Device authorization response contained invalid {key}")
-    return value
+    return int(value)

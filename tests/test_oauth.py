@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any, Self, cast
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from aiohttp import ClientSession
+from aiohttp import ClientError, ClientSession
 from custom_components.octopus_energy_japan.const import DOMAIN
 from custom_components.octopus_energy_japan.oauth import (
     OejpOAuthError,
@@ -137,6 +137,7 @@ async def test_refresh_rotation_updates_entry_and_coalesces_concurrent_requests(
     hass: HomeAssistant,
 ) -> None:
     entry = _entry()
+    entry.add_to_hass(hass)
     implementation = AsyncMock()
     implementation.async_refresh_token.return_value = {
         "access_token": "rotated-access",
@@ -161,7 +162,7 @@ async def test_revoke_prefers_refresh_token_and_includes_public_client_id(
     implementation.client_id = "public-client"
     auth, _ = _auth(hass, entry, implementation)
     response = FakeResponse()
-    session = AsyncMock(spec=ClientSession)
+    session = Mock(spec=ClientSession)
     session.post.return_value = response
 
     with patch(
@@ -170,7 +171,7 @@ async def test_revoke_prefers_refresh_token_and_includes_public_client_id(
     ):
         await auth.async_revoke()
 
-    session.post.assert_awaited_once_with(
+    session.post.assert_called_once_with(
         METADATA.revocation_url,
         data={
             "token": "refresh",
@@ -205,7 +206,7 @@ async def test_revoke_rejects_http_failure_with_safe_error(
     implementation = AsyncMock()
     implementation.client_id = "public-client"
     auth, _ = _auth(hass, _entry(), implementation)
-    session = AsyncMock(spec=ClientSession)
+    session = Mock(spec=ClientSession)
     session.post.return_value = FakeResponse(status=400)
 
     with (
@@ -214,5 +215,45 @@ async def test_revoke_rejects_http_failure_with_safe_error(
             return_value=session,
         ),
         pytest.raises(OejpOAuthRevocationError, match="rejected"),
+    ):
+        await auth.async_revoke()
+
+
+async def test_revoke_uses_access_token_without_optional_client_id(
+    hass: HomeAssistant,
+) -> None:
+    auth, _ = _auth(hass, _entry(refresh_token=None), AsyncMock())
+    response = FakeResponse()
+    session = Mock(spec=ClientSession)
+    session.post.return_value = response
+
+    with patch(
+        "custom_components.octopus_energy_japan.oauth.async_get_clientsession",
+        return_value=session,
+    ):
+        await auth.async_revoke()
+
+    session.post.assert_called_once_with(
+        METADATA.revocation_url,
+        data={
+            "token": "access",
+            "token_type_hint": "access_token",
+        },
+    )
+
+
+async def test_revoke_wraps_network_failure_with_safe_error(
+    hass: HomeAssistant,
+) -> None:
+    auth, _ = _auth(hass, _entry(), AsyncMock())
+    session = Mock(spec=ClientSession)
+    session.post.side_effect = ClientError("provider unavailable")
+
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.oauth.async_get_clientsession",
+            return_value=session,
+        ),
+        pytest.raises(OejpOAuthRevocationError, match="request failed"),
     ):
         await auth.async_revoke()

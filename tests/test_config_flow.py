@@ -70,6 +70,7 @@ async def _complete_oauth_flow(
     *,
     source: str = config_entries.SOURCE_USER,
     source_data: dict[str, Any] | None = None,
+    entry_id: str | None = None,
 ) -> dict[str, Any]:
     implementation = FakeOAuth2Implementation()
     with (
@@ -86,9 +87,12 @@ async def _complete_oauth_flow(
             AsyncMock(return_value=IDENTITY_SECRET),
         ),
     ):
+        context = {"source": source}
+        if entry_id is not None:
+            context["entry_id"] = entry_id
         result = await hass.config_entries.flow.async_init(
             DOMAIN,
-            context={"source": source},
+            context=context,
             data=source_data,
         )
         if source == config_entries.SOURCE_REAUTH:
@@ -102,7 +106,7 @@ async def _complete_oauth_flow(
             result["flow_id"],
             {"implementation": "test"},
         )
-        assert result["type"] is FlowResultType.EXTERNAL
+        assert result["type"] is FlowResultType.EXTERNAL_STEP
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {"code": "code", "state": {"redirect_uri": "https://example.test/callback"}},
@@ -159,6 +163,7 @@ async def test_reauth_updates_existing_entry_without_changing_identity(
         hass,
         source=config_entries.SOURCE_REAUTH,
         source_data=dict(entry.data),
+        entry_id=entry.entry_id,
     )
 
     assert result["type"] is FlowResultType.ABORT
