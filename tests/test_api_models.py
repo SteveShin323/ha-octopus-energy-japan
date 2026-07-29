@@ -19,10 +19,7 @@ from custom_components.octopus_energy_japan.api import (
 
 
 def test_capability_snapshot_replaces_selected_observations() -> None:
-    assert (
-        CapabilitySnapshot().availability(Capability.DEVICES)
-        is CapabilityAvailability.UNKNOWN
-    )
+    assert CapabilitySnapshot().availability(Capability.DEVICES) is CapabilityAvailability.UNKNOWN
     snapshot = CapabilitySnapshot(
         (
             CapabilityStatus(
