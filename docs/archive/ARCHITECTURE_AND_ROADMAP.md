@@ -1,4 +1,7 @@
-# OEJP Home Assistant Integration: Architecture, Comparative Review, and Roadmap
+# Archived: OEJP Home Assistant Integration Architecture and Roadmap
+
+> This document is retained as research history. The normative design is
+> `docs/MASTER_TECHNICAL_DESIGN_V3.md`.
 
 Status: design baseline  
 Repository: `SteveShin323/ha-octopus-energy-japan`  

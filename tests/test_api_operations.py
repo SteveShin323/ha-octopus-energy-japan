@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import pytest
@@ -19,7 +20,7 @@ async def test_obtain_token_parses_all_supported_fields() -> None:
         "obtainKrakenToken": {
             "token": "access",
             "refreshToken": "refresh",
-            "refreshExpiresIn": "3600",
+            "refreshExpiresIn": "1785326400",
         }
     }
 
@@ -27,10 +28,20 @@ async def test_obtain_token_parses_all_supported_fields() -> None:
 
     assert token.access_token == "access"
     assert token.refresh_token == "refresh"
-    assert token.refresh_expires_in == 3600
+    assert token.refresh_expires_at == datetime(2026, 7, 29, 12, 0, tzinfo=UTC)
     client.execute.assert_awaited_once()
     variables = client.execute.await_args.args[1]
     assert variables == {"input": {"email": "user@example.com", "password": "password"}}
+
+
+async def test_obtain_token_accepts_absent_optional_fields() -> None:
+    client = AsyncMock(spec=OejpGraphQLClient)
+    client.execute.return_value = {"obtainKrakenToken": {"token": "access"}}
+
+    token = await async_obtain_token(client, "user@example.com", "password")
+
+    assert token.refresh_token is None
+    assert token.refresh_expires_at is None
 
 
 @pytest.mark.parametrize(
@@ -50,6 +61,18 @@ async def test_obtain_token_parses_all_supported_fields() -> None:
             "obtainKrakenToken": {
                 "token": "access",
                 "refreshExpiresIn": "invalid",
+            }
+        },
+        {
+            "obtainKrakenToken": {
+                "token": "access",
+                "refreshExpiresIn": 10**30,
+            }
+        },
+        {
+            "obtainKrakenToken": {
+                "token": "access",
+                "refreshExpiresIn": 1.5,
             }
         },
     ],

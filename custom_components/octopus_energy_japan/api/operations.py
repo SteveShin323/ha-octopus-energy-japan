@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from .client import OejpGraphQLClient
@@ -32,11 +33,11 @@ query ViewerAccounts {
 
 @dataclass(frozen=True, slots=True)
 class OejpToken:
-    """Tokens returned by the OEJP password authentication operation."""
+    """Tokens returned by the legacy OEJP Kraken-token operation."""
 
     access_token: str
     refresh_token: str | None = None
-    refresh_expires_in: int | None = None
+    refresh_expires_at: datetime | None = None
 
 
 async def async_obtain_token(
@@ -55,11 +56,11 @@ async def async_obtain_token(
 
     access_token = _required_string(raw_token, "token", "Token response")
     refresh_token = _optional_string(raw_token.get("refreshToken"))
-    refresh_expires_in = _optional_int(raw_token.get("refreshExpiresIn"))
+    refresh_expires_at = _optional_unix_timestamp(raw_token.get("refreshExpiresIn"))
     return OejpToken(
         access_token=access_token,
         refresh_token=refresh_token,
-        refresh_expires_in=refresh_expires_in,
+        refresh_expires_at=refresh_expires_at,
     )
 
 
@@ -99,16 +100,25 @@ def _optional_string(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _optional_int(value: object) -> int | None:
+def _optional_unix_timestamp(value: object) -> datetime | None:
+    """Parse an optional Unix timestamp from the Kraken token response."""
     if value is None:
         return None
     if isinstance(value, bool):
         raise OejpInvalidResponseError("Token response contained invalid refreshExpiresIn")
     if isinstance(value, int):
-        return value
-    if not isinstance(value, str):
+        timestamp = value
+    elif isinstance(value, str):
+        try:
+            timestamp = int(value)
+        except ValueError as err:
+            raise OejpInvalidResponseError(
+                "Token response contained invalid refreshExpiresIn"
+            ) from err
+    else:
         raise OejpInvalidResponseError("Token response contained invalid refreshExpiresIn")
+
     try:
-        return int(value)
-    except ValueError as err:
+        return datetime.fromtimestamp(timestamp, tz=UTC)
+    except (OverflowError, OSError, ValueError) as err:
         raise OejpInvalidResponseError("Token response contained invalid refreshExpiresIn") from err
