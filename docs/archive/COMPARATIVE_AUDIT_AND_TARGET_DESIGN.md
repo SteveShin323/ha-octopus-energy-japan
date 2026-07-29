@@ -1,4 +1,7 @@
-# OEJP Home Assistant Integration
+# Archived: OEJP Home Assistant Integration Comparative Audit
+
+> This document is retained as research history. The normative design is
+> `docs/MASTER_TECHNICAL_DESIGN_V3.md`.
 
 ## Comparative implementation audit and target design
 

@@ -108,3 +108,18 @@ def test_error_details_drop_unsafe_structured_metadata() -> None:
     assert detail.error_code is None
     assert detail.path == ("viewer",)
     assert "example.com" not in str(OejpGraphQLError((detail,)))
+
+
+def test_error_without_extensions_is_generic_and_sanitized() -> None:
+    error = classify_graphql_errors(
+        [
+            {
+                "message": "Account A-SECRET failed",
+                "extensions": "malformed",
+            }
+        ]
+    )
+
+    assert type(error) is OejpGraphQLError
+    assert error.details[0].error_type is None
+    assert "A-SECRET" not in str(error)

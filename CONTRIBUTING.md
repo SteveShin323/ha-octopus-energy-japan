@@ -24,15 +24,22 @@ Run the validation suite:
 ```bash
 ruff check .
 ruff format --check .
-mypy custom_components/octopus_energy_japan/api
+mypy custom_components/octopus_energy_japan
 pytest --cov
 ```
+
+The project requires at least 95% line and branch coverage. Authentication,
+ledger, statistics, and storage-migration code must be fully covered.
 
 ## Pull requests
 
 Keep pull requests focused. Describe what changed, why it changed, how it was tested, and whether it affects stored data, entity identifiers, GraphQL queries, or user configuration.
 
 Changes to persisted formats require a migration and migration tests. Changes to GraphQL operations require fixture-based parser tests. New entities require documented state semantics and privacy review.
+
+English is the normative documentation language. Japanese user documentation
+and Home Assistant translations must be kept in sync with user-visible changes.
+The project does not maintain additional documentation languages.
 
 ## Commit and release policy
 

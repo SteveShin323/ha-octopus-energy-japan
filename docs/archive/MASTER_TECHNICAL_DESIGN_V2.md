@@ -1,4 +1,7 @@
-# OEJP Home Assistant Integration — Master Technical Design v2
+# Archived: OEJP Home Assistant Integration — Master Technical Design v2
+
+> This document is superseded by `docs/MASTER_TECHNICAL_DESIGN_V3.md` and is
+> retained as design history.
 
 Status: normative design baseline  
 Reviewed: 2026-07-29  
