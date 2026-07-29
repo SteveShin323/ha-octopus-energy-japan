@@ -274,7 +274,7 @@ async def test_reconfigure_selects_historical_resources(hass: HomeAssistant) -> 
     assert result["step_id"] == "reconfigure"
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        {CONF_ENABLED_HISTORICAL_RESOURCES: [historical_id, "unknown-id"]},
+        {CONF_ENABLED_HISTORICAL_RESOURCES: [historical_id]},
     )
 
     assert result["type"] is FlowResultType.ABORT

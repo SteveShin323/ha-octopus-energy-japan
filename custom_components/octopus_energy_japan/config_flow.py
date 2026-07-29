@@ -107,7 +107,7 @@ class OctopusEnergyJapanConfigFlow(
     ) -> ConfigFlowResult:
         """Select historical resources while active resources remain automatic."""
         entry = self._get_reconfigure_entry()
-        runtime = entry.runtime_data
+        runtime = getattr(entry, "runtime_data", None)
         if not isinstance(runtime, OejpRuntimeData):
             return self.async_abort(reason="reconfigure_unavailable")
 
