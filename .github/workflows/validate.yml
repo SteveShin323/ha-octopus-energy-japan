@@ -38,5 +38,4 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          # "topics" is temporary until repository metadata is configured.
-          ignore: brands topics
+          ignore: brands
