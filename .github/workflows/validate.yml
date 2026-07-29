@@ -38,4 +38,6 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          ignore: brands
+          # GitHub detects repository licenses from the default branch. Remove
+          # "license" after this PR adds LICENSE to main.
+          ignore: brands license
