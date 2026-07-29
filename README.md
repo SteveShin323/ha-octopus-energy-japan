@@ -76,6 +76,11 @@ Development requirements and commands are in
 language. Japanese user documentation and UI translations will be maintained
 for public releases; no other repository translation is planned.
 
+Authorized live API investigation must use the allow-listed local probe and
+synthetic-fixture process documented in
+[`docs/FIXTURE_REDACTION.md`](docs/FIXTURE_REDACTION.md). Raw responses and
+credentials must never be committed.
+
 ## Privacy
 
 OAuth tokens and raw provider identifiers remain inside the user's Home
