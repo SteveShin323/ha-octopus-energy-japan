@@ -48,6 +48,5 @@ jobs:
         with:
           args: >-
             --no-progress
-            --exclude-mail
             --exclude 'https://api\.oejp-kraken\.energy/v1/graphql/'
             './**/*.md'
