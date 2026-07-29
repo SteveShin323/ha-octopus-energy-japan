@@ -26,6 +26,7 @@ class Capability(StrEnum):
     REGISTERS = "registers"
     IMPORT_READINGS = "import_readings"
     EXPORT_READINGS = "export_readings"
+    READING_QUALITY = "reading_quality"
 
 
 class CapabilityAvailability(StrEnum):
@@ -129,12 +130,28 @@ class EnergyUnit(StrEnum):
 
     KWH = "kWh"
     WH = "Wh"
+    MWH = "MWh"
+
+
+class ReadingGranularity(StrEnum):
+    """Normalized time granularity for one reading series."""
+
+    FIVE_MIN = "5min"
+    FIFTEEN_MIN = "15min"
+    THIRTY_MIN = "30min"
+    HOUR = "hour"
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+    QUARTER = "quarter"
+    YEAR = "year"
 
 
 class ReadingSource(StrEnum):
     """Originating OEJP API family."""
 
     LEGACY_HALF_HOURLY = "legacy_half_hourly"
+    LEGACY_INTERVAL = "legacy_interval"
     SUPPLY_POINT_READINGS = "supply_point_readings"
 
 
@@ -167,7 +184,9 @@ class OejpSupplyPoint:
 class ReadingQuality:
     """Optional quality metadata supplied by OEJP."""
 
-    code: str | None = None
+    code: str
+    value: Decimal | None = None
+    count: int | None = None
     description: str | None = None
 
 
@@ -175,6 +194,7 @@ class ReadingQuality:
 class EnergyReading:
     """Normalized interval reading independent of GraphQL response generation."""
 
+    account_id: str
     supply_point_id: str
     direction: ReadingDirection
     start_at: datetime
@@ -182,13 +202,52 @@ class EnergyReading:
     value: Decimal
     unit: EnergyUnit
     source: ReadingSource
+    device_id: str | None = None
+    register_id: str | None = None
+    granularity: ReadingGranularity | None = None
     version: str | None = None
-    quality: ReadingQuality | None = None
-    cost_estimate: Decimal | None = None
+    qualities: tuple[ReadingQuality, ...] = ()
+    official_cost: Decimal | None = None
     fetched_at: datetime | None = None
 
     def __post_init__(self) -> None:
+        if not self.account_id or not self.supply_point_id:
+            raise ValueError("Reading account and supply-point identifiers must not be empty")
         if self.start_at.tzinfo is None or self.end_at.tzinfo is None:
             raise ValueError("Reading timestamps must be timezone-aware")
         if self.end_at <= self.start_at:
             raise ValueError("Reading end_at must be later than start_at")
+        if not self.value.is_finite():
+            raise ValueError("Reading value must be finite")
+        if self.official_cost is not None and not self.official_cost.is_finite():
+            raise ValueError("Reading official cost must be finite")
+        if self.fetched_at is not None and self.fetched_at.tzinfo is None:
+            raise ValueError("Reading fetched_at must be timezone-aware")
+        if self.register_id is not None and self.device_id is None:
+            raise ValueError("Register readings must identify their device")
+
+
+@dataclass(frozen=True, slots=True)
+class ReadingSeriesKey:
+    """Stable identity of one normalized provider reading series."""
+
+    account_id: str
+    supply_point_id: str
+    direction: ReadingDirection
+    unit: EnergyUnit
+    source: ReadingSource
+    device_id: str | None = None
+    register_id: str | None = None
+
+    @classmethod
+    def from_reading(cls, reading: EnergyReading) -> ReadingSeriesKey:
+        """Build the series identity for a normalized reading."""
+        return cls(
+            account_id=reading.account_id,
+            supply_point_id=reading.supply_point_id,
+            direction=reading.direction,
+            unit=reading.unit,
+            source=reading.source,
+            device_id=reading.device_id,
+            register_id=reading.register_id,
+        )

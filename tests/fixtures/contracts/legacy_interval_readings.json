@@ -1,0 +1,34 @@
+{
+  "_meta": {
+    "schema_version": 1,
+    "sanitizer_version": 1,
+    "source": "synthetic-test-data",
+    "operation": "legacy_interval_readings",
+    "query_sha256": "638f91ed652422cc92b7e0a894715be61f5a0b0a3e421ce7474517d49554ef91",
+    "synthetic": true
+  },
+  "response": {
+    "account": {
+      "number": "<synthetic:account:1>",
+      "properties": [
+        {
+          "electricitySupplyPoints": [
+            {
+              "id": "<synthetic:identifier:1>",
+              "spin": "<synthetic:supply_point:1>",
+              "intervalReadings": [
+                {
+                  "id": "<synthetic:identifier:2>",
+                  "startAt": "2026-06-01T00:00:00Z",
+                  "endAt": "2026-07-01T00:00:00Z",
+                  "value": "120.5",
+                  "costEstimate": "4200"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
