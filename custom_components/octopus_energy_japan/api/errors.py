@@ -2,8 +2,16 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
+
+_SAFE_ERROR_MESSAGE = "GraphQL operation failed"
+_SAFE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_AUTHENTICATION_TYPES = {"AUTHENTICATION", "UNAUTHENTICATED"}
+_AUTHORIZATION_TYPES = {"AUTHORIZATION", "FORBIDDEN", "PERMISSION"}
+_AUTHORIZATION_CODES = {"KT-CT-1112", "KT-CT-4177"}
+_RATE_LIMIT_CODES = {"KT-CT-1188", "KT-CT-1189", "KT-CT-1199"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,14 +30,14 @@ class GraphQLErrorDetail:
         extensions = payload.get("extensions")
         if not isinstance(extensions, dict):
             extensions = {}
-        raw_path = payload.get("path")
-        path = tuple(raw_path) if isinstance(raw_path, list) else ()
         return cls(
-            message=str(payload.get("message") or "GraphQL operation failed"),
-            error_type=_optional_string(extensions.get("errorType")),
-            error_code=_optional_string(extensions.get("errorCode")),
-            description=_optional_string(extensions.get("errorDescription")),
-            path=path,
+            # Provider-rendered messages and descriptions can contain customer
+            # identifiers. Keep only allow-listed structured metadata.
+            message=_SAFE_ERROR_MESSAGE,
+            error_type=_optional_error_identifier(extensions.get("errorType")),
+            error_code=_optional_error_identifier(extensions.get("errorCode")),
+            description=None,
+            path=_sanitize_path(payload.get("path")),
         )
 
 
@@ -54,7 +62,17 @@ class OejpGraphQLError(OejpError):
 
     def __init__(self, details: tuple[GraphQLErrorDetail, ...]) -> None:
         self.details = details
-        message = "; ".join(detail.message for detail in details) or "GraphQL operation failed"
+        markers = sorted(
+            {
+                "/".join(
+                    value for value in (detail.error_type, detail.error_code) if value is not None
+                )
+                for detail in details
+            }
+            - {""}
+        )
+        suffix = f" ({', '.join(markers)})" if markers else ""
+        message = f"OEJP {_SAFE_ERROR_MESSAGE.lower()}{suffix}"
         super().__init__(message)
 
 
@@ -81,21 +99,54 @@ class OejpNotFoundError(OejpGraphQLError):
 def classify_graphql_errors(errors: list[dict[str, Any]]) -> OejpGraphQLError:
     """Map OEJP GraphQL errors to a stable exception hierarchy."""
     details = tuple(GraphQLErrorDetail.from_payload(error) for error in errors)
-    codes = {detail.error_code for detail in details if detail.error_code}
-    types = {detail.error_type.lower() for detail in details if detail.error_type}
+    return classify_graphql_error_details(details)
 
-    if codes & {"KT-CT-1188", "KT-CT-1189", "KT-CT-1199"}:
+
+def classify_graphql_error_details(
+    details: tuple[GraphQLErrorDetail, ...],
+) -> OejpGraphQLError:
+    """Map sanitized GraphQL error details to a stable exception hierarchy."""
+    codes = {detail.error_code for detail in details if detail.error_code}
+    types = {_normalize_error_type(detail.error_type) for detail in details if detail.error_type}
+
+    if codes & _RATE_LIMIT_CODES:
         return OejpRateLimitError(details)
-    if any("auth" in error_type for error_type in types):
-        return OejpAuthenticationError(details)
-    if codes & {"KT-CT-4177"} or any("permission" in error_type for error_type in types):
+    if codes & _AUTHORIZATION_CODES or types & _AUTHORIZATION_TYPES:
         return OejpAuthorizationError(details)
-    if any("validation" in error_type for error_type in types):
+    if types & _AUTHENTICATION_TYPES:
+        return OejpAuthenticationError(details)
+    if "VALIDATION" in types:
         return OejpQueryValidationError(details)
-    if any("not_found" in error_type or "notfound" in error_type for error_type in types):
+    if types & {"NOT_FOUND", "NOTFOUND"}:
         return OejpNotFoundError(details)
     return OejpGraphQLError(details)
 
 
 def _optional_string(value: object) -> str | None:
-    return str(value) if value is not None else None
+    return value if isinstance(value, str) and value else None
+
+
+def _optional_error_identifier(value: object) -> str | None:
+    """Return only bounded identifiers that are safe to expose in diagnostics."""
+    identifier = _optional_string(value)
+    if identifier is None or _SAFE_IDENTIFIER_PATTERN.fullmatch(identifier) is None:
+        return None
+    return identifier
+
+
+def _sanitize_path(value: object) -> tuple[str | int, ...]:
+    """Drop GraphQL path components that could contain arbitrary provider text."""
+    if not isinstance(value, list):
+        return ()
+
+    path: list[str | int] = []
+    for component in value:
+        if isinstance(component, int):
+            path.append(component)
+        elif identifier := _optional_error_identifier(component):
+            path.append(identifier)
+    return tuple(path)
+
+
+def _normalize_error_type(value: str) -> str:
+    return value.strip().replace("-", "_").upper()

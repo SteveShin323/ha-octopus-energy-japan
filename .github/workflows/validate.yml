@@ -17,17 +17,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.14"
           cache: pip
       - run: python -m pip install --upgrade pip
       - run: pip install -e ".[test]"
       - run: ruff check custom_components tests
       - run: ruff format --check custom_components tests
-      - run: >-
-          mypy
-          custom_components/octopus_energy_japan/api/client.py
-          custom_components/octopus_energy_japan/api/errors.py
-          custom_components/octopus_energy_japan/api/models.py
+      - run: mypy custom_components/octopus_energy_japan/api
       - run: pytest --cov --cov-report=term-missing
 
   hassfest:

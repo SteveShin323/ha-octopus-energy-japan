@@ -7,13 +7,13 @@ name = "ha-octopus-energy-japan"
 version = "0.1.0"
 description = "Unofficial Home Assistant integration for Octopus Energy Japan"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14.2"
 license = { text = "MIT" }
 authors = [{ name = "SteveShin323" }]
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
   "License :: OSI Approved :: MIT License",
-  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
 ]
 
 dependencies = []
@@ -26,24 +26,26 @@ test = [
   "ruff>=0.11",
   "mypy>=1.15",
   "aiohttp>=3.11",
+  "pytest-homeassistant-custom-component>=0.13.338,<0.14",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "--strict-markers --strict-config"
+pythonpath = ["."]
 
 [tool.coverage.run]
 branch = true
-source = ["custom_components/octopus_energy_japan/api"]
+source = ["custom_components/octopus_energy_japan"]
 
 [tool.coverage.report]
 show_missing = true
 skip_covered = true
-fail_under = 60
+fail_under = 80
 
 [tool.ruff]
-target-version = "py313"
+target-version = "py314"
 line-length = 100
 src = ["custom_components", "tests"]
 
@@ -69,7 +71,7 @@ ignore = [
 "tests/*" = ["S101"]
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.14"
 strict = true
 warn_unused_ignores = true
 exclude = ["tests"]
