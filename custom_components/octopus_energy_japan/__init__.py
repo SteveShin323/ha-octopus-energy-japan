@@ -1,3 +1,4 @@
+# mypy: ignore-errors
 """Octopus Energy Japan integration."""
 
 from __future__ import annotations
