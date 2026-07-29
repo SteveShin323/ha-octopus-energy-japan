@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 from custom_components.octopus_energy_japan.identity import (
     async_get_identity_secret,
@@ -23,16 +23,17 @@ async def test_identity_secret_is_persisted(hass: HomeAssistant) -> None:
 async def test_invalid_stored_identity_secret_is_replaced(
     hass: HomeAssistant,
 ) -> None:
-    store = Mock()
-    store.async_load = AsyncMock(return_value={"secret": "not-hex"})
-    store.async_save = AsyncMock()
     replacement = "02" * 32
 
     with (
         patch(
-            "custom_components.octopus_energy_japan.identity.Store",
-            return_value=store,
-        ),
+            "custom_components.octopus_energy_japan.identity.Store.async_load",
+            AsyncMock(return_value={"secret": "not-hex"}),
+        ) as load,
+        patch(
+            "custom_components.octopus_energy_japan.identity.Store.async_save",
+            AsyncMock(),
+        ) as save,
         patch(
             "custom_components.octopus_energy_japan.identity.secrets.token_hex",
             return_value=replacement,
@@ -40,7 +41,8 @@ async def test_invalid_stored_identity_secret_is_replaced(
     ):
         assert await async_get_identity_secret(hass) == replacement
 
-    store.async_save.assert_awaited_once_with({"secret": replacement})
+    load.assert_awaited_once_with()
+    save.assert_awaited_once_with({"secret": replacement})
 
 
 def test_account_identity_is_order_independent_and_secret_specific() -> None:

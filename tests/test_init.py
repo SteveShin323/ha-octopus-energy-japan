@@ -60,11 +60,11 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
             AsyncMock(return_value=implementation),
         ),
         patch(
-            "custom_components.octopus_energy_japan.require_oauth_metadata",
+            "custom_components.octopus_energy_japan.oauth_metadata.require_oauth_metadata",
             return_value=METADATA,
         ),
         patch(
-            "custom_components.octopus_energy_japan.OejpPkceAuthSession",
+            "custom_components.octopus_energy_japan.oauth.OejpPkceAuthSession",
             return_value=auth,
         ),
         patch.object(
@@ -108,11 +108,11 @@ async def test_setup_entry_requests_reauth_for_invalid_token(
             AsyncMock(return_value=AsyncMock()),
         ),
         patch(
-            "custom_components.octopus_energy_japan.require_oauth_metadata",
+            "custom_components.octopus_energy_japan.oauth_metadata.require_oauth_metadata",
             return_value=METADATA,
         ),
         patch(
-            "custom_components.octopus_energy_japan.OejpPkceAuthSession",
+            "custom_components.octopus_energy_japan.oauth.OejpPkceAuthSession",
             return_value=auth,
         ),
         pytest.raises(ConfigEntryAuthFailed),
@@ -147,11 +147,11 @@ async def test_remove_entry_revokes_authorization_best_effort(
             AsyncMock(return_value=AsyncMock()),
         ),
         patch(
-            "custom_components.octopus_energy_japan.require_oauth_metadata",
+            "custom_components.octopus_energy_japan.oauth_metadata.require_oauth_metadata",
             return_value=METADATA,
         ),
         patch(
-            "custom_components.octopus_energy_japan.OejpPkceAuthSession",
+            "custom_components.octopus_energy_japan.oauth.OejpPkceAuthSession",
             return_value=auth,
         ),
     ):
@@ -172,11 +172,11 @@ async def test_remove_entry_does_not_block_on_revocation_failure(
             AsyncMock(return_value=AsyncMock()),
         ),
         patch(
-            "custom_components.octopus_energy_japan.require_oauth_metadata",
+            "custom_components.octopus_energy_japan.oauth_metadata.require_oauth_metadata",
             return_value=METADATA,
         ),
         patch(
-            "custom_components.octopus_energy_japan.OejpPkceAuthSession",
+            "custom_components.octopus_energy_japan.oauth.OejpPkceAuthSession",
             return_value=auth,
         ),
     ):
