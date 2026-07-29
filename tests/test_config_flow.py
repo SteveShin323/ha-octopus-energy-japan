@@ -7,18 +7,28 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from custom_components.octopus_energy_japan.api import (
+    CapabilitySnapshot,
     GraphQLErrorDetail,
+    OejpAccount,
     OejpAuthenticationError,
     OejpInvalidResponseError,
     OejpRateLimitError,
     OejpTransportError,
+    ResourceLifecycle,
 )
-from custom_components.octopus_energy_japan.const import DOMAIN
-from custom_components.octopus_energy_japan.identity import stable_login_identity
+from custom_components.octopus_energy_japan.const import (
+    CONF_ENABLED_HISTORICAL_RESOURCES,
+    DOMAIN,
+)
+from custom_components.octopus_energy_japan.identity import (
+    stable_account_identity,
+    stable_login_identity,
+)
 from custom_components.octopus_energy_japan.oauth_metadata import (
     AuthorizationHeaderScheme,
     OejpOAuthMetadata,
 )
+from custom_components.octopus_energy_japan.runtime import OejpRuntimeData
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
@@ -234,3 +244,75 @@ async def test_identity_validation_errors_abort_safely(
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == reason
+
+
+async def test_reconfigure_selects_historical_resources(hass: HomeAssistant) -> None:
+    historical_id = stable_account_identity(IDENTITY_SECRET, "OLD-ACCOUNT")
+    entry = MockConfigEntry(domain=DOMAIN, options={"future_option": "preserved"})
+    entry.runtime_data = OejpRuntimeData(
+        auth=AsyncMock(),
+        accounts=(
+            OejpAccount(
+                number="OLD-ACCOUNT",
+                lifecycle=ResourceLifecycle.HISTORICAL,
+            ),
+        ),
+        capabilities=CapabilitySnapshot(),
+        identity_secret=IDENTITY_SECRET,
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_RECONFIGURE,
+            "entry_id": entry.entry_id,
+        },
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_ENABLED_HISTORICAL_RESOURCES: [historical_id]},
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.options[CONF_ENABLED_HISTORICAL_RESOURCES] == [historical_id]
+    assert entry.options["future_option"] == "preserved"
+
+
+async def test_reconfigure_aborts_without_runtime_or_history(
+    hass: HomeAssistant,
+) -> None:
+    entry = MockConfigEntry(domain=DOMAIN)
+    entry.add_to_hass(hass)
+
+    unavailable = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_RECONFIGURE,
+            "entry_id": entry.entry_id,
+        },
+    )
+
+    assert unavailable["type"] is FlowResultType.ABORT
+    assert unavailable["reason"] == "reconfigure_unavailable"
+
+    entry.runtime_data = OejpRuntimeData(
+        auth=AsyncMock(),
+        accounts=(),
+        capabilities=CapabilitySnapshot(),
+        identity_secret=IDENTITY_SECRET,
+    )
+    no_history = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_RECONFIGURE,
+            "entry_id": entry.entry_id,
+        },
+    )
+
+    assert no_history["type"] is FlowResultType.ABORT
+    assert no_history["reason"] == "no_historical_resources"

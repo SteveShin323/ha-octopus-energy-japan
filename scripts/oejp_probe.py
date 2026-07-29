@@ -12,7 +12,11 @@ from pathlib import Path
 from typing import Final
 
 from aiohttp import ClientSession
-from custom_components.octopus_energy_japan.api import OejpGraphQLClient
+from custom_components.octopus_energy_japan.api import (
+    CAPABILITY_QUERY,
+    LEGACY_DISCOVERY_QUERY,
+    OejpGraphQLClient,
+)
 from custom_components.octopus_energy_japan.api.operations import (
     VIEWER_ACCOUNTS_QUERY,
     VIEWER_IDENTITY_QUERY,
@@ -34,6 +38,8 @@ OPERATIONS: Final = {
     for operation in (
         ReadOnlyOperation("viewer_identity", VIEWER_IDENTITY_QUERY),
         ReadOnlyOperation("viewer_accounts", VIEWER_ACCOUNTS_QUERY),
+        ReadOnlyOperation("resource_discovery", LEGACY_DISCOVERY_QUERY),
+        ReadOnlyOperation("schema_capabilities", CAPABILITY_QUERY),
     )
 }
 

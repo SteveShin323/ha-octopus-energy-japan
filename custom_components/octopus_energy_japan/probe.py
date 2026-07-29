@@ -18,6 +18,7 @@ _JWT_PATTERN = re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-
 _PRIVATE_KEY_PATTERN = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
 _LONG_SECRET_PATTERN = re.compile(r"\b[A-Za-z0-9_-]{48,}\b")
 _OPERATION_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+_GRAPHQL_NAME_PATTERN = re.compile(r"^[_A-Za-z][_0-9A-Za-z]*$")
 _CONTRACT_SOURCES: Final = {
     "authorized-local-read-only-probe",
     "official-oejp-example",
@@ -62,6 +63,7 @@ class UnsafeFixtureError(ValueError):
 class SyntheticFixtureSanitizer:
     """Replace customer values with deterministic per-document placeholders."""
 
+    preserve_graphql_names: bool = False
     _counters: dict[str, int] = field(default_factory=dict)
     _replacements: dict[tuple[str, str], str] = field(default_factory=dict)
     _raw_values: set[str] = field(default_factory=set)
@@ -91,6 +93,14 @@ class SyntheticFixtureSanitizer:
             sanitized: dict[str, Any] = {}
             for raw_key, item in value.items():
                 key = str(raw_key)
+                if (
+                    self.preserve_graphql_names
+                    and key == "name"
+                    and isinstance(item, str)
+                    and _GRAPHQL_NAME_PATTERN.fullmatch(item)
+                ):
+                    sanitized[key] = item
+                    continue
                 category = _category_for_key(key)
                 sanitized[key] = self.sanitize(item, forced_category=category)
             return sanitized
@@ -124,7 +134,9 @@ def build_contract_fixture(
     source: str = "synthetic-test-data",
 ) -> dict[str, Any]:
     """Build and verify one deterministic, provenance-bearing fixture."""
-    sanitizer = SyntheticFixtureSanitizer()
+    sanitizer = SyntheticFixtureSanitizer(
+        preserve_graphql_names=operation_name == "schema_capabilities"
+    )
     sanitized = sanitizer.sanitize(response)
     fixture = {
         "_meta": {
@@ -172,14 +184,26 @@ def assert_safe_fixture(
     forbidden_values: frozenset[str] = frozenset(),
 ) -> None:
     """Reject credentials, PII, or unsanitized values in a fixture."""
+    metadata = fixture.get("_meta")
+    schema_capability_fixture = (
+        isinstance(metadata, Mapping) and metadata.get("operation") == "schema_capabilities"
+    )
     for path, value in _walk_leaves(fixture):
         if isinstance(value, str) and value in forbidden_values:
             raise UnsafeFixtureError(f"Fixture contains an original value at {path}")
 
         key = _normalize_key(path.rsplit(".", maxsplit=1)[-1])
         category = _category_for_key(key)
+        public_schema_name = (
+            schema_capability_fixture
+            and path.startswith("$.response.")
+            and key == "name"
+            and isinstance(value, str)
+            and _GRAPHQL_NAME_PATTERN.fullmatch(value) is not None
+        )
         if (
             category is not None
+            and not public_schema_name
             and value is not None
             and not (
                 isinstance(value, str)

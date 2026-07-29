@@ -17,6 +17,9 @@
       "oauth_metadata_unavailable": "OAuth 設定は Octopus Energy Japan からの確認待ちです",
       "oauth_timeout": "[%key:common::config_flow::abort::oauth2_timeout%]",
       "oauth_unauthorized": "[%key:common::config_flow::abort::oauth2_unauthorized%]",
+      "no_historical_resources": "過去のアカウントまたは供給地点は見つかりませんでした",
+      "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]",
+      "reconfigure_unavailable": "現在リソース検出を利用できません。連携を再読み込みして、もう一度お試しください",
       "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]",
       "user_rejected_authorize": "[%key:common::config_flow::abort::oauth2_user_rejected_authorize%]"
     },
@@ -30,6 +33,13 @@
       "reauth_confirm": {
         "description": "Octopus Energy Japan に進み、アクセスを更新してください。",
         "title": "Octopus Energy Japan に再接続"
+      },
+      "reconfigure": {
+        "description": "有効なアカウントと供給地点は常に有効です。デバイスと今後のエンティティを有効なまま保持する終了済みリソースを選択してください。",
+        "title": "過去の OEJP リソースを管理",
+        "data": {
+          "enabled_historical_resources": "有効にする過去のリソース"
+        }
       }
     }
   },

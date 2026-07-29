@@ -14,6 +14,9 @@
       "oauth_metadata_unavailable": "OAuth configuration is awaiting confirmation from Octopus Energy Japan",
       "oauth_timeout": "[%key:common::config_flow::abort::oauth2_timeout%]",
       "oauth_unauthorized": "[%key:common::config_flow::abort::oauth2_unauthorized%]",
+      "no_historical_resources": "No historical accounts or supply points were discovered",
+      "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]",
+      "reconfigure_unavailable": "Resource discovery is not currently available; reload the integration and try again",
       "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]",
       "user_rejected_authorize": "[%key:common::config_flow::abort::oauth2_user_rejected_authorize%]"
     },
@@ -27,6 +30,13 @@
       "reauth_confirm": {
         "description": "Continue to Octopus Energy Japan to renew access.",
         "title": "Reconnect Octopus Energy Japan"
+      },
+      "reconfigure": {
+        "description": "Active accounts and supply points are always enabled. Select any ended resources whose devices and future entities should remain enabled.",
+        "title": "Manage historical OEJP resources",
+        "data": {
+          "enabled_historical_resources": "Enabled historical resources"
+        }
       }
     }
   },
