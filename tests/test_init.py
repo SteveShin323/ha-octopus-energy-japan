@@ -10,6 +10,7 @@ from custom_components.octopus_energy_japan import (
     async_setup_entry,
     async_unload_entry,
 )
+from custom_components.octopus_energy_japan.api import CapabilitySnapshot
 from custom_components.octopus_energy_japan.const import DOMAIN
 from custom_components.octopus_energy_japan.oauth import (
     OejpOAuthError,
@@ -67,6 +68,21 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
             "custom_components.octopus_energy_japan.oauth.OejpPkceAuthSession",
             return_value=auth,
         ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_discover_resources",
+            AsyncMock(return_value=()),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_detect_capabilities",
+            AsyncMock(return_value=CapabilitySnapshot()),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.identity.async_get_identity_secret",
+            AsyncMock(return_value="01" * 32),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.runtime.async_project_discovered_devices"
+        ) as project_devices,
         patch.object(
             hass.config_entries,
             "async_forward_entry_setups",
@@ -75,8 +91,10 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
     ):
         assert await async_setup_entry(hass, entry)
 
-    assert entry.runtime_data is auth
+    assert entry.runtime_data.auth is auth
+    assert entry.runtime_data.accounts == ()
     auth.async_get_authorization_header.assert_awaited_once_with()
+    project_devices.assert_called_once_with(hass, entry, entry.runtime_data)
     forward.assert_awaited_once_with(entry, ["sensor"])
 
 

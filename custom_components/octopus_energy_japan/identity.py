@@ -40,15 +40,23 @@ async def async_get_identity_secret(hass: HomeAssistant) -> str:
 
 def stable_account_identity(secret: str, account_number: str) -> str:
     """Create a stable installation-local identity for one OEJP account."""
-    canonical_number = account_number.strip()
-    if not canonical_number:
+    if not account_number.strip():
         raise ValueError("An account number is required")
+    return stable_resource_identity(secret, "account", account_number)
+
+
+def stable_resource_identity(secret: str, resource_type: str, provider_id: str) -> str:
+    """Create a stable installation-local identity for a provider resource."""
+    canonical_type = resource_type.strip().lower()
+    canonical_id = provider_id.strip()
+    if not canonical_type or not canonical_id:
+        raise ValueError("A resource type and provider identifier are required")
     digest = hmac.new(
         bytes.fromhex(secret),
-        canonical_number.encode(),
+        f"{canonical_type}\0{canonical_id}".encode(),
         hashlib.sha256,
     ).hexdigest()
-    return f"account-{digest}"
+    return f"{canonical_type}-{digest}"
 
 
 def stable_login_identity(secret: str, issuer: str, subject: str) -> str:

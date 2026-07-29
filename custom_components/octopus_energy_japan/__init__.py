@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -23,12 +24,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         OAuth2TokenRequestTransientError,
     )
     from homeassistant.helpers import config_entry_oauth2_flow
+    from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+    from .api import (
+        AuthenticatedGraphQLClient,
+        Capability,
+        CapabilityAvailability,
+        CapabilitySnapshot,
+        OejpAuthenticationError,
+        OejpAuthorizationError,
+        OejpError,
+        OejpGraphQLClient,
+        OejpQueryValidationError,
+        OejpRateLimitError,
+        OejpTransportError,
+        async_detect_capabilities,
+        async_discover_generic_devices,
+        async_discover_resources,
+        attach_generic_devices,
+    )
+    from .identity import async_get_identity_secret
     from .oauth import OejpOAuthError, OejpPkceAuthSession
     from .oauth_metadata import (
         OAuthMetadataUnavailableError,
         require_oauth_metadata,
     )
+    from .runtime import OejpRuntimeData, async_project_discovered_devices
 
     try:
         implementation = await config_entry_oauth2_flow.async_get_config_entry_implementation(
@@ -55,7 +76,81 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except OejpOAuthError as err:
         raise ConfigEntryAuthFailed("OEJP OAuth token is invalid") from err
 
-    entry.runtime_data = auth
+    client = OejpGraphQLClient(async_get_clientsession(hass))
+    authenticated_client = AuthenticatedGraphQLClient(client, auth)
+    try:
+        accounts = await async_discover_resources(authenticated_client)
+    except OejpAuthenticationError as err:
+        raise ConfigEntryAuthFailed("OEJP OAuth authorization must be renewed") from err
+    except (OejpRateLimitError, OejpTransportError) as err:
+        raise ConfigEntryNotReady("OEJP discovery is temporarily unavailable") from err
+    except OejpError as err:
+        raise ConfigEntryNotReady("OEJP resource discovery failed") from err
+
+    try:
+        capabilities = await async_detect_capabilities(authenticated_client)
+    except OejpAuthenticationError as err:
+        raise ConfigEntryAuthFailed("OEJP OAuth authorization must be renewed") from err
+    except OejpError:
+        # Introspection is optional and can be disabled independently of the
+        # customer resource API. Providers will probe their operations later.
+        capabilities = CapabilitySnapshot()
+
+    if capabilities.availability(Capability.DEVICES) is CapabilityAvailability.SUPPORTED:
+        external_identifiers = sorted(
+            {
+                supply_point.spin or supply_point.id
+                for account in accounts
+                for property_ in account.properties
+                for supply_point in property_.supply_points
+            }
+        )
+        try:
+            discovered_devices = await asyncio.gather(
+                *(
+                    async_discover_generic_devices(
+                        authenticated_client,
+                        external_identifier,
+                    )
+                    for external_identifier in external_identifiers
+                )
+            )
+        except OejpAuthenticationError as err:
+            raise ConfigEntryAuthFailed("OEJP OAuth authorization must be renewed") from err
+        except OejpAuthorizationError:
+            capabilities = capabilities.replace(
+                (Capability.DEVICES, Capability.REGISTERS),
+                CapabilityAvailability.FORBIDDEN,
+                "generic_device_discovery_forbidden",
+            )
+            discovered_devices = []
+        except OejpQueryValidationError:
+            capabilities = capabilities.replace(
+                (Capability.DEVICES, Capability.REGISTERS),
+                CapabilityAvailability.UNSUPPORTED,
+                "generic_device_schema_mismatch",
+            )
+            discovered_devices = []
+        except (OejpRateLimitError, OejpTransportError) as err:
+            raise ConfigEntryNotReady(
+                "OEJP generic device discovery is temporarily unavailable"
+            ) from err
+        except OejpError as err:
+            raise ConfigEntryNotReady("OEJP generic device discovery failed") from err
+        else:
+            accounts = attach_generic_devices(
+                accounts,
+                dict(zip(external_identifiers, discovered_devices, strict=True)),
+            )
+
+    runtime = OejpRuntimeData(
+        auth=auth,
+        accounts=accounts,
+        capabilities=capabilities,
+        identity_secret=await async_get_identity_secret(hass),
+    )
+    entry.runtime_data = runtime
+    async_project_discovered_devices(hass, entry, runtime)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 

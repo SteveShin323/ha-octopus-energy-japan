@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from custom_components.octopus_energy_japan.identity import (
     async_get_identity_secret,
     stable_account_identity,
     stable_login_identity,
+    stable_resource_identity,
 )
 from homeassistant.core import HomeAssistant
 
@@ -67,6 +69,22 @@ def test_account_identity_requires_an_account_number() -> None:
         assert str(err) == "An account number is required"
     else:
         raise AssertionError("Expected ValueError")
+
+
+def test_resource_identity_is_type_scoped_and_private() -> None:
+    secret = "01" * 32
+
+    supply_point = stable_resource_identity(secret, "supply-point", "SPIN-123")
+
+    assert supply_point.startswith("supply-point-")
+    assert "SPIN-123" not in supply_point
+    assert supply_point != stable_resource_identity(secret, "meter", "SPIN-123")
+
+
+def test_resource_identity_requires_type_and_provider_identifier() -> None:
+    for resource_type, provider_id in (("", "id"), ("type", ""), (" ", "id"), ("type", " ")):
+        with pytest.raises(ValueError, match="resource type and provider identifier"):
+            stable_resource_identity("01" * 32, resource_type, provider_id)
 
 
 def test_login_identity_is_private_stable_and_canonical() -> None:
