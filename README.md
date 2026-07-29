@@ -1,40 +1,53 @@
 # Octopus Energy Japan for Home Assistant
 
-Unofficial Home Assistant custom integration for Octopus Energy Japan (OEJP).
+An unofficial, read-only Home Assistant custom integration for Octopus Energy
+Japan (OEJP).
 
 > [!WARNING]
-> This project is not affiliated with or endorsed by Octopus Energy Japan.
+> This project is not affiliated with, endorsed by, or supported by Octopus
+> Energy Japan or Kraken Technologies.
 
 ## Status
 
-Early development. The initial target is read-only access to OEJP account and half-hourly electricity consumption data through the official OEJP GraphQL API.
+Pre-alpha architecture and API development. The integration is **not ready to
+install**.
+
+OEJP has been asked to issue a public OAuth application for Authorization Code
+with PKCE and, if available, Device Authorization Grant. The project will not
+publish a functional release until the client and read-only permission model are
+confirmed. The public integration will not request or store an OEJP password.
 
 ## Technical design
 
 The current normative architecture and implementation plan is:
 
-- [`docs/MASTER_TECHNICAL_DESIGN_V2.md`](docs/MASTER_TECHNICAL_DESIGN_V2.md)
+- [`docs/MASTER_TECHNICAL_DESIGN_V3.md`](docs/MASTER_TECHNICAL_DESIGN_V3.md)
+- [`docs/OAUTH_APPLICATION_STATUS.md`](docs/OAUTH_APPLICATION_STATUS.md)
+- [`docs/adr/`](docs/adr/)
 
-It incorporates the official OEJP GraphQL documentation and code-level reviews of:
+It incorporates the official OEJP GraphQL documentation and code-level reviews
+of:
 
 - `mapplebox/oejp`
 - `Shuangbing/oejp-hacs`
 - `lvctr/hass-oejp`
 - `strongbugman/ha-octopusenergy-oejp`
 
-The earlier architecture documents remain as research history. Where they conflict with the master v2 design, the master v2 design takes precedence.
+Earlier designs remain under [`docs/archive/`](docs/archive/) as research
+history. Design v3 takes precedence.
 
-## Planned MVP
+## Planned capabilities
 
-- UI-based setup with email and password
-- Multiple-account and supply-point discovery
-- Cached access-token lifecycle and reauthentication
-- Half-hourly electricity consumption
+- OEJP-hosted OAuth with automatic token refresh and Home Assistant
+  reauthentication
+- Multiple accounts, supply points, meters/registers, and import/export
+- Generic and legacy OEJP reading providers with explicit capability fallback
 - Persistent correction-aware interval ledger
-- Today, yesterday, week, and current-month energy sensors
-- Home Assistant Energy Dashboard compatibility through deterministic statistics
+- Today, yesterday, week, month, and latest-interval entities
+- Deterministic Home Assistant Energy Dashboard statistics
+- Optional account, agreement, tariff, official-cost, and billing summaries
 - Diagnostics with identifier and credential redaction
-- HACS-compatible repository layout
+- English and Japanese user interfaces and documentation
 
 ## API
 
@@ -44,7 +57,9 @@ The earlier architecture documents remain as research history. Where they confli
 
 ## Installation
 
-The integration is not ready for installation yet.
+There is no supported installation yet. Development builds still contain a
+temporary deprecated password setup path for isolated API work. Do not use that
+path as a production integration. It will be removed before alpha.
 
 ## Development
 
@@ -53,6 +68,28 @@ The Home Assistant integration domain is `octopus_energy_japan`.
 ```text
 custom_components/octopus_energy_japan/
 ```
+
+Development requirements and commands are in
+[`CONTRIBUTING.md`](CONTRIBUTING.md). English is the normative repository
+language. Japanese user documentation and UI translations will be maintained
+for public releases; no other repository translation is planned.
+
+## Privacy
+
+OAuth tokens and raw provider identifiers remain inside the user's Home
+Assistant installation. The integration will not implement external telemetry.
+Email, tokens, account numbers, supply-point identifiers, addresses, names, and
+raw billing/reading data must not appear in public diagnostics or logs.
+
+## Contributing
+
+The architecture is intentionally separated into authentication, transport,
+operations/parsers, discovery, providers, ledger, aggregation, statistics,
+coordinators, and entities. Contributions must include tests at the relevant
+boundary and preserve delayed/corrected-reading semantics.
+
+Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) and
+[`SECURITY.md`](SECURITY.md) before opening a pull request or security report.
 
 ## License
 

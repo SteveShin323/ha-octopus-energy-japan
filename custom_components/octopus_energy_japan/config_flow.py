@@ -6,8 +6,8 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
-from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import (
@@ -41,7 +41,10 @@ class OctopusEnergyJapanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._accounts: dict[str, OejpAccount] = {}
         self._credentials: dict[str, str] = {}
 
-    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+    async def async_step_user(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> ConfigFlowResult:
         """Handle the initial step."""
         errors: dict[str, str] = {}
 
@@ -90,7 +93,7 @@ class OctopusEnergyJapanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_account(
         self,
         user_input: dict[str, Any] | None = None,
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Select one account when the credentials expose multiple accounts."""
         if user_input is not None:
             account_number = user_input[CONF_ACCOUNT_NUMBER]
@@ -110,7 +113,7 @@ class OctopusEnergyJapanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=schema,
         )
 
-    async def _async_create_account_entry(self, account: OejpAccount) -> FlowResult:
+    async def _async_create_account_entry(self, account: OejpAccount) -> ConfigFlowResult:
         """Create an entry with a private identity derived from the selected account."""
         secret = await async_get_identity_secret(self.hass)
         unique_id = stable_account_identity(secret, account.number)

@@ -57,7 +57,7 @@ class OejpGraphQLClient:
         )
         if result.errors:
             raise classify_graphql_error_details(result.errors)
-        if result.data is None:
+        if result.data is None:  # pragma: no cover - execute_optional enforces this invariant
             raise OejpInvalidResponseError("GraphQL response did not contain an object data field")
         return result.data
 
