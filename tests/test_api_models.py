@@ -14,6 +14,7 @@ from custom_components.octopus_energy_japan.api import (
     EnergyReading,
     EnergyUnit,
     ReadingDirection,
+    ReadingSeriesKey,
     ReadingSource,
 )
 
@@ -49,6 +50,7 @@ BASE_TIME = datetime(2026, 7, 29, 0, 0, tzinfo=UTC)
 
 def _reading(*, start: datetime, end: datetime) -> EnergyReading:
     return EnergyReading(
+        account_id="account",
         supply_point_id="supply-point",
         direction=ReadingDirection.IMPORT,
         start_at=start,
@@ -65,6 +67,7 @@ def test_energy_reading_accepts_timezone_aware_ordered_interval() -> None:
     reading = _reading(start=start, end=start + timedelta(minutes=30))
 
     assert reading.value == Decimal("0.5")
+    assert ReadingSeriesKey.from_reading(reading).account_id == "account"
 
 
 @pytest.mark.parametrize(
@@ -99,3 +102,34 @@ def test_energy_reading_rejects_invalid_intervals(
 ) -> None:
     with pytest.raises(ValueError, match=message):
         _reading(start=start, end=end)
+
+
+@pytest.mark.parametrize(
+    ("updates", "message"),
+    [
+        ({"account_id": ""}, "identifiers"),
+        ({"supply_point_id": ""}, "identifiers"),
+        ({"value": Decimal("NaN")}, "value must be finite"),
+        ({"official_cost": Decimal("Infinity")}, "cost must be finite"),
+        ({"fetched_at": BASE_TIME.replace(tzinfo=None)}, "fetched_at"),
+        ({"register_id": "register"}, "identify their device"),
+    ],
+)
+def test_energy_reading_rejects_invalid_domain_values(
+    updates: dict[str, object],
+    message: str,
+) -> None:
+    values: dict[str, object] = {
+        "account_id": "account",
+        "supply_point_id": "supply-point",
+        "direction": ReadingDirection.IMPORT,
+        "start_at": BASE_TIME,
+        "end_at": BASE_TIME + timedelta(minutes=30),
+        "value": Decimal("0.5"),
+        "unit": EnergyUnit.KWH,
+        "source": ReadingSource.LEGACY_HALF_HOURLY,
+    }
+    values.update(updates)
+
+    with pytest.raises(ValueError, match=message):
+        EnergyReading(**values)  # type: ignore[arg-type]

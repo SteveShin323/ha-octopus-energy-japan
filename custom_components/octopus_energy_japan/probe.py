@@ -34,6 +34,7 @@ _SENSITIVE_KEYS: Final[dict[str, str]] = {
     "deviceid": "device",
     "deviceidentifier": "device",
     "email": "email",
+    "externalidentifier": "supply_point",
     "familyname": "name",
     "givenname": "name",
     "id": "identifier",

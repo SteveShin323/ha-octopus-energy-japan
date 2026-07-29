@@ -57,6 +57,7 @@ query OejpSchemaCapabilities {
   supplyPointType: __type(name: "SupplyPointType") { fields { name } }
   deviceType: __type(name: "Device") { fields { name } }
   readingsType: __type(name: "Readings") { fields { name } }
+  readingType: __type(name: "Reading") { fields { name } }
   legacySupplyPointType: __type(name: "ElectricitySupplyPoint") { fields { name } }
 }
 """
@@ -243,6 +244,7 @@ def parse_capabilities(
     supply_fields = _optional_field_names(data.get("supplyPointType"))
     device_fields = _optional_field_names(data.get("deviceType"))
     reading_fields = _optional_field_names(data.get("readingsType"))
+    reading_node_fields = _optional_field_names(data.get("readingType"))
     legacy_fields = _optional_field_names(data.get("legacySupplyPointType"))
 
     observations = {
@@ -259,6 +261,7 @@ def parse_capabilities(
         ),
         Capability.IMPORT_READINGS: "importReadings" in reading_fields,
         Capability.EXPORT_READINGS: "exportReadings" in reading_fields,
+        Capability.READING_QUALITY: "qualities" in reading_node_fields,
     }
     return CapabilitySnapshot(
         tuple(

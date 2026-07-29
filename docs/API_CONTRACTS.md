@@ -4,6 +4,31 @@ This document records the discovery contracts used by the integration. The
 official OEJP schema exposed to an authenticated customer remains the source of
 truth. Sanitized probe fixtures must be regenerated when that schema changes.
 
+## Reading contract provenance
+
+The reading documents were validated on 2026-07-29 against the public
+introspection schema and GraphQL validation endpoint at
+`https://api.oejp-kraken.energy/v1/graphql/`. Validation reached the expected
+`KT-CT-1112` authorization boundary without a schema or document error for all
+six generic target/direction variants and both legacy operations. This proves
+the public document shape, not customer OAuth permission or the presence of
+data for a particular supply point.
+
+The official
+[OEJP GraphQL changelog](https://docs.oejp-kraken.energy/graphql/changelog/)
+remains authoritative. In particular:
+
+- `SupplyPointType.readings` was introduced in May 2025;
+- import/export connections and device/register reading scopes replaced the
+  original connection shape in October 2025;
+- the `units` filter was added in January 2026;
+- `timeGranularity` became nullable in February 2026; and
+- the current `qualities` metadata replaced the removed singular quality
+  fields in May 2026.
+
+Protected customer schema and responses must still be confirmed with the
+redacting local probe before alpha release.
+
 ## Resource discovery
 
 The legacy customer hierarchy provides:
@@ -50,6 +75,76 @@ reauthentication.
 Relay-style connections are collected with `hasNextPage` and `endCursor`.
 Missing cursors, repeated cursors, and an excessive number of pages fail
 closed. A caller must not infer completion from `hasPreviousPage`.
+
+## Generic reading provider
+
+The preferred provider calls `readings` at the most granular discovered level:
+
+```text
+DeviceRegister.readings
+  -> Device.readings
+  -> SupplyPointType.readings
+```
+
+Registers are preferred over their parent device and supply-point totals so the
+same physical energy is not represented at multiple aggregation levels.
+Import and export are fetched as separate Relay connections with `first <= 99`
+and guarded cursor pagination.
+
+The request contract is:
+
+- `readingType: INTERVAL`;
+- `timeGranularity: THIRTY_MIN`;
+- `timezone: "UTC"`;
+- energy units restricted to watt-hours, kilowatt-hours, and megawatt-hours;
+- `intervalStart`, `intervalEnd`, `value`, and `units` required in every node;
+  and
+- `qualities { quality value count }` requested only when capability discovery
+  confirms the field.
+
+Provider timestamps are normalized to UTC and numeric values remain
+`Decimal`. Quality entries are sorted deterministically. Conflicting duplicate
+intervals in one response fail closed.
+
+Quality metadata is optional. A structured authorization error whose path is
+confined to `qualities` causes one retry without that field. Unscoped
+authorization errors are not downgraded.
+
+## Legacy reading provider
+
+`halfHourlyReadings` is queried by account and bounded datetime range. The
+parser retains `startAt`, `endAt`, `value`, `version`, and the OEJP-issued
+`costEstimate`. Values are treated as kWh and, unless discovery identifies an
+export series, as imported consumption.
+
+`intervalReadings` is queried separately and retained under a distinct source.
+Those records are billing-period aggregates and must never be added directly
+to overlapping half-hour readings. The ledger and aggregation layer owns that
+reconciliation rule.
+
+## Strict provider fallback
+
+Generic-to-legacy fallback is permitted only for:
+
+- an observed unsupported or forbidden generic capability;
+- a structured OAuth authorization gap scoped to a generic reading child
+  field;
+- `KT-CT-1113` or an equivalent structured disabled-field type; or
+- a null/unconfigured generic device, register, or reading series after the
+  requested supply point was found.
+
+Authentication, rate limits, timeout/network/server failures, malformed data,
+not-found identifiers, and unrecognized validation errors remain visible and
+never trigger fallback.
+
+Runtime authorization fallback is restricted to errors whose GraphQL path is
+scoped to `readings`, `importReadings`, `exportReadings`, `devices`, or
+`registers`. Missing-authentication (`KT-CT-1112`), account-authorization
+(`KT-CT-4177`), unscoped authorization errors, and a null root `supplyPoint`
+are propagated instead of being hidden by legacy fallback.
+
+Every provider result records the selected provider and an allow-listed
+fallback reason for later diagnostics.
 
 ## Privacy boundary
 
