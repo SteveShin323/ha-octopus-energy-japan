@@ -276,6 +276,7 @@ def _capability_payload() -> dict[str, object]:
         "supplyPointType": {"fields": [{"name": "readings"}, {"name": "devices"}]},
         "deviceType": {"fields": [{"name": "registers"}]},
         "readingsType": {"fields": [{"name": "importReadings"}, {"name": "exportReadings"}]},
+        "readingType": {"fields": [{"name": "qualities"}]},
         "legacySupplyPointType": {
             "fields": [
                 {"name": "halfHourlyReadings"},
@@ -299,6 +300,7 @@ def test_missing_capability_is_explicit_and_unknown_is_default() -> None:
             "supplyPointType": None,
             "deviceType": None,
             "readingsType": None,
+            "readingType": None,
             "legacySupplyPointType": None,
         }
     )

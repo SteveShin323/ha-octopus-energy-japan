@@ -31,6 +31,7 @@ def test_contract_fixture_is_deterministic_and_removes_customer_data() -> None:
                             "electricitySupplyPoints": [
                                 {
                                     "spin": "SPIN-123456",
+                                    "externalIdentifier": "EXTERNAL-123456",
                                     "meters": [{"serialNumber": "METER-987"}],
                                 }
                             ],
@@ -53,6 +54,7 @@ def test_contract_fixture_is_deterministic_and_removes_customer_data() -> None:
         "Example Customer",
         "1-2-3 Private Street",
         "SPIN-123456",
+        "EXTERNAL-123456",
         "METER-987",
     ):
         assert private_value not in rendered

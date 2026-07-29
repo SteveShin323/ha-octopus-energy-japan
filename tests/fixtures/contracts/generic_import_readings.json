@@ -1,0 +1,40 @@
+{
+  "_meta": {
+    "schema_version": 1,
+    "sanitizer_version": 1,
+    "source": "synthetic-test-data",
+    "operation": "generic_import_readings",
+    "query_sha256": "eed90f3d73a768e17453d64bf87cc1c1016c3058a9afb1df36236d3e0cbe0e11",
+    "synthetic": true
+  },
+  "response": {
+    "supplyPoint": {
+      "externalIdentifier": "<synthetic:supply_point:1>",
+      "readings": {
+        "importReadings": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": null
+          },
+          "edges": [
+            {
+              "node": {
+                "intervalStart": "2026-07-01T00:00:00Z",
+                "intervalEnd": "2026-07-01T00:30:00Z",
+                "value": "0.375",
+                "units": "KILOWATT_HOURS",
+                "qualities": [
+                  {
+                    "quality": "ACTUAL",
+                    "value": "0.375",
+                    "count": 1
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}
