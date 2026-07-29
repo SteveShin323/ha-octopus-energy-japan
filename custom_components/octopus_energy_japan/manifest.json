@@ -1,0 +1,12 @@
+{
+  "domain": "octopus_energy_japan",
+  "name": "Octopus Energy Japan",
+  "codeowners": ["@SteveShin323"],
+  "config_flow": true,
+  "documentation": "https://github.com/SteveShin323/ha-octopus-energy-japan",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/SteveShin323/ha-octopus-energy-japan/issues",
+  "requirements": [],
+  "version": "0.0.1"
+}
