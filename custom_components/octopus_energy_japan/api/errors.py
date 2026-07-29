@@ -17,7 +17,7 @@ class GraphQLErrorDetail:
     path: tuple[str | int, ...] = ()
 
     @classmethod
-    def from_payload(cls, payload: dict[str, Any]) -> "GraphQLErrorDetail":
+    def from_payload(cls, payload: dict[str, Any]) -> GraphQLErrorDetail:
         """Create an error detail from a GraphQL error object."""
         extensions = payload.get("extensions")
         if not isinstance(extensions, dict):
