@@ -3,6 +3,7 @@
   "name": "Octopus Energy Japan",
   "codeowners": ["@SteveShin323"],
   "config_flow": true,
+  "dependencies": ["application_credentials", "auth"],
   "documentation": "https://github.com/SteveShin323/ha-octopus-energy-japan",
   "integration_type": "service",
   "iot_class": "cloud_polling",

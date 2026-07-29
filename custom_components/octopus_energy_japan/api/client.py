@@ -47,13 +47,13 @@ class OejpGraphQLClient:
         query: str,
         variables: Mapping[str, Any] | None = None,
         *,
-        access_token: str | None = None,
+        authorization_header: str | None = None,
     ) -> dict[str, Any]:
         """Execute one GraphQL operation and return its data object."""
         result = await self.execute_optional(
             query,
             variables,
-            access_token=access_token,
+            authorization_header=authorization_header,
         )
         if result.errors:
             raise classify_graphql_error_details(result.errors)
@@ -66,12 +66,12 @@ class OejpGraphQLClient:
         query: str,
         variables: Mapping[str, Any] | None = None,
         *,
-        access_token: str | None = None,
+        authorization_header: str | None = None,
     ) -> GraphQLResult:
         """Execute an operation while preserving valid partial data and errors."""
         headers = {"Accept": "application/json"}
-        if access_token:
-            headers["Authorization"] = f"JWT {access_token}"
+        if authorization_header:
+            headers["Authorization"] = authorization_header
 
         try:
             async with asyncio.timeout(self._timeout_seconds):

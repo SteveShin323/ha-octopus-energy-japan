@@ -10,6 +10,7 @@ _SAFE_ERROR_MESSAGE = "GraphQL operation failed"
 _SAFE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _AUTHENTICATION_TYPES = {"AUTHENTICATION", "UNAUTHENTICATED"}
 _AUTHORIZATION_TYPES = {"AUTHORIZATION", "FORBIDDEN", "PERMISSION"}
+_AUTHENTICATION_CODES = {"KT-CT-1120"}
 _AUTHORIZATION_CODES = {"KT-CT-1112", "KT-CT-4177"}
 _RATE_LIMIT_CODES = {"KT-CT-1188", "KT-CT-1189", "KT-CT-1199"}
 
@@ -111,6 +112,8 @@ def classify_graphql_error_details(
 
     if codes & _RATE_LIMIT_CODES:
         return OejpRateLimitError(details)
+    if codes & _AUTHENTICATION_CODES:
+        return OejpAuthenticationError(details)
     if codes & _AUTHORIZATION_CODES or types & _AUTHORIZATION_TYPES:
         return OejpAuthorizationError(details)
     if types & _AUTHENTICATION_TYPES:

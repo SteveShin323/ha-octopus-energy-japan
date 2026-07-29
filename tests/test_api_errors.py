@@ -44,6 +44,21 @@ def test_authentication_error_is_classified_by_type() -> None:
     assert isinstance(error, OejpAuthenticationError)
 
 
+def test_expired_kraken_token_is_classified_as_authentication() -> None:
+    error = classify_graphql_errors(
+        [
+            {
+                "message": "Token expired",
+                "extensions": {
+                    "errorType": "APPLICATION",
+                    "errorCode": "KT-CT-1120",
+                },
+            }
+        ]
+    )
+    assert isinstance(error, OejpAuthenticationError)
+
+
 def test_authorization_is_not_misclassified_as_authentication() -> None:
     error = classify_graphql_errors(
         [{"message": "Not allowed", "extensions": {"errorType": "AUTHORIZATION"}}]

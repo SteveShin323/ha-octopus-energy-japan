@@ -3,6 +3,20 @@
 Status: waiting for OEJP response
 Last updated: 2026-07-29
 
+## Implementation status
+
+The public Home Assistant email/password config flow has been removed.
+Authorization Code + PKCE, refresh-token rotation, one-time authentication
+retry, reauthentication, best-effort revocation, and RFC 8628 device grant
+transport are implemented behind provider-confirmed metadata.
+
+The implementation fails closed while the response table below is incomplete:
+it does not substitute endpoints or header schemes from another Kraken
+territory. Application Credentials can construct a PKCE public client as soon
+as the confirmed metadata is recorded. Device authorization is implemented at
+the transport/session boundary; it will be exposed in the Home Assistant setup
+UI only if OEJP confirms the grant and endpoint.
+
 ## Requested application
 
 The project maintainer requested a read-only public OAuth application from

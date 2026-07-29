@@ -30,6 +30,14 @@ query ViewerAccounts {
 }
 """
 
+VIEWER_IDENTITY_QUERY = """
+query ViewerIdentity {
+  viewer {
+    id
+  }
+}
+"""
+
 
 @dataclass(frozen=True, slots=True)
 class OejpToken:
@@ -66,10 +74,13 @@ async def async_obtain_token(
 
 async def async_discover_accounts(
     client: OejpGraphQLClient,
-    access_token: str,
+    authorization_header: str,
 ) -> tuple[OejpAccount, ...]:
     """Return every account visible to the authenticated OEJP viewer."""
-    data = await client.execute(VIEWER_ACCOUNTS_QUERY, access_token=access_token)
+    data = await client.execute(
+        VIEWER_ACCOUNTS_QUERY,
+        authorization_header=authorization_header,
+    )
     viewer = data.get("viewer")
     if not isinstance(viewer, dict):
         raise OejpInvalidResponseError("Account response was missing viewer")
@@ -87,6 +98,21 @@ async def async_discover_accounts(
             status=_optional_string(raw_account.get("status")),
         )
     return tuple(accounts_by_number[number] for number in sorted(accounts_by_number))
+
+
+async def async_get_viewer_identity(
+    client: OejpGraphQLClient,
+    authorization_header: str,
+) -> str:
+    """Return the stable provider identifier for the authenticated viewer."""
+    data = await client.execute(
+        VIEWER_IDENTITY_QUERY,
+        authorization_header=authorization_header,
+    )
+    viewer = data.get("viewer")
+    if not isinstance(viewer, dict):
+        raise OejpInvalidResponseError("Viewer identity response was missing viewer")
+    return _required_string(viewer, "id", "Viewer identity response")
 
 
 def _required_string(payload: dict[str, Any], key: str, context: str) -> str:

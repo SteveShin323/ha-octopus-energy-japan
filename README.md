@@ -57,9 +57,11 @@ history. Design v3 takes precedence.
 
 ## Installation
 
-There is no supported installation yet. Development builds still contain a
-temporary deprecated password setup path for isolated API work. Do not use that
-path as a production integration. It will be removed before alpha.
+There is no supported installation yet. The Home Assistant setup flow no longer
+accepts an OEJP email address or password. OAuth setup remains intentionally
+unavailable until OEJP confirms the production endpoints, scopes, authorization
+header scheme, and public-client terms recorded in
+[`docs/OAUTH_APPLICATION_STATUS.md`](docs/OAUTH_APPLICATION_STATUS.md).
 
 ## Development
 
