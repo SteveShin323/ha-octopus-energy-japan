@@ -1,128 +1,100 @@
-"""Config flow for Octopus Energy Japan."""
+"""OAuth config flow for Octopus Energy Japan."""
 
 from __future__ import annotations
 
-from typing import Any
+import logging
+from collections.abc import Mapping
+from typing import Any, override
 
-import voluptuous as vol
-from homeassistant import config_entries
-from homeassistant.config_entries import ConfigFlowResult
-from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from homeassistant.config_entries import SOURCE_REAUTH, ConfigFlowResult
+from homeassistant.helpers import config_entry_oauth2_flow
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import (
-    OejpAccount,
     OejpAuthenticationError,
     OejpError,
     OejpGraphQLClient,
     OejpRateLimitError,
     OejpTransportError,
-    async_discover_accounts,
-    async_obtain_token,
+    async_get_viewer_identity,
 )
-from .const import CONF_ACCOUNT_NUMBER, DOMAIN
-from .identity import async_get_identity_secret, stable_account_identity
+from .const import DOMAIN
+from .identity import async_get_identity_secret, stable_login_identity
+from .oauth_metadata import OejpOAuthMetadata
 
+_LOGGER = logging.getLogger(__name__)
 _TRANSIENT_ERRORS = (OejpRateLimitError, OejpTransportError)
 
 
-class NoAccountsError(OejpError):
-    """Raised when valid OEJP credentials expose no accounts."""
+class OctopusEnergyJapanConfigFlow(
+    config_entry_oauth2_flow.AbstractOAuth2FlowHandler,
+    domain=DOMAIN,
+):
+    """Handle OAuth2 authentication for Octopus Energy Japan."""
 
+    DOMAIN = DOMAIN
+    VERSION = 2
 
-class OctopusEnergyJapanConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Octopus Energy Japan."""
+    @property
+    @override
+    def logger(self) -> logging.Logger:
+        """Return the flow logger."""
+        return _LOGGER
 
-    VERSION = 1
+    @override
+    async def async_oauth_create_entry(self, data: dict[str, Any]) -> ConfigFlowResult:
+        """Validate the OAuth principal and create or update one login-scoped entry."""
+        token = data.get("token")
+        metadata = getattr(self.flow_impl, "metadata", None)
+        if not isinstance(token, dict) or not isinstance(metadata, OejpOAuthMetadata):
+            return self.async_abort(reason="oauth_metadata_unavailable")
 
-    def __init__(self) -> None:
-        """Initialize account discovery state."""
-        super().__init__()
-        self._accounts: dict[str, OejpAccount] = {}
-        self._credentials: dict[str, str] = {}
+        access_token = token.get("access_token")
+        if not isinstance(access_token, str) or not access_token:
+            return self.async_abort(reason="oauth_identity_unavailable")
 
-    async def async_step_user(
-        self,
-        user_input: dict[str, Any] | None = None,
-    ) -> ConfigFlowResult:
-        """Handle the initial step."""
-        errors: dict[str, str] = {}
+        scheme = metadata.authorization_scheme.value
+        authorization_header = f"{scheme} {access_token}" if scheme else access_token
+        client = OejpGraphQLClient(async_get_clientsession(self.hass))
+        try:
+            subject = await async_get_viewer_identity(client, authorization_header)
+        except OejpAuthenticationError:
+            return self.async_abort(reason="oauth_unauthorized")
+        except _TRANSIENT_ERRORS:
+            return self.async_abort(reason="cannot_connect")
+        except OejpError:
+            return self.async_abort(reason="oauth_identity_unavailable")
 
-        if user_input is not None:
-            normalized_input = {
-                CONF_EMAIL: user_input[CONF_EMAIL].strip().lower(),
-                CONF_PASSWORD: user_input[CONF_PASSWORD],
-            }
-            try:
-                client = OejpGraphQLClient(async_get_clientsession(self.hass))
-                token = await async_obtain_token(
-                    client,
-                    normalized_input[CONF_EMAIL],
-                    normalized_input[CONF_PASSWORD],
-                )
-                accounts = await async_discover_accounts(client, token.access_token)
-                if not accounts:
-                    raise NoAccountsError
-            except OejpAuthenticationError:
-                errors["base"] = "invalid_auth"
-            except _TRANSIENT_ERRORS:
-                errors["base"] = "cannot_connect"
-            except NoAccountsError:
-                errors["base"] = "no_accounts"
-            except OejpError:
-                errors["base"] = "unknown"
-            else:
-                self._credentials = normalized_input
-                self._accounts = {account.number: account for account in accounts}
-                if len(accounts) == 1:
-                    return await self._async_create_account_entry(accounts[0])
-                return await self.async_step_account()
-
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_EMAIL): str,
-                vol.Required(CONF_PASSWORD): str,
-            }
-        )
-        return self.async_show_form(
-            step_id="user",
-            data_schema=schema,
-            errors=errors,
-        )
-
-    async def async_step_account(
-        self,
-        user_input: dict[str, Any] | None = None,
-    ) -> ConfigFlowResult:
-        """Select one account when the credentials expose multiple accounts."""
-        if user_input is not None:
-            account_number = user_input[CONF_ACCOUNT_NUMBER]
-            account = self._accounts.get(account_number)
-            if account is not None:
-                return await self._async_create_account_entry(account)
-
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_ACCOUNT_NUMBER): vol.In(
-                    {number: number for number in sorted(self._accounts)}
-                )
-            }
-        )
-        return self.async_show_form(
-            step_id="account",
-            data_schema=schema,
-        )
-
-    async def _async_create_account_entry(self, account: OejpAccount) -> ConfigFlowResult:
-        """Create an entry with a private identity derived from the selected account."""
         secret = await async_get_identity_secret(self.hass)
-        unique_id = stable_account_identity(secret, account.number)
+        unique_id = stable_login_identity(secret, metadata.issuer, subject)
         await self.async_set_unique_id(unique_id)
+
+        entry_data = {**data, "oauth_issuer": metadata.issuer}
+        if self.source == SOURCE_REAUTH:
+            self._abort_if_unique_id_mismatch()
+            return self.async_update_reload_and_abort(
+                self._get_reauth_entry(),
+                data_updates=entry_data,
+            )
+
         self._abort_if_unique_id_configured()
         return self.async_create_entry(
-            title=self._credentials[CONF_EMAIL],
-            data={
-                **self._credentials,
-                CONF_ACCOUNT_NUMBER: account.number,
-            },
+            title="Octopus Energy Japan",
+            data=entry_data,
         )
+
+    async def async_step_reauth(
+        self,
+        _entry_data: Mapping[str, Any],
+    ) -> ConfigFlowResult:
+        """Start OAuth reauthentication for an existing entry."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> ConfigFlowResult:
+        """Confirm that the user wants to reconnect the OEJP account."""
+        if user_input is None:
+            return self.async_show_form(step_id="reauth_confirm")
+        return await self.async_step_user()

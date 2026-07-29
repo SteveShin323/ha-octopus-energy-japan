@@ -1,6 +1,17 @@
 """OEJP API package."""
 
+from .auth import AuthenticatedGraphQLClient, AuthSession
 from .client import DEFAULT_ENDPOINT, GraphQLResult, OejpGraphQLClient
+from .device_auth import (
+    DeviceAuthorization,
+    DeviceAuthorizationDeniedError,
+    DeviceAuthorizationError,
+    DeviceAuthorizationExpiredError,
+    DeviceAuthorizationPendingError,
+    DeviceAuthorizationSlowDownError,
+    DeviceAuthorizationTransientError,
+    OejpDeviceAuthorizationClient,
+)
 from .errors import (
     GraphQLErrorDetail,
     OejpAuthenticationError,
@@ -25,10 +36,19 @@ from .models import (
     ReadingQuality,
     ReadingSource,
 )
-from .operations import OejpToken, async_discover_accounts, async_obtain_token
+from .operations import async_discover_accounts, async_get_viewer_identity
 
 __all__ = [
     "DEFAULT_ENDPOINT",
+    "AuthSession",
+    "AuthenticatedGraphQLClient",
+    "DeviceAuthorization",
+    "DeviceAuthorizationDeniedError",
+    "DeviceAuthorizationError",
+    "DeviceAuthorizationExpiredError",
+    "DeviceAuthorizationPendingError",
+    "DeviceAuthorizationSlowDownError",
+    "DeviceAuthorizationTransientError",
     "EnergyReading",
     "EnergyUnit",
     "GraphQLErrorDetail",
@@ -36,6 +56,7 @@ __all__ = [
     "OejpAccount",
     "OejpAuthenticationError",
     "OejpAuthorizationError",
+    "OejpDeviceAuthorizationClient",
     "OejpError",
     "OejpGraphQLClient",
     "OejpGraphQLError",
@@ -45,13 +66,12 @@ __all__ = [
     "OejpRateLimitError",
     "OejpSupplyPoint",
     "OejpTimeoutError",
-    "OejpToken",
     "OejpTransportError",
     "ReadingDirection",
     "ReadingQuality",
     "ReadingSource",
     "async_discover_accounts",
-    "async_obtain_token",
+    "async_get_viewer_identity",
     "classify_graphql_error_details",
     "classify_graphql_errors",
 ]

@@ -98,7 +98,7 @@ async def test_execute_returns_data_and_builds_authenticated_request() -> None:
     data = await _client(session).execute(
         "query Viewer($active: Boolean!) { viewer { id } }",
         {"active": True},
-        access_token="access-token",
+        authorization_header="Bearer access-token",
     )
 
     assert data == {"viewer": {"id": "viewer"}}
@@ -110,7 +110,7 @@ async def test_execute_returns_data_and_builds_authenticated_request() -> None:
         },
         "headers": {
             "Accept": "application/json",
-            "Authorization": "JWT access-token",
+            "Authorization": "Bearer access-token",
         },
     }
 
