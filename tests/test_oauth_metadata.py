@@ -25,8 +25,7 @@ def test_confirmed_production_metadata_is_returned() -> None:
         authorization_scheme=AuthorizationHeaderScheme.BEARER,
     )
     with patch(
-        "custom_components.octopus_energy_japan.oauth_metadata."
-        "PRODUCTION_OAUTH_METADATA",
+        "custom_components.octopus_energy_japan.oauth_metadata.PRODUCTION_OAUTH_METADATA",
         metadata,
     ):
         assert require_oauth_metadata() is metadata

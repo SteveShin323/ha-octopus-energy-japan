@@ -56,8 +56,7 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
     auth.async_get_authorization_header.return_value = "Bearer access"
     with (
         patch(
-            "homeassistant.helpers.config_entry_oauth2_flow."
-            "async_get_config_entry_implementation",
+            "homeassistant.helpers.config_entry_oauth2_flow.async_get_config_entry_implementation",
             AsyncMock(return_value=implementation),
         ),
         patch(
@@ -87,8 +86,7 @@ async def test_setup_entry_retries_when_oauth_implementation_is_unavailable(
     entry = _entry()
     with (
         patch(
-            "homeassistant.helpers.config_entry_oauth2_flow."
-            "async_get_config_entry_implementation",
+            "homeassistant.helpers.config_entry_oauth2_flow.async_get_config_entry_implementation",
             AsyncMock(
                 side_effect=config_entry_oauth2_flow.ImplementationUnavailableError("offline")
             ),
@@ -106,8 +104,7 @@ async def test_setup_entry_requests_reauth_for_invalid_token(
     auth.async_get_authorization_header.side_effect = OejpOAuthError("invalid")
     with (
         patch(
-            "homeassistant.helpers.config_entry_oauth2_flow."
-            "async_get_config_entry_implementation",
+            "homeassistant.helpers.config_entry_oauth2_flow.async_get_config_entry_implementation",
             AsyncMock(return_value=AsyncMock()),
         ),
         patch(
@@ -146,8 +143,7 @@ async def test_remove_entry_revokes_authorization_best_effort(
     auth = AsyncMock()
     with (
         patch(
-            "homeassistant.helpers.config_entry_oauth2_flow."
-            "async_get_config_entry_implementation",
+            "homeassistant.helpers.config_entry_oauth2_flow.async_get_config_entry_implementation",
             AsyncMock(return_value=AsyncMock()),
         ),
         patch(
@@ -172,8 +168,7 @@ async def test_remove_entry_does_not_block_on_revocation_failure(
     auth.async_revoke.side_effect = OejpOAuthRevocationError("failed")
     with (
         patch(
-            "homeassistant.helpers.config_entry_oauth2_flow."
-            "async_get_config_entry_implementation",
+            "homeassistant.helpers.config_entry_oauth2_flow.async_get_config_entry_implementation",
             AsyncMock(return_value=AsyncMock()),
         ),
         patch(
