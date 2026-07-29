@@ -37,6 +37,11 @@ Keep pull requests focused. Describe what changed, why it changed, how it was te
 
 Changes to persisted formats require a migration and migration tests. Changes to GraphQL operations require fixture-based parser tests. New entities require documented state semantics and privacy review.
 
+Live API contract investigation must follow
+[`docs/FIXTURE_REDACTION.md`](docs/FIXTURE_REDACTION.md). Raw responses and
+credentials never enter the repository; only scanner-verified synthetic
+fixtures with query provenance may be committed.
+
 English is the normative documentation language. Japanese user documentation
 and Home Assistant translations must be kept in sync with user-visible changes.
 The project does not maintain additional documentation languages.
