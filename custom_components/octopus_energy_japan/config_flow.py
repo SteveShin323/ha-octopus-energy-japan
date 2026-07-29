@@ -124,7 +124,10 @@ class OctopusEnergyJapanConfigFlow(
             )
             return self.async_update_reload_and_abort(
                 entry,
-                options_updates={CONF_ENABLED_HISTORICAL_RESOURCES: enabled},
+                options={
+                    **entry.options,
+                    CONF_ENABLED_HISTORICAL_RESOURCES: enabled,
+                },
             )
 
         selected = selected_historical_resources(entry)

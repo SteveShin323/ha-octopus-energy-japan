@@ -248,7 +248,7 @@ async def test_identity_validation_errors_abort_safely(
 
 async def test_reconfigure_selects_historical_resources(hass: HomeAssistant) -> None:
     historical_id = stable_account_identity(IDENTITY_SECRET, "OLD-ACCOUNT")
-    entry = MockConfigEntry(domain=DOMAIN)
+    entry = MockConfigEntry(domain=DOMAIN, options={"future_option": "preserved"})
     entry.runtime_data = OejpRuntimeData(
         auth=AsyncMock(),
         accounts=(
@@ -280,6 +280,7 @@ async def test_reconfigure_selects_historical_resources(hass: HomeAssistant) -> 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
     assert entry.options[CONF_ENABLED_HISTORICAL_RESOURCES] == [historical_id]
+    assert entry.options["future_option"] == "preserved"
 
 
 async def test_reconfigure_aborts_without_runtime_or_history(
