@@ -33,6 +33,14 @@ interactively so the values are not part of the command line, and unset them
 immediately after the probe. The Home Assistant config flow and runtime never
 use this legacy login path.
 
+The fixed discovery probes used to validate the current customer-visible schema
+are:
+
+```bash
+python scripts/oejp_probe.py resource_discovery /tmp/resource_discovery.json
+python scripts/oejp_probe.py schema_capabilities /tmp/schema_capabilities.json
+```
+
 ## Safety model
 
 - The CLI exposes fixed read-only operations and accepts no arbitrary GraphQL.

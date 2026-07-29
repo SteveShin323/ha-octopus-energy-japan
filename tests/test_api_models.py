@@ -7,11 +7,45 @@ from decimal import Decimal
 
 import pytest
 from custom_components.octopus_energy_japan.api import (
+    Capability,
+    CapabilityAvailability,
+    CapabilitySnapshot,
+    CapabilityStatus,
     EnergyReading,
     EnergyUnit,
     ReadingDirection,
     ReadingSource,
 )
+
+
+def test_capability_snapshot_replaces_selected_observations() -> None:
+    assert (
+        CapabilitySnapshot().availability(Capability.DEVICES)
+        is CapabilityAvailability.UNKNOWN
+    )
+    snapshot = CapabilitySnapshot(
+        (
+            CapabilityStatus(
+                Capability.DEVICES,
+                CapabilityAvailability.SUPPORTED,
+            ),
+            CapabilityStatus(
+                Capability.GENERIC_READINGS,
+                CapabilityAvailability.SUPPORTED,
+            ),
+        )
+    )
+
+    replaced = snapshot.replace(
+        (Capability.DEVICES, Capability.REGISTERS),
+        CapabilityAvailability.FORBIDDEN,
+        "permission",
+    )
+
+    assert replaced.availability(Capability.DEVICES) is CapabilityAvailability.FORBIDDEN
+    assert replaced.availability(Capability.REGISTERS) is CapabilityAvailability.FORBIDDEN
+    assert replaced.availability(Capability.GENERIC_READINGS) is CapabilityAvailability.SUPPORTED
+
 
 BASE_TIME = datetime(2026, 7, 29, 0, 0, tzinfo=UTC)
 

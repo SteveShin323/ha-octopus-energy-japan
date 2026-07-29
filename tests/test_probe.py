@@ -166,6 +166,41 @@ def test_future_sensitive_key_shapes_are_redacted() -> None:
     )
 
 
+def test_schema_capability_fixture_preserves_only_graphql_field_names() -> None:
+    fixture = build_contract_fixture(
+        "schema_capabilities",
+        'query Capabilities { __type(name: "Query") { fields { name } } }',
+        {
+            "queryType": {
+                "fields": [
+                    {"name": "supplyPoints"},
+                    {"name": "viewer"},
+                ]
+            }
+        },
+    )
+
+    assert fixture["response"] == {
+        "queryType": {
+            "fields": [
+                {"name": "supplyPoints"},
+                {"name": "viewer"},
+            ]
+        }
+    }
+    assert_safe_fixture(fixture)
+
+
+def test_schema_capability_fixture_redacts_invalid_graphql_name() -> None:
+    fixture = build_contract_fixture(
+        "schema_capabilities",
+        'query Capabilities { __type(name: "Query") { name } }',
+        {"queryType": {"name": "customer@example.jp"}},
+    )
+
+    assert fixture["response"] == {"queryType": {"name": "<synthetic:name:1>"}}
+
+
 def _valid_fixture() -> dict[str, object]:
     return build_contract_fixture("viewer", QUERY, {"viewer": {}})
 

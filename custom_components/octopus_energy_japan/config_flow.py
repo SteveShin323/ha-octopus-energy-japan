@@ -6,8 +6,9 @@ import logging
 from collections.abc import Mapping
 from typing import Any, override
 
+import voluptuous as vol
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigFlowResult
-from homeassistant.helpers import config_entry_oauth2_flow
+from homeassistant.helpers import config_entry_oauth2_flow, selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import (
@@ -18,9 +19,10 @@ from .api import (
     OejpTransportError,
     async_get_viewer_identity,
 )
-from .const import DOMAIN
+from .const import CONF_ENABLED_HISTORICAL_RESOURCES, DOMAIN
 from .identity import async_get_identity_secret, stable_login_identity
 from .oauth_metadata import OejpOAuthMetadata
+from .runtime import OejpRuntimeData, selected_historical_resources
 
 _LOGGER = logging.getLogger(__name__)
 _TRANSIENT_ERRORS = (OejpRateLimitError, OejpTransportError)
@@ -98,3 +100,51 @@ class OctopusEnergyJapanConfigFlow(
         if user_input is None:
             return self.async_show_form(step_id="reauth_confirm")
         return await self.async_step_user()
+
+    async def async_step_reconfigure(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> ConfigFlowResult:
+        """Select historical resources while active resources remain automatic."""
+        entry = self._get_reconfigure_entry()
+        runtime = entry.runtime_data
+        if not isinstance(runtime, OejpRuntimeData):
+            return self.async_abort(reason="reconfigure_unavailable")
+
+        options = runtime.historical_resource_options()
+        if not options:
+            return self.async_abort(reason="no_historical_resources")
+
+        if user_input is not None:
+            requested = user_input.get(CONF_ENABLED_HISTORICAL_RESOURCES, [])
+            enabled = (
+                sorted(value for value in requested if isinstance(value, str) and value in options)
+                if isinstance(requested, list)
+                else []
+            )
+            return self.async_update_reload_and_abort(
+                entry,
+                options_updates={CONF_ENABLED_HISTORICAL_RESOURCES: enabled},
+            )
+
+        selected = selected_historical_resources(entry)
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_ENABLED_HISTORICAL_RESOURCES,
+                        default=sorted(selected & options.keys()),
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                selector.SelectOptionDict(value=value, label=label)
+                                for value, label in options.items()
+                            ],
+                            multiple=True,
+                            mode=selector.SelectSelectorMode.LIST,
+                        )
+                    )
+                }
+            ),
+        )

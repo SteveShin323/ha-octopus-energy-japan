@@ -11,7 +11,12 @@ from scripts.oejp_probe import OPERATIONS, _authorization_header, _write_fixture
 
 
 def test_probe_exposes_only_fixed_query_operations() -> None:
-    assert set(OPERATIONS) == {"viewer_accounts", "viewer_identity"}
+    assert set(OPERATIONS) == {
+        "resource_discovery",
+        "schema_capabilities",
+        "viewer_accounts",
+        "viewer_identity",
+    }
     for operation in OPERATIONS.values():
         normalized = operation.query.casefold()
         assert "query " in normalized

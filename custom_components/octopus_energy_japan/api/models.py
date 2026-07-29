@@ -8,6 +8,114 @@ from decimal import Decimal
 from enum import StrEnum
 
 
+class ResourceLifecycle(StrEnum):
+    """Normalized lifecycle independent of provider status spelling."""
+
+    ACTIVE = "active"
+    HISTORICAL = "historical"
+    UNKNOWN = "unknown"
+
+
+class Capability(StrEnum):
+    """Optional OEJP features detected for an authenticated viewer."""
+
+    LEGACY_HALF_HOURLY_READINGS = "legacy_half_hourly_readings"
+    LEGACY_INTERVAL_READINGS = "legacy_interval_readings"
+    GENERIC_READINGS = "generic_readings"
+    DEVICES = "devices"
+    REGISTERS = "registers"
+    IMPORT_READINGS = "import_readings"
+    EXPORT_READINGS = "export_readings"
+
+
+class CapabilityAvailability(StrEnum):
+    """Availability of one optional API capability."""
+
+    SUPPORTED = "supported"
+    UNSUPPORTED = "unsupported"
+    FORBIDDEN = "forbidden"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityStatus:
+    """One capability observation with a safe diagnostic reason."""
+
+    capability: Capability
+    availability: CapabilityAvailability
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilitySnapshot:
+    """Immutable capability registry for a discovery refresh."""
+
+    statuses: tuple[CapabilityStatus, ...] = ()
+
+    def availability(self, capability: Capability) -> CapabilityAvailability:
+        """Return availability, defaulting to unknown when not probed."""
+        for status in self.statuses:
+            if status.capability is capability:
+                return status.availability
+        return CapabilityAvailability.UNKNOWN
+
+    def replace(
+        self,
+        capabilities: tuple[Capability, ...],
+        availability: CapabilityAvailability,
+        reason: str,
+    ) -> CapabilitySnapshot:
+        """Replace selected observations while preserving deterministic order."""
+        selected = set(capabilities)
+        by_capability = {status.capability: status for status in self.statuses}
+        for capability in selected:
+            by_capability[capability] = CapabilityStatus(
+                capability,
+                availability,
+                reason,
+            )
+        return CapabilitySnapshot(
+            tuple(
+                by_capability[capability]
+                for capability in Capability
+                if capability in by_capability
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OejpRegister:
+    """Meter/device register exposed by a generic supply point."""
+
+    id: str
+    unit: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class OejpDevice:
+    """Physical or logical device associated with a supply point."""
+
+    id: str
+    device_type: str | None = None
+    registers: tuple[OejpRegister, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class OejpMeter:
+    """Legacy electricity meter associated with a supply point."""
+
+    serial_number: str
+    capacity: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class OejpProperty:
+    """Property container without address or customer display data."""
+
+    id: str
+    supply_points: tuple[OejpSupplyPoint, ...] = ()
+
+
 class ReadingDirection(StrEnum):
     """Energy flow direction."""
 
@@ -36,6 +144,8 @@ class OejpAccount:
 
     number: str
     status: str | None = None
+    lifecycle: ResourceLifecycle = ResourceLifecycle.UNKNOWN
+    properties: tuple[OejpProperty, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +156,11 @@ class OejpSupplyPoint:
     account_number: str
     status: str | None = None
     direction: ReadingDirection = ReadingDirection.UNKNOWN
+    lifecycle: ResourceLifecycle = ResourceLifecycle.UNKNOWN
+    property_id: str | None = None
+    spin: str | None = None
+    meters: tuple[OejpMeter, ...] = ()
+    devices: tuple[OejpDevice, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
