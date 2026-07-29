@@ -7,12 +7,13 @@ from unittest.mock import AsyncMock
 import pytest
 from custom_components.octopus_energy_japan.api import (
     GENERIC_DEVICES_QUERY,
+    LEGACY_DISCOVERY_QUERY,
+    AuthenticatedGraphQLClient,
     Capability,
     CapabilityAvailability,
     ConnectionPage,
     GraphQLErrorDetail,
     GraphQLResult,
-    OejpGraphQLClient,
     OejpInvalidResponseError,
     OejpQueryValidationError,
     ResourceLifecycle,
@@ -101,17 +102,17 @@ def test_legacy_discovery_returns_sorted_typed_hierarchy() -> None:
 
 
 async def test_discover_resources_uses_strict_authorized_operation() -> None:
-    client = AsyncMock(spec=OejpGraphQLClient)
+    client = AsyncMock(spec=AuthenticatedGraphQLClient)
     client.execute.return_value = _discovery_payload()
 
-    accounts = await async_discover_resources(client, "Bearer token")
+    accounts = await async_discover_resources(client)
 
     assert len(accounts) == 2
-    assert client.execute.await_args.kwargs == {"authorization_header": "Bearer token"}
+    client.execute.assert_awaited_once_with(LEGACY_DISCOVERY_QUERY)
 
 
 async def test_generic_device_operation_validates_supply_point_identity() -> None:
-    client = AsyncMock(spec=OejpGraphQLClient)
+    client = AsyncMock(spec=AuthenticatedGraphQLClient)
     client.execute.return_value = {
         "supplyPoint": {
             "externalIdentifier": "spin-1",
@@ -130,7 +131,6 @@ async def test_generic_device_operation_validates_supply_point_identity() -> Non
 
     devices = await async_discover_generic_devices(
         client,
-        "Bearer access",
         "spin-1",
     )
 
@@ -141,7 +141,6 @@ async def test_generic_device_operation_validates_supply_point_identity() -> Non
             "externalIdentifier": "spin-1",
             "marketName": "ELECTRICITY",
         },
-        authorization_header="Bearer access",
     )
 
 
@@ -156,13 +155,12 @@ async def test_generic_device_operation_validates_supply_point_identity() -> Non
 async def test_generic_device_operation_rejects_invalid_supply_point(
     supply_point: object,
 ) -> None:
-    client = AsyncMock(spec=OejpGraphQLClient)
+    client = AsyncMock(spec=AuthenticatedGraphQLClient)
     client.execute.return_value = {"supplyPoint": supply_point}
 
     with pytest.raises(OejpInvalidResponseError):
         await async_discover_generic_devices(
             client,
-            "Bearer access",
             "spin-1",
         )
 
@@ -309,14 +307,14 @@ def test_missing_capability_is_explicit_and_unknown_is_default() -> None:
 
 
 async def test_capability_authorization_failure_does_not_trigger_reauth() -> None:
-    client = AsyncMock(spec=OejpGraphQLClient)
+    client = AsyncMock(spec=AuthenticatedGraphQLClient)
     detail = GraphQLErrorDetail(
         message="GraphQL operation failed",
         error_type="AUTHORIZATION",
     )
     client.execute_optional.return_value = GraphQLResult(None, (detail,))
 
-    snapshot = await async_detect_capabilities(client, "Bearer access")
+    snapshot = await async_detect_capabilities(client)
 
     assert all(
         status.availability is CapabilityAvailability.FORBIDDEN for status in snapshot.statuses
@@ -324,7 +322,7 @@ async def test_capability_authorization_failure_does_not_trigger_reauth() -> Non
 
 
 async def test_partial_capability_response_marks_missing_fields_forbidden() -> None:
-    client = AsyncMock(spec=OejpGraphQLClient)
+    client = AsyncMock(spec=AuthenticatedGraphQLClient)
     detail = GraphQLErrorDetail(
         message="GraphQL operation failed",
         error_type="AUTHORIZATION",
@@ -334,13 +332,13 @@ async def test_partial_capability_response_marks_missing_fields_forbidden() -> N
         (detail,),
     )
 
-    snapshot = await async_detect_capabilities(client, "Bearer access")
+    snapshot = await async_detect_capabilities(client)
 
     assert snapshot.availability(Capability.GENERIC_READINGS) is CapabilityAvailability.FORBIDDEN
 
 
 async def test_non_authorization_capability_error_is_raised() -> None:
-    client = AsyncMock(spec=OejpGraphQLClient)
+    client = AsyncMock(spec=AuthenticatedGraphQLClient)
     detail = GraphQLErrorDetail(
         message="GraphQL operation failed",
         error_type="VALIDATION",
@@ -348,15 +346,15 @@ async def test_non_authorization_capability_error_is_raised() -> None:
     client.execute_optional.return_value = GraphQLResult(None, (detail,))
 
     with pytest.raises(OejpQueryValidationError, match="graphql operation failed"):
-        await async_detect_capabilities(client, "Bearer access")
+        await async_detect_capabilities(client)
 
 
 async def test_capability_response_requires_data() -> None:
-    client = AsyncMock(spec=OejpGraphQLClient)
+    client = AsyncMock(spec=AuthenticatedGraphQLClient)
     client.execute_optional.return_value = GraphQLResult(None, ())
 
     with pytest.raises(OejpInvalidResponseError, match="did not contain data"):
-        await async_detect_capabilities(client, "Bearer access")
+        await async_detect_capabilities(client)
 
 
 def test_generic_devices_and_registers_are_sorted_and_typed() -> None:

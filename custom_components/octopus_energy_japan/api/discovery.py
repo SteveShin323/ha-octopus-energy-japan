@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
 from typing import Any
 
-from .client import OejpGraphQLClient
+from .auth import AuthenticatedGraphQLClient
 from .errors import (
     OejpAuthorizationError,
     OejpInvalidResponseError,
@@ -136,14 +136,10 @@ async def async_paginate[T](
 
 
 async def async_discover_resources(
-    client: OejpGraphQLClient,
-    authorization_header: str,
+    client: AuthenticatedGraphQLClient,
 ) -> tuple[OejpAccount, ...]:
     """Discover all legacy account/property/supply-point/meter resources."""
-    data = await client.execute(
-        LEGACY_DISCOVERY_QUERY,
-        authorization_header=authorization_header,
-    )
+    data = await client.execute(LEGACY_DISCOVERY_QUERY)
     return parse_legacy_discovery(data)
 
 
@@ -162,14 +158,10 @@ def parse_legacy_discovery(data: Mapping[str, Any]) -> tuple[OejpAccount, ...]:
 
 
 async def async_detect_capabilities(
-    client: OejpGraphQLClient,
-    authorization_header: str,
+    client: AuthenticatedGraphQLClient,
 ) -> CapabilitySnapshot:
     """Detect schema features without converting authorization into reauth."""
-    result = await client.execute_optional(
-        CAPABILITY_QUERY,
-        authorization_header=authorization_header,
-    )
+    result = await client.execute_optional(CAPABILITY_QUERY)
     if result.errors:
         error = classify_graphql_error_details(result.errors)
         if result.data is None and isinstance(error, OejpAuthorizationError):
@@ -192,8 +184,7 @@ async def async_detect_capabilities(
 
 
 async def async_discover_generic_devices(
-    client: OejpGraphQLClient,
-    authorization_header: str,
+    client: AuthenticatedGraphQLClient,
     external_identifier: str,
 ) -> tuple[OejpDevice, ...]:
     """Discover generic devices/registers for one known electricity supply point."""
@@ -203,7 +194,6 @@ async def async_discover_generic_devices(
             "externalIdentifier": external_identifier,
             "marketName": "ELECTRICITY",
         },
-        authorization_header=authorization_header,
     )
     supply_point = _required_mapping(
         data.get("supplyPoint"),

@@ -27,6 +27,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
     from .api import (
+        AuthenticatedGraphQLClient,
         Capability,
         CapabilityAvailability,
         CapabilitySnapshot,
@@ -65,7 +66,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     auth = OejpPkceAuthSession(hass, entry, implementation, metadata)
     try:
-        authorization_header = await auth.async_get_authorization_header()
+        await auth.async_get_authorization_header()
     except OAuth2TokenRequestReauthError as err:
         raise ConfigEntryAuthFailed("OEJP OAuth authorization must be renewed") from err
     except OAuth2TokenRequestTransientError as err:
@@ -76,8 +77,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise ConfigEntryAuthFailed("OEJP OAuth token is invalid") from err
 
     client = OejpGraphQLClient(async_get_clientsession(hass))
+    authenticated_client = AuthenticatedGraphQLClient(client, auth)
     try:
-        accounts = await async_discover_resources(client, authorization_header)
+        accounts = await async_discover_resources(authenticated_client)
     except OejpAuthenticationError as err:
         raise ConfigEntryAuthFailed("OEJP OAuth authorization must be renewed") from err
     except (OejpRateLimitError, OejpTransportError) as err:
@@ -86,7 +88,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise ConfigEntryNotReady("OEJP resource discovery failed") from err
 
     try:
-        capabilities = await async_detect_capabilities(client, authorization_header)
+        capabilities = await async_detect_capabilities(authenticated_client)
     except OejpAuthenticationError as err:
         raise ConfigEntryAuthFailed("OEJP OAuth authorization must be renewed") from err
     except OejpError:
@@ -107,8 +109,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             discovered_devices = await asyncio.gather(
                 *(
                     async_discover_generic_devices(
-                        client,
-                        authorization_header,
+                        authenticated_client,
                         external_identifier,
                     )
                     for external_identifier in external_identifiers
