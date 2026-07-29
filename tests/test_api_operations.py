@@ -10,8 +10,9 @@ from custom_components.octopus_energy_japan.api import (
     OejpGraphQLClient,
     OejpInvalidResponseError,
     async_discover_accounts,
-    async_obtain_token,
+    async_get_viewer_identity,
 )
+from custom_components.octopus_energy_japan.api.operations import async_obtain_token
 
 
 async def test_obtain_token_parses_all_supported_fields() -> None:
@@ -104,7 +105,7 @@ async def test_discover_accounts_returns_sorted_deduplicated_accounts() -> None:
         ("B-ACCOUNT", "ACTIVE"),
     ]
     client.execute.assert_awaited_once()
-    assert client.execute.await_args.kwargs == {"access_token": "access"}
+    assert client.execute.await_args.kwargs == {"authorization_header": "access"}
 
 
 @pytest.mark.parametrize(
@@ -126,3 +127,33 @@ async def test_discover_accounts_rejects_malformed_payloads(
 
     with pytest.raises(OejpInvalidResponseError):
         await async_discover_accounts(client, "access")
+
+
+async def test_get_viewer_identity_returns_provider_id() -> None:
+    client = AsyncMock(spec=OejpGraphQLClient)
+    client.execute.return_value = {"viewer": {"id": "viewer-123"}}
+
+    identity = await async_get_viewer_identity(client, "Bearer access")
+
+    assert identity == "viewer-123"
+    assert client.execute.await_args.kwargs == {"authorization_header": "Bearer access"}
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"viewer": None},
+        {"viewer": {}},
+        {"viewer": {"id": ""}},
+        {"viewer": {"id": 123}},
+    ],
+)
+async def test_get_viewer_identity_rejects_malformed_payload(
+    payload: dict[str, object],
+) -> None:
+    client = AsyncMock(spec=OejpGraphQLClient)
+    client.execute.return_value = payload
+
+    with pytest.raises(OejpInvalidResponseError):
+        await async_get_viewer_identity(client, "Bearer access")

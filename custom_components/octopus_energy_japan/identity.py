@@ -51,6 +51,20 @@ def stable_account_identity(secret: str, account_number: str) -> str:
     return f"account-{digest}"
 
 
+def stable_login_identity(secret: str, issuer: str, subject: str) -> str:
+    """Create a stable installation-local identity for one OAuth login."""
+    canonical_issuer = issuer.strip().rstrip("/")
+    canonical_subject = subject.strip()
+    if not canonical_issuer or not canonical_subject:
+        raise ValueError("OAuth issuer and subject are required")
+    digest = hmac.new(
+        bytes.fromhex(secret),
+        f"{canonical_issuer}\0{canonical_subject}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"login-{digest}"
+
+
 def _is_valid_secret(secret: str) -> bool:
     try:
         return len(bytes.fromhex(secret)) == _SECRET_BYTES
