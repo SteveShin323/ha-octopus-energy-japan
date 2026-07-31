@@ -1,11 +1,35 @@
 # Octopus Energy Japan for Home Assistant
 
+[![Validate](https://github.com/SteveShin323/ha-octopus-energy-japan/actions/workflows/validate.yml/badge.svg?branch=main&event=push)](https://github.com/SteveShin323/ha-octopus-energy-japan/actions/workflows/validate.yml)
+[![Coverage](https://codecov.io/gh/SteveShin323/ha-octopus-energy-japan/branch/main/graph/badge.svg)](https://codecov.io/gh/SteveShin323/ha-octopus-energy-japan)
+[![Security](https://github.com/SteveShin323/ha-octopus-energy-japan/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/SteveShin323/ha-octopus-energy-japan/actions/workflows/security.yml)
+[![CodeQL](https://github.com/SteveShin323/ha-octopus-energy-japan/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/SteveShin323/ha-octopus-energy-japan/actions/workflows/codeql.yml)
+[![License: MIT](https://img.shields.io/github/license/SteveShin323/ha-octopus-energy-japan)](LICENSE)
+![Project status](https://img.shields.io/badge/status-pre--alpha-orange)
+
 An unofficial, read-only Home Assistant custom integration for Octopus Energy
 Japan (OEJP).
 
 > [!WARNING]
 > This project is not affiliated with, endorsed by, or supported by Octopus
 > Energy Japan or Kraken Technologies.
+
+## Project status
+
+| Area | Status |
+|---|---|
+| OAuth architecture | Implemented; awaiting OEJP production metadata |
+| Account and supply-point discovery | Implemented |
+| Import/export reading providers | Implemented |
+| Correction-aware ledger and JST aggregation | Implemented |
+| Home Assistant runtime and entities | In development |
+| Energy Dashboard statistics | Planned |
+| Tariff and billing summaries | Planned |
+| Supported installation | Not available yet |
+
+The badges above report the status of the `main` branch. The Validate workflow
+includes Ruff, strict mypy, pytest with branch coverage, Hassfest, HACS
+validation, and documentation link checks.
 
 ## Status
 
