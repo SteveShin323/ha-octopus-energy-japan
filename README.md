@@ -49,6 +49,7 @@ The current normative architecture and implementation plan is:
 - [`docs/OAUTH_APPLICATION_STATUS.md`](docs/OAUTH_APPLICATION_STATUS.md)
 - [`docs/LEDGER_AND_AGGREGATION.md`](docs/LEDGER_AND_AGGREGATION.md)
 - [`docs/RUNTIME_AND_ENTITIES.md`](docs/RUNTIME_AND_ENTITIES.md)
+- [`docs/PR7_DELIVERY_PLAN.md`](docs/PR7_DELIVERY_PLAN.md)
 - [`docs/adr/`](docs/adr/)
 
 It incorporates the official OEJP GraphQL documentation and code-level reviews
