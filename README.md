@@ -1,5 +1,12 @@
 # Octopus Energy Japan for Home Assistant
 
+[![Validate](https://github.com/SteveShin323/ha-octopus-energy-japan/actions/workflows/validate.yml/badge.svg?branch=main&event=push)](https://github.com/SteveShin323/ha-octopus-energy-japan/actions/workflows/validate.yml)
+[![Coverage](https://codecov.io/gh/SteveShin323/ha-octopus-energy-japan/branch/main/graph/badge.svg)](https://codecov.io/gh/SteveShin323/ha-octopus-energy-japan)
+[![Security](https://github.com/SteveShin323/ha-octopus-energy-japan/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/SteveShin323/ha-octopus-energy-japan/actions/workflows/security.yml)
+[![CodeQL](https://github.com/SteveShin323/ha-octopus-energy-japan/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/SteveShin323/ha-octopus-energy-japan/actions/workflows/codeql.yml)
+[![License: MIT](https://img.shields.io/github/license/SteveShin323/ha-octopus-energy-japan)](LICENSE)
+![Project status](https://img.shields.io/badge/status-pre--alpha-orange)
+
 An unofficial, read-only Home Assistant custom integration for Octopus Energy
 Japan (OEJP).
 
@@ -11,6 +18,22 @@ Japan (OEJP).
 
 Pre-alpha architecture and API development. The integration is **not ready to
 install**.
+
+| Area | Status |
+|---|---|
+| OAuth and token lifecycle | Implemented; awaiting OEJP production metadata and permissions |
+| Account, property, supply-point, meter, device, and register discovery | Implemented |
+| Generic and legacy import/export readings | Implemented |
+| Correction-aware interval storage and JST aggregation | Implemented |
+| Home Assistant runtime and core entities | In development in draft PR #14 |
+| Energy Dashboard statistics | Planned |
+| Agreement, tariff, official-cost, balance, and billing summaries | Planned |
+| Supported installation | Not available yet |
+
+The Validate workflow covers Ruff lint and formatting, strict mypy, pytest with
+branch coverage, Hassfest, HACS validation, and documentation link checks.
+Security automation additionally covers dependency auditing, secret scanning,
+fixture PII scanning, and CodeQL analysis.
 
 OEJP has been asked to issue a public OAuth application for Authorization Code
 with PKCE and, if available, Device Authorization Grant. The project will not
