@@ -58,4 +58,5 @@ jobs:
           args: >-
             --no-progress
             --exclude 'https://api\.oejp-kraken\.energy/v1/graphql/'
+            --exclude 'https://docs\.oejp-kraken\.energy/graphql/changelog/'
             './**/*.md'
