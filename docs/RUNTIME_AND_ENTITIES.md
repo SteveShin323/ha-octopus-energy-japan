@@ -21,7 +21,7 @@ PR 7 owns:
 - bounded reading synchronization;
 - initial and daily historical reconciliation execution;
 - discovery-driven resource lifecycle transitions;
-- persistent backfill checkpoints;
+- persistent direction-specific backfill checkpoints;
 - per-supply-point and per-direction provider observations;
 - immutable coordinator snapshots;
 - account and supply-point devices;
@@ -45,7 +45,8 @@ following:
 - `OejpDataUpdateCoordinator`;
 - background `OejpSyncQueue` worker;
 - one persistent interval ledger per initialized supply point; and
-- one persistent backfill checkpoint store per initialized supply point.
+- one persistent backfill checkpoint store per initialized supply point, with
+  independent direction state.
 
 The pure window planner remains in `sync.py`. Network execution, retry state,
 queue mutation, and checkpoint persistence MUST be implemented outside the pure
@@ -108,10 +109,10 @@ reconciliation, optional long backfill, or a startup sleep.
 If there are no enabled supply points, setup MUST succeed with an empty reading
 snapshot and no background reading items.
 
-If at least one enabled supply point completes its 72-hour bootstrap, setup MAY
-succeed with other points marked unavailable. If every enabled point fails, the
-failure mapping in section 10 applies. Authentication failure always aborts the
-entry-wide setup.
+If at least one enabled supply point completes a direction of its 72-hour
+bootstrap, setup MAY succeed with other points or directions marked unavailable.
+If every enabled point fails, the failure mapping in section 10 applies.
+Authentication failure always aborts the entry-wide setup.
 
 Any setup failure after runtime allocation MUST cancel created tasks, flush and
 close every initialized store, clear `entry.runtime_data`, and avoid forwarding
@@ -120,13 +121,18 @@ least one ledger has been initialized.
 
 ## 5. Sync work model
 
-A background work item MUST identify exactly one:
+A background queue item MUST identify exactly one request scope:
 
 ```text
 supply-point identity
++ import/export direction
 + half-open UTC start/end window of at most 7 days
-+ sync reason
-+ generation
+```
+
+The item MUST also carry one or more obligations. An obligation is:
+
+```text
+sync reason + generation
 ```
 
 Required reasons and priorities are:
@@ -139,9 +145,16 @@ Required reasons and priorities are:
 | 30 | initial previous-month backfill |
 | 40 | optional long backfill |
 
-The deduplication key MUST exclude priority and include supply point, start, end,
-and generation. Enqueuing the same work again MUST be a no-op, except that a
-higher-priority reason MAY upgrade an existing pending item.
+The queue deduplication key MUST be supply point, direction, start, and end. It
+MUST NOT include reason or generation. Enqueuing the same request scope adds its
+obligation to the existing item and changes the effective priority to the
+highest-priority obligation. This coalesces initial backfill and daily
+reconciliation instead of issuing duplicate GraphQL requests.
+
+When a generation becomes obsolete, only that obligation is removed. The queue
+item is removed only when no current obligation remains. One successful
+authoritative direction result satisfies every current obligation attached to
+that request scope and updates all applicable checkpoints.
 
 Only one background worker is allowed per config entry. Only one GraphQL request
 is allowed in flight. When a regular poll is pending, the worker MUST finish its
@@ -150,18 +163,19 @@ acquired the request gate.
 
 Initial backfill ordering MUST be:
 
-1. current JST month before previous JST month; and
-2. newest missing 7-day window before older windows within each month.
+1. current JST month before previous JST month;
+2. newest missing 7-day window before older windows within each month; and
+3. deterministic supply-point HMAC and direction ordering for equal priority.
 
 The initial background target ends at the first successful bootstrap end minus
 72 hours. The regular poll owns the final 72 hours. Daily reconciliation covers
 the complete previous and current JST month through its execution time and is
-queued once per JST calendar day.
+queued once per JST calendar day for each queryable direction.
 
-A background work item MUST reconcile its authoritative result into the ledger
-and publish a new coordinator snapshot without triggering another network poll.
-Ledger mutation, checkpoint mutation, aggregation, and snapshot publication
-MUST be serialized by a coordinator-owned lock.
+A background item MUST reconcile its authoritative direction result into the
+ledger and publish a new coordinator snapshot without triggering another
+network poll. Ledger mutation, checkpoint mutation, aggregation, and snapshot
+publication MUST be serialized by a coordinator-owned lock.
 
 ## 6. Persistent backfill checkpoints
 
@@ -179,18 +193,21 @@ name.
 Schema version 1 MUST persist:
 
 - the JST month-pair generation, for example `2026-06/2026-07`;
-- successfully completed initial-backfill windows;
-- the last fully completed daily-reconciliation JST date; and
+- successfully completed initial-backfill windows keyed by direction;
+- the last fully completed daily-reconciliation JST date keyed by direction;
+  and
 - the checkpoint schema version.
 
-A successful authoritative empty response counts as a completed window. A
-failed or partially parsed response does not.
+A successful authoritative empty direction response counts as a completed
+window. A failed direction or partially parsed target/page response does not.
+Import completion MUST NOT mark export complete, and export completion MUST NOT
+mark import complete.
 
 For a background item, durable write order MUST be:
 
-1. reconcile the complete authoritative batch in memory;
+1. reconcile the complete authoritative direction result in memory;
 2. flush every affected ledger partition;
-3. persist the completed checkpoint; and
+3. persist completion for all current item obligations and that direction; and
 4. publish the new immutable coordinator snapshot.
 
 The checkpoint MUST never be persisted ahead of the ledger. A crash between
@@ -198,9 +215,14 @@ steps 2 and 3 may cause a harmless idempotent refetch; a crash MUST NOT cause a
 checkpoint to suppress data that was never durably written.
 
 On restart, the queue MUST be reconstructed from the month generation, planner,
-and completed checkpoints. A month-generation change resets only the initial
-window list; it MUST NOT delete ledger data. Lifecycle disablement retains both
-ledger and checkpoint stores.
+queryable directions, and completed checkpoints. A month-generation change
+removes obsolete initial obligations only; it MUST NOT delete ledger data or a
+request scope still required by another obligation. Lifecycle disablement
+retains both ledger and checkpoint stores.
+
+When a new direction becomes queryable, runtime MUST enqueue its missing
+initial windows even if another direction for the same point is already fully
+backfilled.
 
 ## 7. Regular refresh algorithm
 
@@ -210,13 +232,15 @@ Each 30-minute coordinator refresh MUST:
 2. reconcile enabled, disabled, historical, missing, and newly discovered
    resources according to section 8;
 3. initialize stores for newly enabled points;
-4. fetch the latest 72-hour window for every enabled point;
-5. reconcile each successful authoritative direction batch;
-6. update in-process coverage for every successful query window, including an
-   empty result;
-7. aggregate only enabled points from the ledger;
+4. attempt the latest 72-hour window for every candidate direction of every
+   enabled point;
+5. reconcile each successful authoritative direction result;
+6. update in-process direction coverage for every successful query window,
+   including an empty result;
+7. aggregate only enabled points and successful queryable directions from the
+   ledger;
 8. publish one immutable coordinator snapshot; and
-9. enqueue missing initial or due daily background work without waiting for it.
+9. enqueue missing initial or due daily obligations without waiting for them.
 
 Authentication failure is entry-wide and MUST abort immediately. Other failures
 MUST be isolated at the narrowest safe scope:
@@ -225,21 +249,22 @@ MUST be isolated at the narrowest safe scope:
 - a supply-point-specific invalid response affects that supply point;
 - the first rate-limit or shared transport failure stops additional requests in
   that refresh to prevent a request storm; and
-- already reconciled successful points remain committed.
+- already reconciled successful directions remain committed.
 
-If at least one enabled point succeeds, the coordinator MUST publish a partial
-snapshot with explicit failed or stale point status. If all enabled points fail,
-`UpdateFailed` MUST preserve the previous coordinator data. A partial failure
-MUST NOT make unrelated successful supply-point entities unavailable.
+If at least one enabled direction succeeds, the coordinator MUST publish a
+partial snapshot with explicit failed or stale point/direction status. If all
+enabled directions fail, `UpdateFailed` MUST preserve the previous coordinator
+data. A partial failure MUST NOT make unrelated successful supply-point entities
+unavailable.
 
 The coordinator snapshot MUST contain enough typed state to determine, without
 consulting mutable internals:
 
 - discovered accounts and capabilities;
 - enabled and currently present supply points;
-- per-point last success and current failure/stale status;
+- per-point and per-direction last success and current failure/stale status;
 - per-point queryable directions;
-- per-period authoritative query coverage;
+- per-direction period query coverage;
 - provider and fallback observation per supply point and direction;
 - immutable calendar aggregates;
 - correction and last-refresh change counts; and
@@ -247,20 +272,30 @@ consulting mutable internals:
 
 ## 8. Resource lifecycle state machine
 
-Resource selection MUST be recalculated after every successful discovery.
+Resource selection MUST be recalculated after every successful discovery using
+these exact rules:
+
+- an active or unknown account is enabled automatically;
+- under an active or unknown account, active/unknown points are enabled
+  automatically and historical points require explicit point selection;
+- an unselected historical account disables every child point and ignores any
+  stale child selection;
+- selecting a historical account enables all of its discovered child points;
+  separate child selection under that account is unnecessary; and
+- a point that disappears is never considered enabled merely because an old
+  selection remains in options.
+
+Required transitions are:
 
 | Transition | Required behavior |
 |---|---|
 | New active or unknown point | Enable automatically, create/reuse stores, run 72-hour bootstrap, create status entity, then create direction entities after successful direction selection |
-| Historical point explicitly selected | Keep enabled and synchronize normally |
+| Historical point under active account explicitly selected | Keep enabled and synchronize normally |
+| Historical account explicitly selected | Enable the account and all discovered child points |
 | Active/unknown to historical, not selected | Stop network synchronization, exclude its ledger from active aggregation, integration-disable its device, retain stores and registry entries, mark existing entities unavailable |
 | Point disappears from discovery | Stop network synchronization, exclude it from aggregation, retain stores and registry entries, mark existing entities unavailable, do not delete the device |
 | Missing or historical point becomes active again | Reuse the same HMAC device, entity unique IDs, ledger, and checkpoints; resume synchronization |
 | Historical selection removed by reconfigure | Reload the entry and apply the same disabled behavior without deleting history |
-
-Account-level historical disablement disables all child points unless a future
-accepted design explicitly supports selecting a child under a disabled account.
-PR 7 MUST NOT implement that contradictory state.
 
 The set used to read ledger records for aggregation MUST be exactly the set of
 enabled supply-point runtime states. Iterating every previously initialized
@@ -302,16 +337,17 @@ Legacy direction is the explicit normalized supply-point direction. When legacy
 discovery provides no direction, it is import only. Legacy capability MUST NOT
 create export entities by inference.
 
-After a successful direction batch, queryable directions MUST be derived from
+After a successful direction result, queryable directions MUST be derived from
 its authoritative series, not from raw reading presence. This permits a valid
 export entity with zero readings while preventing an unsupported export entity.
 
 Entity creation rules are:
 
 - status entity: after discovery for an enabled point;
-- directional energy entities: after the first successful authoritative batch
+- directional energy entities: after the first successful authoritative result
   for that direction;
-- newly successful direction: add entities exactly once;
+- newly successful direction: add entities exactly once and enqueue its missing
+  background history;
 - direction no longer queryable: retain existing entities but mark them
   unavailable; and
 - never delete or recreate an entity merely because provider selection changed.
@@ -354,26 +390,26 @@ Only background work retries internally:
   that item for six hours; and
 - authentication failure stops the worker and initiates reauthentication.
 
-A non-retriable background failure remains failed for its current generation.
-It may be reconsidered only after a new discovery/capability snapshot, a new JST
-daily-reconciliation generation, or explicit user retry in a later Repairs
-phase. It MUST NOT spin.
+A non-retriable background failure remains failed for its current obligation
+generation. It may be reconsidered only after a new discovery/capability
+snapshot, a new JST daily-reconciliation generation, or explicit user retry in
+a later Repairs phase. It MUST NOT spin or block unrelated obligations.
 
 ## 11. Coverage and entity semantics
 
 Successful query windows, not the presence of individual readings, define
-runtime coverage. Coverage ranges are half-open UTC intervals and MUST merge
-adjacent or overlapping ranges.
+runtime coverage. Coverage ranges are per supply point and direction, are
+half-open UTC intervals, and MUST merge adjacent or overlapping ranges.
 
 Entity source of truth is:
 
 | Entity | Source and availability rule |
 |---|---|
-| Latest reported interval energy | latest completed ledger interval; no full-period coverage requirement |
-| Latest reading timestamp | latest completed provider interval end |
+| Latest reported interval energy | latest completed ledger interval for the direction; no full-period coverage requirement |
+| Latest reading timestamp | latest completed provider interval end for the direction |
 | Data delay | coordinator time minus latest completed interval end |
-| Data available | true only when at least one completed interval exists |
-| Today/yesterday/week/month/last month | ledger calendar aggregate; state is unknown until query coverage spans the complete requested calendar window through projection time |
+| Data available | true only when at least one completed interval exists for the direction |
+| Today/yesterday/week/month/last month | direction-specific ledger calendar aggregate; state is unknown until that direction's query coverage spans the complete requested calendar window through projection time |
 | Supply-point status | normalized discovery lifecycle; independent of reading availability |
 
 A successful authoritative query may still contain delayed or missing provider
@@ -420,24 +456,28 @@ are mandatory:
 - setup cleanup after partial ledger initialization;
 - one request in flight per config entry, including generic topology discovery;
 - current-month then previous-month newest-first queue ordering;
-- queue deduplication and priority upgrade;
+- request-scope deduplication across initial and daily generations, obligation
+  coalescing, priority upgrade, and obsolete-obligation removal;
+- direction-specific checkpoints and no cross-direction completion leakage;
 - checkpoint write occurs only after ledger flush;
-- restart reconstructs only missing initial windows;
-- successful empty response completes coverage;
+- restart reconstructs only missing initial direction windows;
+- successful empty direction response completes coverage;
 - regular poll preempts the next background item;
 - bounded rate-limit retry, `Retry-After`, jitter fallback, five-attempt defer,
   and non-retriable no-spin behavior;
 - multiple accounts and multiple supply points across multiple windows;
-- partial point success publishes successful points without exposing failed
-  points as healthy;
+- partial point/direction success publishes successful results without exposing
+  failed directions as healthy;
 - 24-hour discovery refresh;
 - active-to-historical, disappearance, reappearance, and reconfigure deselection;
+- historical-account selection semantics and stale child-selection rejection;
 - disabled states are excluded from aggregation while ledger data is retained;
 - generic import success with export failure does not discard import;
 - successful empty generic export creates an export direction;
 - legacy unknown direction creates import only;
+- newly queryable direction schedules its own missing backfill;
 - dynamic point/direction entity addition has no duplicates;
-- period sensors remain unknown until their query coverage is complete;
+- period sensors remain unknown until their own direction coverage is complete;
 - unload/reload preserves HMAC identities, ledger data, and checkpoints;
 - authentication versus transient versus non-retriable error mapping;
 - English/Japanese translation completeness; and
