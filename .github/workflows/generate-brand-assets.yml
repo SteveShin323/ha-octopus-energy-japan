@@ -1,0 +1,261 @@
+name: Generate brand assets
+
+on:
+  push:
+    branches: [agent/readme-brand-codecov]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: agent/readme-brand-codecov
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+      - name: Generate project-owned Home Assistant brand images
+        shell: python
+        run: |
+          from __future__ import annotations
+
+          import math
+          import struct
+          import zlib
+          from pathlib import Path
+
+          BRAND = Path("custom_components/octopus_energy_japan/brand")
+          BRAND.mkdir(parents=True, exist_ok=True)
+
+          NAVY = (11, 46, 89, 255)
+          BLUE = (0, 140, 209, 255)
+          LIGHT_BLUE = (91, 196, 245, 255)
+          RED = (232, 59, 46, 255)
+          YELLOW = (255, 200, 51, 255)
+          WHITE = (245, 250, 255, 255)
+          TRANSPARENT = (0, 0, 0, 0)
+
+          FONT = {
+              "A": ("01110", "10001", "10001", "11111", "10001", "10001", "10001"),
+              "E": ("11111", "10000", "10000", "11110", "10000", "10000", "11111"),
+              "H": ("10001", "10001", "10001", "11111", "10001", "10001", "10001"),
+              "I": ("11111", "00100", "00100", "00100", "00100", "00100", "11111"),
+              "J": ("00111", "00010", "00010", "00010", "10010", "10010", "01100"),
+              "M": ("10001", "11011", "10101", "10101", "10001", "10001", "10001"),
+              "N": ("10001", "11001", "10101", "10011", "10001", "10001", "10001"),
+              "O": ("01110", "10001", "10001", "10001", "10001", "10001", "01110"),
+              "P": ("11110", "10001", "10001", "11110", "10000", "10000", "10000"),
+              "S": ("01111", "10000", "10000", "01110", "00001", "00001", "11110"),
+              "T": ("11111", "00100", "00100", "00100", "00100", "00100", "00100"),
+              " ": ("000",) * 7,
+          }
+
+
+          class Canvas:
+              def __init__(self, width: int, height: int) -> None:
+                  self.width = width
+                  self.height = height
+                  self.pixels = bytearray(width * height * 4)
+
+              def set(self, x: int, y: int, color: tuple[int, int, int, int]) -> None:
+                  if not (0 <= x < self.width and 0 <= y < self.height):
+                      return
+                  i = (y * self.width + x) * 4
+                  self.pixels[i : i + 4] = bytes(color)
+
+              def rect(self, x0: int, y0: int, x1: int, y1: int, color: tuple[int, int, int, int]) -> None:
+                  for y in range(max(0, y0), min(self.height, y1)):
+                      for x in range(max(0, x0), min(self.width, x1)):
+                          self.set(x, y, color)
+
+              def circle(self, cx: int, cy: int, radius: int, color: tuple[int, int, int, int]) -> None:
+                  r2 = radius * radius
+                  for y in range(max(0, cy - radius), min(self.height, cy + radius + 1)):
+                      dy = y - cy
+                      for x in range(max(0, cx - radius), min(self.width, cx + radius + 1)):
+                          dx = x - cx
+                          if dx * dx + dy * dy <= r2:
+                              self.set(x, y, color)
+
+              def polygon(self, points: list[tuple[int, int]], color: tuple[int, int, int, int]) -> None:
+                  min_x = max(0, min(x for x, _ in points))
+                  max_x = min(self.width - 1, max(x for x, _ in points))
+                  min_y = max(0, min(y for _, y in points))
+                  max_y = min(self.height - 1, max(y for _, y in points))
+                  for y in range(min_y, max_y + 1):
+                      for x in range(min_x, max_x + 1):
+                          inside = False
+                          j = len(points) - 1
+                          for i, (xi, yi) in enumerate(points):
+                              xj, yj = points[j]
+                              crosses = (yi > y) != (yj > y)
+                              if crosses:
+                                  edge_x = (xj - xi) * (y - yi) / (yj - yi) + xi
+                                  if x < edge_x:
+                                      inside = not inside
+                              j = i
+                          if inside:
+                              self.set(x, y, color)
+
+              def stroke_rect(
+                  self,
+                  x0: int,
+                  y0: int,
+                  x1: int,
+                  y1: int,
+                  thickness: int,
+                  color: tuple[int, int, int, int],
+              ) -> None:
+                  self.rect(x0, y0, x1, y0 + thickness, color)
+                  self.rect(x0, y1 - thickness, x1, y1, color)
+                  self.rect(x0, y0, x0 + thickness, y1, color)
+                  self.rect(x1 - thickness, y0, x1, y1, color)
+
+              def text(
+                  self,
+                  value: str,
+                  x: int,
+                  y: int,
+                  scale: int,
+                  color: tuple[int, int, int, int],
+              ) -> None:
+                  cursor = x
+                  for char in value:
+                      glyph = FONT[char]
+                      width = len(glyph[0])
+                      for row, bits in enumerate(glyph):
+                          for col, bit in enumerate(bits):
+                              if bit == "1":
+                                  self.rect(
+                                      cursor + col * scale,
+                                      y + row * scale,
+                                      cursor + (col + 1) * scale,
+                                      y + (row + 1) * scale,
+                                      color,
+                                  )
+                      cursor += (width + 1) * scale
+
+              def save(self, path: Path) -> None:
+                  raw = bytearray()
+                  stride = self.width * 4
+                  for y in range(self.height):
+                      raw.append(0)
+                      start = y * stride
+                      raw.extend(self.pixels[start : start + stride])
+
+                  def chunk(kind: bytes, payload: bytes) -> bytes:
+                      return (
+                          struct.pack(">I", len(payload))
+                          + kind
+                          + payload
+                          + struct.pack(">I", zlib.crc32(kind + payload) & 0xFFFFFFFF)
+                      )
+
+                  png = bytearray(b"\x89PNG\r\n\x1a\n")
+                  png.extend(
+                      chunk(
+                          b"IHDR",
+                          struct.pack(">IIBBBBB", self.width, self.height, 8, 6, 0, 0, 0),
+                      )
+                  )
+                  png.extend(chunk(b"IDAT", zlib.compress(bytes(raw), level=9)))
+                  png.extend(chunk(b"IEND", b""))
+                  path.write_bytes(png)
+
+
+          def draw_mark(canvas: Canvas, size: int, dark: bool, offset_x: int = 0, offset_y: int = 0) -> None:
+              def p(value: float) -> int:
+                  return round(value * size / 256)
+
+              foreground = WHITE if dark else NAVY
+              body_fill = NAVY if dark else WHITE
+              accent = LIGHT_BLUE if dark else BLUE
+
+              canvas.circle(offset_x + p(194), offset_y + p(54), p(26), RED)
+              canvas.polygon(
+                  [
+                      (offset_x + p(38), offset_y + p(119)),
+                      (offset_x + p(128), offset_y + p(40)),
+                      (offset_x + p(218), offset_y + p(119)),
+                      (offset_x + p(198), offset_y + p(132)),
+                      (offset_x + p(128), offset_y + p(72)),
+                      (offset_x + p(58), offset_y + p(132)),
+                  ],
+                  accent,
+              )
+              canvas.rect(offset_x + p(69), offset_y + p(112), offset_x + p(187), offset_y + p(207), body_fill)
+              canvas.stroke_rect(
+                  offset_x + p(69),
+                  offset_y + p(112),
+                  offset_x + p(187),
+                  offset_y + p(207),
+                  max(2, p(7)),
+                  foreground,
+              )
+              canvas.rect(offset_x + p(92), offset_y + p(139), offset_x + p(116), offset_y + p(165), accent)
+              canvas.rect(offset_x + p(143), offset_y + p(139), offset_x + p(167), offset_y + p(165), accent)
+              canvas.polygon(
+                  [
+                      (offset_x + p(132), offset_y + p(104)),
+                      (offset_x + p(108), offset_y + p(157)),
+                      (offset_x + p(127), offset_y + p(157)),
+                      (offset_x + p(115), offset_y + p(198)),
+                      (offset_x + p(153), offset_y + p(142)),
+                      (offset_x + p(134), offset_y + p(142)),
+                  ],
+                  YELLOW,
+              )
+              canvas.rect(offset_x + p(42), offset_y + p(218), offset_x + p(214), offset_y + p(228), accent)
+              canvas.rect(offset_x + p(67), offset_y + p(235), offset_x + p(189), offset_y + p(243), foreground)
+
+
+          def make_icon(path: Path, size: int, dark: bool) -> None:
+              canvas = Canvas(size, size)
+              draw_mark(canvas, size, dark)
+              canvas.save(path)
+
+
+          def make_logo(path: Path, width: int, height: int, dark: bool) -> None:
+              canvas = Canvas(width, height)
+              mark_size = height
+              draw_mark(canvas, mark_size, dark)
+              text_color = WHITE if dark else NAVY
+              x = round(height * 1.08)
+              canvas.text("OEJP", x, round(height * 0.17), max(3, round(height / 14)), text_color)
+              canvas.text(
+                  "HOME ASSISTANT",
+                  x,
+                  round(height * 0.69),
+                  max(1, round(height / 34)),
+                  LIGHT_BLUE if dark else BLUE,
+              )
+              canvas.save(path)
+
+
+          make_icon(BRAND / "icon.png", 256, False)
+          make_icon(BRAND / "icon@2x.png", 512, False)
+          make_icon(BRAND / "dark_icon.png", 256, True)
+          make_icon(BRAND / "dark_icon@2x.png", 512, True)
+          make_logo(BRAND / "logo.png", 400, 120, False)
+          make_logo(BRAND / "logo@2x.png", 800, 240, False)
+          make_logo(BRAND / "dark_logo.png", 400, 120, True)
+          make_logo(BRAND / "dark_logo@2x.png", 800, 240, True)
+
+          placeholder = BRAND / "placeholder.txt"
+          if placeholder.exists():
+              placeholder.unlink()
+      - name: Commit generated images
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add custom_components/octopus_energy_japan/brand
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Add local Home Assistant brand assets"
+          git push origin HEAD:agent/readme-brand-codecov
