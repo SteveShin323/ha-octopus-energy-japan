@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -17,10 +17,13 @@ from .api import (
     ResourceLifecycle,
 )
 from .const import CONF_ENABLED_HISTORICAL_RESOURCES, DOMAIN
-from .identity import stable_account_identity, stable_resource_identity
+from .identity import stable_account_identity, stable_supply_point_identity
+
+if TYPE_CHECKING:
+    from .coordinator import OejpDataUpdateCoordinator
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class OejpRuntimeData:
     """Runtime data owned by one OAuth login-scoped config entry."""
 
@@ -28,6 +31,7 @@ class OejpRuntimeData:
     accounts: tuple[OejpAccount, ...]
     capabilities: CapabilitySnapshot
     identity_secret: str
+    coordinator: OejpDataUpdateCoordinator | None = None
 
     def historical_resource_options(self) -> dict[str, str]:
         """Return safe labels keyed by installation-local resource identities."""
@@ -44,9 +48,9 @@ class OejpRuntimeData:
                 if supply_point.lifecycle is ResourceLifecycle.HISTORICAL:
                     historical_supply_point_number += 1
                     options[
-                        stable_resource_identity(
+                        stable_supply_point_identity(
                             self.identity_secret,
-                            "supply-point",
+                            account.number,
                             supply_point.id,
                         )
                     ] = f"Historical supply point {historical_supply_point_number}"
@@ -94,9 +98,9 @@ def async_project_discovered_devices(
             _iter_supply_points(account),
             start=1,
         ):
-            supply_point_identity = stable_resource_identity(
+            supply_point_identity = stable_supply_point_identity(
                 runtime.identity_secret,
-                "supply-point",
+                account.number,
                 supply_point.id,
             )
             supply_point_disabled = account_disabled or (

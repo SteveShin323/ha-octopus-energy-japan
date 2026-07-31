@@ -147,6 +147,7 @@ class ReadingBatch:
 
     readings: tuple[EnergyReading, ...]
     provider: ReadingProviderName
+    observed_at: datetime
     fallback_reason: ReadingFallbackReason | None = None
     authoritative_series: frozenset[ReadingSeriesKey] = frozenset()
     authoritative_sources: frozenset[ReadingSource] = frozenset()
@@ -385,10 +386,13 @@ class ReadingProviderRouter:
         generic: ReadingProvider,
         legacy: ReadingProvider,
         capabilities: CapabilitySnapshot,
+        *,
+        now: Callable[[], datetime] | None = None,
     ) -> None:
         self._generic = generic
         self._legacy = legacy
         self._capabilities = capabilities
+        self._now = now or (lambda: datetime.now(UTC))
 
     async def async_get_readings(
         self,
@@ -458,6 +462,7 @@ class ReadingProviderRouter:
         return ReadingBatch(
             readings=readings,
             provider=ReadingProviderName.GENERIC,
+            observed_at=_batch_observed_at(readings, self._now()),
             authoritative_series=_generic_authoritative_series(
                 supply_point,
                 self._capabilities,
@@ -484,6 +489,7 @@ class ReadingProviderRouter:
         return ReadingBatch(
             readings=readings,
             provider=ReadingProviderName.LEGACY,
+            observed_at=_batch_observed_at(readings, self._now()),
             fallback_reason=reason,
             authoritative_series=authoritative_series,
             authoritative_sources=frozenset(
@@ -1004,6 +1010,22 @@ def _deduplicate_readings(readings: list[EnergyReading]) -> tuple[EnergyReading,
             ),
         )
     )
+
+
+def _batch_observed_at(
+    readings: tuple[EnergyReading, ...],
+    fallback: datetime,
+) -> datetime:
+    observations = {
+        reading.fetched_at.astimezone(UTC) for reading in readings if reading.fetched_at is not None
+    }
+    if any(reading.fetched_at is None for reading in readings):
+        raise OejpInvalidResponseError(
+            "Reading provider returned a reading without an observation time"
+        )
+    if len(observations) > 1:
+        raise OejpInvalidResponseError("Reading provider returned multiple observation times")
+    return next(iter(observations), _utc_datetime(fallback, "Provider router clock"))
 
 
 def _is_disabled_generic_field(error: OejpQueryValidationError) -> bool:

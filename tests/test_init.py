@@ -54,6 +54,7 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
     entry = _entry()
     implementation = AsyncMock()
     auth = AsyncMock()
+    coordinator = AsyncMock()
     auth.async_get_authorization_header.return_value = "Bearer access"
     with (
         patch(
@@ -81,6 +82,10 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
             AsyncMock(return_value="01" * 32),
         ),
         patch(
+            "custom_components.octopus_energy_japan.coordinator.OejpDataUpdateCoordinator",
+            return_value=coordinator,
+        ),
+        patch(
             "custom_components.octopus_energy_japan.runtime.async_project_discovered_devices"
         ) as project_devices,
         patch.object(
@@ -93,9 +98,11 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
 
     assert entry.runtime_data.auth is auth
     assert entry.runtime_data.accounts == ()
+    assert entry.runtime_data.coordinator is coordinator
     auth.async_get_authorization_header.assert_awaited_once_with()
+    coordinator.async_config_entry_first_refresh.assert_awaited_once_with()
     project_devices.assert_called_once_with(hass, entry, entry.runtime_data)
-    forward.assert_awaited_once_with(entry, ["sensor"])
+    forward.assert_awaited_once_with(entry, ["sensor", "binary_sensor"])
 
 
 async def test_setup_entry_retries_when_oauth_implementation_is_unavailable(
@@ -150,7 +157,7 @@ async def test_unload_entry_unloads_platforms_and_clears_runtime(
     ) as unload:
         assert await async_unload_entry(hass, entry)
 
-    unload.assert_awaited_once_with(entry, ["sensor"])
+    unload.assert_awaited_once_with(entry, ["sensor", "binary_sensor"])
     assert entry.runtime_data is None
 
 

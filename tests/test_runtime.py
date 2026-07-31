@@ -17,7 +17,7 @@ from custom_components.octopus_energy_japan.const import (
 )
 from custom_components.octopus_energy_japan.identity import (
     stable_account_identity,
-    stable_resource_identity,
+    stable_supply_point_identity,
 )
 from custom_components.octopus_energy_japan.runtime import (
     OejpRuntimeData,
@@ -74,7 +74,7 @@ def test_historical_resource_options_are_safe_and_deterministic() -> None:
         "Historical account 1",
     ]
     assert all("OLD-" not in value for value in options)
-    assert stable_resource_identity(SECRET, "supply-point", "OLD-SPIN") in options
+    assert stable_supply_point_identity(SECRET, "ACTIVE-ACCOUNT", "OLD-SPIN") in options
     assert stable_account_identity(SECRET, "OLD-ACCOUNT") in options
 
 
@@ -117,10 +117,12 @@ async def test_device_projection_hides_provider_ids_and_disables_history(
         identifiers={(DOMAIN, stable_account_identity(SECRET, "OLD-ACCOUNT"))}
     )
     active_supply_point = registry.async_get_device(
-        identifiers={(DOMAIN, stable_resource_identity(SECRET, "supply-point", "ACTIVE-SPIN"))}
+        identifiers={
+            (DOMAIN, stable_supply_point_identity(SECRET, "ACTIVE-ACCOUNT", "ACTIVE-SPIN"))
+        }
     )
     historical_supply_point = registry.async_get_device(
-        identifiers={(DOMAIN, stable_resource_identity(SECRET, "supply-point", "OLD-SPIN"))}
+        identifiers={(DOMAIN, stable_supply_point_identity(SECRET, "ACTIVE-ACCOUNT", "OLD-SPIN"))}
     )
 
     assert active_account is not None and active_account.disabled_by is None
@@ -135,9 +137,9 @@ async def test_device_projection_hides_provider_ids_and_disables_history(
 
 async def test_selected_historical_resources_are_enabled(hass: HomeAssistant) -> None:
     historical_account_id = stable_account_identity(SECRET, "OLD-ACCOUNT")
-    historical_supply_point_id = stable_resource_identity(
+    historical_supply_point_id = stable_supply_point_identity(
         SECRET,
-        "supply-point",
+        "ACTIVE-ACCOUNT",
         "OLD-SPIN",
     )
     entry = MockConfigEntry(
