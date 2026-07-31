@@ -117,7 +117,9 @@ async def test_device_projection_hides_provider_ids_and_disables_history(
         identifiers={(DOMAIN, stable_account_identity(SECRET, "OLD-ACCOUNT"))}
     )
     active_supply_point = registry.async_get_device(
-        identifiers={(DOMAIN, stable_supply_point_identity(SECRET, "ACTIVE-ACCOUNT", "ACTIVE-SPIN"))}
+        identifiers={
+            (DOMAIN, stable_supply_point_identity(SECRET, "ACTIVE-ACCOUNT", "ACTIVE-SPIN"))
+        }
     )
     historical_supply_point = registry.async_get_device(
         identifiers={(DOMAIN, stable_supply_point_identity(SECRET, "ACTIVE-ACCOUNT", "OLD-SPIN"))}
