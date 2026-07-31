@@ -2,7 +2,10 @@
 
 This document defines the authoritative local data model used between OEJP
 reading providers and Home Assistant entities/statistics. It implements
-[ADR 0003](adr/0003-correction-aware-ledger.md).
+[ADR 0003](adr/0003-correction-aware-ledger.md). Runtime execution and backfill
+ordering are defined by
+[`RUNTIME_AND_ENTITIES.md`](RUNTIME_AND_ENTITIES.md) and
+[ADR 0004](adr/0004-non-blocking-runtime-synchronization.md).
 
 ## Why raw intervals are persisted
 
@@ -51,15 +54,20 @@ The ledger applies these rules:
    absent from its response, is deleted unless that record was observed later.
 7. Readings outside the requested series or window are rejected.
 
-`ReadingBatch` reports both the queried series and the source families for
-which the successful batch is authoritative. Before reconciliation, runtime
-uses `expand_authoritative_series` to add stored series from those families.
-This removes stale device/register topology and prevents old generic readings
-from overriding a legacy fallback. Legacy rows are not destroyed when generic
-readings are selected: generic data wins overlapping energy intervals, while
-legacy data remains available for explicitly modelled cost and historical
-fallback behavior. Legacy `intervalReadings` are billing-period data, not a
-competing energy interval source.
+Provider selection is direction-specific. Each successful direction result
+supplies its own authoritative series, source families, and observation time.
+Runtime may combine independently successful direction results into one ledger
+refresh, but a failed direction MUST NOT make another direction's partial target
+set authoritative.
+
+Before reconciliation, runtime uses `expand_authoritative_series` to add stored
+series from the selected source families. This removes stale device/register
+topology and prevents old generic readings from overriding a legacy fallback.
+Legacy rows are not destroyed when generic readings are selected: generic data
+wins overlapping energy intervals, while legacy data remains available for
+explicitly modelled cost and historical fallback behavior. Legacy
+`intervalReadings` are billing-period data, not a competing energy interval
+source.
 
 Input order does not affect the result. Replaying an identical snapshot is
 idempotent. Hypothesis property tests enforce both invariants.
@@ -105,7 +113,7 @@ state without including the damaged payload.
 
 ## Provider and unit reconciliation
 
-`legacy intervalReadings` are billing-period aggregates. They remain in the
+Legacy `intervalReadings` are billing-period aggregates. They remain in the
 ledger for official cost and contract features but are never summed with
 half-hour energy.
 
@@ -141,24 +149,41 @@ Current-period windows end at the projection time. Intervals that have not
 ended are excluded from both totals and the "latest reported interval", so
 future or clock-skewed records cannot become user-visible data.
 
+A calendar total is not exposed as complete merely because some ledger records
+exist. Runtime tracks successful authoritative query coverage separately. A
+period entity remains unknown until coverage spans the complete requested
+calendar window through projection time. Missing intervals inside a successfully
+queried authoritative window are not synthesized as zero.
+
 ## Synchronization plan
 
-The window planner enforces:
+The fixed plan is:
 
-| Operation | Window/cadence |
+| Operation | Window/cadence and execution |
 |---|---|
+| Blocking first refresh | latest 72 hours only |
 | Consumption poll | every 30 minutes, latest 72 hours |
-| Initial backfill | current and previous JST month |
-| Daily reconciliation | current and previous JST month |
+| Initial month backfill | background queue; previous and current JST month excluding the blocking 72-hour window |
+| Daily reconciliation | background queue; previous and current JST month |
 | Query chunk | no more than 7 days |
-| Optional long backfill | up to 13 months |
+| Optional long backfill | background queue; up to 13 months |
 | Discovery | 24 hours |
-| Contract/tariff | 12 hours |
-| Billing | 12 hours |
+| Contract/tariff | 12 hours in its later coordinator |
+| Billing | 12 hours in its later coordinator |
+
+The first refresh never blocks on month backfill and never sleeps for startup
+staggering. One persistent queue worker per config entry executes backfill and
+reconciliation newest-first, with current month before previous month. One
+shared request gate permits at most one in-flight GraphQL request per config
+entry and gives regular polls priority before the next background item.
+
+A background window becomes checkpoint-complete only after its authoritative
+ledger changes are durably flushed. Restart reconstructs missing work from the
+planner and private HMAC-scoped checkpoints. A successful authoritative empty
+response completes query coverage; a failed or partial response does not.
 
 Rate-limit recovery uses bounded exponential backoff with deterministic full
-jitter, or a provider `Retry-After` value when present. Installation-local
-startup staggering prevents every coordinator from calling OEJP at once.
-
-The runtime coordinator added in the next phase owns execution of these plans.
-The planner itself performs no network or storage mutation.
+jitter, or a valid provider `Retry-After` value when present. Authentication,
+authorization, validation, malformed-response, identifier, and ledger-invariant
+failures are not retried as transient work. Installation-local startup
+staggering applies only to the first background item.
