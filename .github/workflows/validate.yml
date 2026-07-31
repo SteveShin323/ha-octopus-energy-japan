@@ -34,6 +34,7 @@ jobs:
           files: coverage.xml
           fail_ci_if_error: true
           use_oidc: true
+          use_pypi: true
 
   hassfest:
     runs-on: ubuntu-latest
