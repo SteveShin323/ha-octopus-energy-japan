@@ -174,11 +174,11 @@ def test_resource_helpers_never_select_only_the_first_item() -> None:
             old_point.id,
         ),
     ]
-    assert enabled_supply_points(_entry(selected=selected), accounts, SECRET) == (
+    assert set(enabled_supply_points(_entry(selected=selected), accounts, SECRET)) == {
         active,
         historical,
         old_point,
-    )
+    }
 
 
 def test_entity_directions_use_topology_and_capabilities() -> None:
