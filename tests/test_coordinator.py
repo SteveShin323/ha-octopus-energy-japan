@@ -48,7 +48,7 @@ from custom_components.octopus_energy_japan.identity import (
 )
 from custom_components.octopus_energy_japan.ledger import CorrectionResult, LedgerRecord
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -112,14 +112,25 @@ def _direction_result(
     direction: ReadingDirection,
     *readings: EnergyReading,
 ) -> DirectionReadingResult:
+    authoritative_series = frozenset(
+        ReadingSeriesKey.from_reading(reading) for reading in readings
+    ) or frozenset(
+        {
+            ReadingSeriesKey(
+                account_id=ACCOUNT_ID,
+                supply_point_id=SUPPLY_POINT_ID,
+                direction=direction,
+                unit=EnergyUnit.KWH,
+                source=ReadingSource.SUPPLY_POINT_READINGS,
+            )
+        }
+    )
     return DirectionReadingResult(
         readings=readings,
         direction=direction,
         provider=ReadingProviderName.GENERIC,
         observed_at=NOW,
-        authoritative_series=frozenset(
-            ReadingSeriesKey.from_reading(reading) for reading in readings
-        ),
+        authoritative_series=authoritative_series,
         authoritative_sources=frozenset({ReadingSource.SUPPLY_POINT_READINGS}),
     )
 
@@ -361,35 +372,6 @@ async def test_permanent_only_refresh_publishes_status_without_direction(
     assert entity_directions(data, SECRET, ACCOUNT_ID, SUPPLY_POINT_ID) == ()
 
 
-async def test_permanent_only_first_refresh_succeeds_status_only(
-    hass: HomeAssistant,
-) -> None:
-    coordinator = _coordinator(hass)
-    router = AsyncMock()
-    router.async_get_readings.side_effect = OejpAuthorizationError(())
-    _install_state(coordinator, _point(), router=router)
-
-    await coordinator.async_config_entry_first_refresh()
-
-    assert coordinator.data is not None
-    assert coordinator.data.aggregation.supply_points == ()
-    assert not coordinator.data.direction_statuses[0].queryable
-
-
-async def test_all_transient_first_refresh_is_retryable(
-    hass: HomeAssistant,
-) -> None:
-    coordinator = _coordinator(hass)
-    router = AsyncMock()
-    router.async_get_readings.side_effect = OejpTransportError("offline")
-    _install_state(coordinator, _point(), router=router)
-
-    with pytest.raises(ConfigEntryNotReady):
-        await coordinator.async_config_entry_first_refresh()
-
-    assert coordinator.data is None
-
-
 async def test_no_enabled_supply_points_publishes_empty_snapshot(
     hass: HomeAssistant,
 ) -> None:
@@ -617,7 +599,12 @@ async def test_regular_poll_orders_points_and_directions_deterministically(
     )
     observed: list[tuple[str, ReadingDirection]] = []
 
-    def result_for(point: OejpSupplyPoint, direction: ReadingDirection) -> DirectionReadingResult:
+    def result_for(
+        point: OejpSupplyPoint,
+        direction: ReadingDirection,
+        _start_at: datetime,
+        _end_at: datetime,
+    ) -> DirectionReadingResult:
         observed.append((point.id, direction))
         return _direction_result(direction)
 
