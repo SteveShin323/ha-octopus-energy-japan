@@ -36,8 +36,10 @@ async def async_setup_entry(
         for account in coordinator.accounts:
             for point in iter_supply_points(account):
                 for direction in entity_directions(
-                    point,
-                    coordinator.capabilities,
+                    coordinator.data,
+                    runtime.identity_secret,
+                    account.number,
+                    point.id,
                 ):
                     entity = OejpDataAvailableBinarySensor(
                         coordinator,

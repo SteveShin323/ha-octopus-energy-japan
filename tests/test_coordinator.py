@@ -13,6 +13,7 @@ from custom_components.octopus_energy_japan.api import (
     CapabilityAvailability,
     CapabilitySnapshot,
     CapabilityStatus,
+    DirectionReadingResult,
     EnergyReading,
     EnergyUnit,
     OejpAccount,
@@ -20,7 +21,6 @@ from custom_components.octopus_energy_japan.api import (
     OejpProperty,
     OejpSupplyPoint,
     OejpTransportError,
-    ReadingBatch,
     ReadingDirection,
     ReadingProviderName,
     ReadingSeriesKey,
@@ -33,6 +33,7 @@ from custom_components.octopus_energy_japan.const import (
 )
 from custom_components.octopus_energy_japan.coordinator import (
     OejpDataUpdateCoordinator,
+    ProviderObservation,
     _SupplyPointRuntime,
     enabled_supply_points,
     entity_directions,
@@ -181,16 +182,39 @@ def test_resource_helpers_never_select_only_the_first_item() -> None:
     }
 
 
-def test_entity_directions_use_topology_and_capabilities() -> None:
-    assert entity_directions(_point(), CapabilitySnapshot()) == (ReadingDirection.IMPORT,)
+def test_entity_directions_require_authoritative_direction_success() -> None:
+    assert entity_directions(None, SECRET, ACCOUNT_ID, SUPPLY_POINT_ID) == ()
+    data = Mock(
+        provider_observations=(
+            ProviderObservation(
+                account_identity=stable_account_identity(SECRET, ACCOUNT_ID),
+                supply_point_identity=stable_supply_point_identity(
+                    SECRET,
+                    ACCOUNT_ID,
+                    SUPPLY_POINT_ID,
+                ),
+                direction=ReadingDirection.EXPORT,
+                provider=ReadingProviderName.GENERIC,
+                fallback_reason=None,
+                observed_at=NOW,
+            ),
+        )
+    )
     assert entity_directions(
-        _point(direction=ReadingDirection.UNKNOWN),
-        _capabilities(Capability.EXPORT_READINGS, Capability.IMPORT_READINGS),
-    ) == (ReadingDirection.EXPORT, ReadingDirection.IMPORT)
-    assert entity_directions(
-        _point(direction=ReadingDirection.UNKNOWN),
-        CapabilitySnapshot(),
-    ) == (ReadingDirection.IMPORT,)
+        cast("Any", data),
+        SECRET,
+        ACCOUNT_ID,
+        SUPPLY_POINT_ID,
+    ) == (ReadingDirection.EXPORT,)
+    assert (
+        entity_directions(
+            cast("Any", data),
+            SECRET,
+            ACCOUNT_ID,
+            "OTHER-POINT",
+        )
+        == ()
+    )
 
 
 async def test_update_reconciles_window_and_projects_ledger(
@@ -200,8 +224,9 @@ async def test_update_reconciles_window_and_projects_ledger(
     reading = _reading()
     series = ReadingSeriesKey.from_reading(reading)
     router = AsyncMock()
-    router.async_get_readings.return_value = ReadingBatch(
+    router.async_get_readings.return_value = DirectionReadingResult(
         readings=(reading,),
+        direction=ReadingDirection.IMPORT,
         provider=ReadingProviderName.GENERIC,
         observed_at=NOW,
         authoritative_series=frozenset({series}),
@@ -228,9 +253,11 @@ async def test_update_reconciles_window_and_projects_ledger(
     data = await coordinator._async_update_data()
 
     router.async_get_readings.assert_awaited_once()
+    assert router.async_get_readings.await_args.args[1] is ReadingDirection.IMPORT
     ledger.async_reconcile.assert_awaited_once()
     assert data.aggregation.supply_points[0].today.energy_kwh == Decimal("0.5")
     assert data.provider_observations[0].provider is ReadingProviderName.GENERIC
+    assert data.provider_observations[0].direction is ReadingDirection.IMPORT
     assert data.present_supply_points == {(ACCOUNT_ID, SUPPLY_POINT_ID)}
     await coordinator.async_shutdown_runtime()
     backend.async_flush.assert_awaited_once_with()

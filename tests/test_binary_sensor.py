@@ -19,6 +19,7 @@ from custom_components.octopus_energy_japan.api import (
     OejpProperty,
     OejpSupplyPoint,
     ReadingDirection,
+    ReadingProviderName,
 )
 from custom_components.octopus_energy_japan.binary_sensor import (
     OejpDataAvailableBinarySensor,
@@ -28,6 +29,11 @@ from custom_components.octopus_energy_japan.const import DOMAIN
 from custom_components.octopus_energy_japan.coordinator import (
     OejpCoordinatorData,
     OejpDataUpdateCoordinator,
+    ProviderObservation,
+)
+from custom_components.octopus_energy_japan.identity import (
+    stable_account_identity,
+    stable_supply_point_identity,
 )
 from custom_components.octopus_energy_japan.runtime import OejpRuntimeData
 from homeassistant.core import HomeAssistant
@@ -39,7 +45,11 @@ ACCOUNT_ID = "PRIVATE-ACCOUNT"
 SUPPLY_POINT_ID = "PRIVATE-SUPPLY-POINT"
 
 
-def _coordinator(*, with_reading: bool = True) -> OejpDataUpdateCoordinator:
+def _coordinator(
+    *,
+    with_reading: bool = True,
+    queryable: bool = True,
+) -> OejpDataUpdateCoordinator:
     point = OejpSupplyPoint(
         id=SUPPLY_POINT_ID,
         account_number=ACCOUNT_ID,
@@ -86,6 +96,24 @@ def _coordinator(*, with_reading: bool = True) -> OejpDataUpdateCoordinator:
         capabilities=CapabilitySnapshot(),
         aggregation=AggregationSnapshot((aggregate,), NOW),
         present_supply_points=frozenset({(ACCOUNT_ID, SUPPLY_POINT_ID)}),
+        provider_observations=(
+            (
+                ProviderObservation(
+                    account_identity=stable_account_identity(SECRET, ACCOUNT_ID),
+                    supply_point_identity=stable_supply_point_identity(
+                        SECRET,
+                        ACCOUNT_ID,
+                        SUPPLY_POINT_ID,
+                    ),
+                    direction=ReadingDirection.IMPORT,
+                    provider=ReadingProviderName.GENERIC,
+                    fallback_reason=None,
+                    observed_at=NOW,
+                ),
+            )
+            if queryable
+            else ()
+        ),
     )
     coordinator.async_add_listener.return_value = Mock()
     return cast("OejpDataUpdateCoordinator", coordinator)
@@ -134,3 +162,22 @@ async def test_binary_sensor_platform_adds_each_entity_once(
     listener = cast("Mock", coordinator.async_add_listener).call_args.args[0]
     listener()
     assert add_entities.call_count == 1
+
+
+async def test_binary_sensor_requires_authoritative_direction_success(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = _coordinator(queryable=False)
+    entry = MockConfigEntry(domain=DOMAIN)
+    entry.runtime_data = OejpRuntimeData(
+        auth=AsyncMock(),
+        accounts=coordinator.accounts,
+        capabilities=coordinator.capabilities,
+        identity_secret=SECRET,
+        coordinator=coordinator,
+    )
+    add_entities = Mock()
+
+    await async_setup_entry(hass, entry, add_entities)
+
+    add_entities.assert_not_called()

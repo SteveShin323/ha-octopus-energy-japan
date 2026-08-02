@@ -20,8 +20,6 @@ from .aggregation import (
 )
 from .api import (
     AuthenticatedGraphQLClient,
-    Capability,
-    CapabilityAvailability,
     CapabilitySnapshot,
     GenericReadingsProvider,
     LegacyHalfHourlyProvider,
@@ -34,6 +32,7 @@ from .api import (
     ReadingProviderName,
     ReadingProviderRouter,
     ResourceLifecycle,
+    candidate_directions,
 )
 from .const import DOMAIN
 from .identity import stable_account_identity, stable_supply_point_identity
@@ -69,6 +68,7 @@ class ProviderObservation:
 
     account_identity: str
     supply_point_identity: str
+    direction: ReadingDirection
     provider: ReadingProviderName
     fallback_reason: ReadingFallbackReason | None
     observed_at: datetime
@@ -187,21 +187,30 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             else:
                 windows = self._planner.poll(now)
 
-            observations: dict[SupplyPointKey, ProviderObservation] = {}
+            observations: dict[
+                tuple[str, str, ReadingDirection],
+                ProviderObservation,
+            ] = {}
             corrections: list[CorrectionResult] = []
             for state in self._enabled_states():
-                for window in windows:
-                    result, observation = await self._async_sync_window(
-                        state,
-                        window,
-                    )
-                    corrections.append(result)
-                    observations[
-                        (
-                            state.supply_point.account_number,
-                            state.supply_point.id,
+                for direction in candidate_directions(
+                    state.supply_point,
+                    self._capabilities,
+                ):
+                    for window in windows:
+                        result, observation = await self._async_sync_window(
+                            state,
+                            direction,
+                            window,
                         )
-                    ] = observation
+                        corrections.append(result)
+                        observations[
+                            (
+                                state.supply_point.account_number,
+                                state.supply_point.id,
+                                direction,
+                            )
+                        ] = observation
 
             records: list[LedgerRecord] = []
             aggregate_start = _previous_local_month_start(now)
@@ -307,10 +316,12 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
     async def _async_sync_window(
         self,
         state: _SupplyPointRuntime,
+        direction: ReadingDirection,
         window: SyncWindow,
     ) -> tuple[CorrectionResult, ProviderObservation]:
-        batch = await state.router.async_get_readings(
+        direction_result = await state.router.async_get_readings(
             state.supply_point,
+            direction,
             window.start_at,
             window.end_at,
         )
@@ -319,16 +330,16 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             window.end_at,
         )
         authoritative_series = expand_authoritative_series(
-            batch.authoritative_series,
-            batch.authoritative_sources,
+            direction_result.authoritative_series,
+            direction_result.authoritative_sources,
             existing,
         )
         result = await state.ledger.async_reconcile(
             authoritative_series,
             window.start_at,
             window.end_at,
-            batch.readings,
-            batch.observed_at,
+            direction_result.readings,
+            direction_result.observed_at,
         )
         return result, ProviderObservation(
             account_identity=stable_account_identity(
@@ -340,9 +351,10 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                 state.supply_point.account_number,
                 state.supply_point.id,
             ),
-            provider=batch.provider,
-            fallback_reason=batch.fallback_reason,
-            observed_at=batch.observed_at,
+            direction=direction,
+            provider=direction_result.provider,
+            fallback_reason=direction_result.fallback_reason,
+            observed_at=direction_result.observed_at,
         )
 
     def _reading_router(self) -> ReadingProviderRouter:
@@ -418,20 +430,31 @@ def enabled_supply_points(
 
 
 def entity_directions(
-    point: OejpSupplyPoint,
-    capabilities: CapabilitySnapshot,
+    data: OejpCoordinatorData | None,
+    identity_secret: str,
+    account_id: str,
+    supply_point_id: str,
 ) -> tuple[ReadingDirection, ...]:
-    """Return only directions that can produce a normalized entity series."""
-    directions: set[ReadingDirection] = set()
-    if point.direction is not ReadingDirection.UNKNOWN:
-        directions.add(point.direction)
-    if capabilities.availability(Capability.IMPORT_READINGS) is CapabilityAvailability.SUPPORTED:
-        directions.add(ReadingDirection.IMPORT)
-    if capabilities.availability(Capability.EXPORT_READINGS) is CapabilityAvailability.SUPPORTED:
-        directions.add(ReadingDirection.EXPORT)
-    if not directions:
-        directions.add(ReadingDirection.IMPORT)
-    return tuple(sorted(directions, key=lambda direction: direction.value))
+    """Return only directions proven queryable by an authoritative success."""
+    if data is None:
+        return ()
+    account_identity = stable_account_identity(identity_secret, account_id)
+    point_identity = stable_supply_point_identity(
+        identity_secret,
+        account_id,
+        supply_point_id,
+    )
+    return tuple(
+        sorted(
+            {
+                observation.direction
+                for observation in data.provider_observations
+                if observation.account_identity == account_identity
+                and observation.supply_point_identity == point_identity
+            },
+            key=lambda direction: direction.value,
+        )
+    )
 
 
 def _previous_local_month_start(now: datetime) -> datetime:

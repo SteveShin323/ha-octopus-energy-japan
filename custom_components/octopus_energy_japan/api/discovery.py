@@ -164,7 +164,10 @@ async def async_detect_capabilities(
     """Detect schema features without converting authorization into reauth."""
     result = await client.execute_optional(CAPABILITY_QUERY)
     if result.errors:
-        error = classify_graphql_error_details(result.errors)
+        error = classify_graphql_error_details(
+            result.errors,
+            retry_after=result.retry_after,
+        )
         if result.data is None and isinstance(error, OejpAuthorizationError):
             return _uniform_capabilities(
                 CapabilityAvailability.FORBIDDEN,
