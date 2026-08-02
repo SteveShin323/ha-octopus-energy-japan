@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -44,6 +45,7 @@ class OejpRuntimeData:
                 options[stable_account_identity(self.identity_secret, account.number)] = (
                     f"Historical account {historical_account_number}"
                 )
+                continue
             for supply_point in _iter_supply_points(account):
                 if supply_point.lifecycle is ResourceLifecycle.HISTORICAL:
                     historical_supply_point_number += 1
@@ -65,6 +67,35 @@ def selected_historical_resources(entry: ConfigEntry) -> frozenset[str]:
     return frozenset(value for value in selected if isinstance(value, str) and value)
 
 
+def normalize_historical_selection(
+    accounts: Iterable[OejpAccount],
+    identity_secret: str,
+    requested: Iterable[str],
+) -> tuple[str, ...]:
+    """Validate history selection and reject stale or redundant child choices."""
+    requested_set = frozenset(requested)
+    enabled: set[str] = set()
+    for account in accounts:
+        account_identity = stable_account_identity(identity_secret, account.number)
+        if account.lifecycle is ResourceLifecycle.HISTORICAL:
+            if account_identity in requested_set:
+                enabled.add(account_identity)
+            # A historical account owns selection of every child. Child-only
+            # choices under an unselected account are stale and ignored.
+            continue
+        for supply_point in _iter_supply_points(account):
+            if supply_point.lifecycle is not ResourceLifecycle.HISTORICAL:
+                continue
+            supply_point_identity = stable_supply_point_identity(
+                identity_secret,
+                account.number,
+                supply_point.id,
+            )
+            if supply_point_identity in requested_set:
+                enabled.add(supply_point_identity)
+    return tuple(sorted(enabled))
+
+
 def async_project_discovered_devices(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -74,15 +105,24 @@ def async_project_discovered_devices(
     registry = dr.async_get(hass)
     selected = selected_historical_resources(entry)
     integration_disabler = _integration_device_disabler()
+    discovered_identities: set[str] = set()
     for account_number, account in enumerate(runtime.accounts, start=1):
         account_identity = stable_account_identity(runtime.identity_secret, account.number)
+        discovered_identities.add(account_identity)
+        account_selected = account_identity in selected
         account_disabled = (
-            account.lifecycle is ResourceLifecycle.HISTORICAL and account_identity not in selected
+            account.lifecycle is ResourceLifecycle.HISTORICAL and not account_selected
         )
+        account_identifiers = {(DOMAIN, account_identity)}
+        existing_account = registry.async_get_device(identifiers=account_identifiers)
         account_device = registry.async_get_or_create(
             config_entry_id=entry.entry_id,
-            disabled_by=(integration_disabler if account_disabled else None),
-            identifiers={(DOMAIN, account_identity)},
+            disabled_by=(
+                existing_account.disabled_by
+                if existing_account is not None
+                else (integration_disabler if account_disabled else None)
+            ),
+            identifiers=account_identifiers,
             manufacturer="Octopus Energy Japan",
             model="Electricity account",
             name=f"OEJP account {account_number}",
@@ -103,14 +143,22 @@ def async_project_discovered_devices(
                 account.number,
                 supply_point.id,
             )
+            discovered_identities.add(supply_point_identity)
             supply_point_disabled = account_disabled or (
                 supply_point.lifecycle is ResourceLifecycle.HISTORICAL
+                and not account_selected
                 and supply_point_identity not in selected
             )
+            supply_point_identifiers = {(DOMAIN, supply_point_identity)}
+            existing_supply_point = registry.async_get_device(identifiers=supply_point_identifiers)
             supply_point_device = registry.async_get_or_create(
                 config_entry_id=entry.entry_id,
-                disabled_by=(integration_disabler if supply_point_disabled else None),
-                identifiers={(DOMAIN, supply_point_identity)},
+                disabled_by=(
+                    existing_supply_point.disabled_by
+                    if existing_supply_point is not None
+                    else (integration_disabler if supply_point_disabled else None)
+                ),
+                identifiers=supply_point_identifiers,
                 manufacturer="Octopus Energy Japan",
                 model="Electricity supply point",
                 name=f"OEJP supply point {account_number}-{supply_point_number}",
@@ -120,6 +168,16 @@ def async_project_discovered_devices(
                 registry,
                 supply_point_device,
                 disabled=supply_point_disabled,
+                integration_disabler=integration_disabler,
+            )
+
+    for device in dr.async_entries_for_config_entry(registry, entry.entry_id):
+        identities = {identifier for domain, identifier in device.identifiers if domain == DOMAIN}
+        if identities and identities.isdisjoint(discovered_identities):
+            _sync_device_disabled(
+                registry,
+                device,
+                disabled=True,
                 integration_disabler=integration_disabler,
             )
 

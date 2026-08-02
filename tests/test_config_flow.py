@@ -12,7 +12,9 @@ from custom_components.octopus_energy_japan.api import (
     OejpAccount,
     OejpAuthenticationError,
     OejpInvalidResponseError,
+    OejpProperty,
     OejpRateLimitError,
+    OejpSupplyPoint,
     OejpTransportError,
     ResourceLifecycle,
 )
@@ -255,6 +257,18 @@ async def test_reconfigure_selects_historical_resources(hass: HomeAssistant) -> 
             OejpAccount(
                 number="OLD-ACCOUNT",
                 lifecycle=ResourceLifecycle.HISTORICAL,
+                properties=(
+                    OejpProperty(
+                        id="OLD-PROPERTY",
+                        supply_points=(
+                            OejpSupplyPoint(
+                                id="OLD-SUPPLY",
+                                account_number="OLD-ACCOUNT",
+                                lifecycle=ResourceLifecycle.HISTORICAL,
+                            ),
+                        ),
+                    ),
+                ),
             ),
         ),
         capabilities=CapabilitySnapshot(),

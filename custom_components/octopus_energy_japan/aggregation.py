@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -38,6 +38,7 @@ class PeriodAggregate:
     official_cost: Decimal | None = None
     interval_count: int = 0
     correction_count: int = 0
+    complete: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +75,8 @@ type _PhysicalIntervalKey = tuple[
     datetime,
 ]
 type _TargetKey = tuple[str | None, str | None]
+type AggregationSeriesKey = tuple[str, str, ReadingDirection]
+type CoverageRange = tuple[datetime, datetime]
 
 
 def aggregate_intervals(records: Iterable[LedgerRecord]) -> tuple[AggregatedInterval, ...]:
@@ -124,15 +127,11 @@ def aggregate_calendar(
     now: datetime,
     *,
     timezone: ZoneInfo = TOKYO,
+    series: Iterable[AggregationSeriesKey] = (),
 ) -> AggregationSnapshot:
     """Build deterministic JST day/week/month projections from ledger records."""
     generated_at = _utc(now)
-    local_now = generated_at.astimezone(timezone)
-    today_start = datetime.combine(local_now.date(), datetime.min.time(), timezone)
-    yesterday_start = today_start - timedelta(days=1)
-    week_start = today_start - timedelta(days=today_start.weekday())
-    month_start = today_start.replace(day=1)
-    last_month_start = _previous_month(month_start)
+    bounds = _calendar_bounds(generated_at, timezone)
 
     intervals = aggregate_intervals(
         record for record in records if record.reading.end_at.astimezone(UTC) <= generated_at
@@ -149,24 +148,26 @@ def aggregate_calendar(
 
     projections: list[SupplyPointAggregation] = []
     for key in sorted(
-        by_supply,
+        set(by_supply) | set(series),
         key=lambda value: (value[0], value[1], value[2].value),
     ):
-        values = by_supply[key]
-        latest = max(values, key=lambda value: (value.end_at, value.start_at))
+        values = by_supply.get(key, [])
+        latest = max(values, key=lambda value: (value.end_at, value.start_at), default=None)
         projections.append(
             SupplyPointAggregation(
                 account_id=key[0],
                 supply_point_id=key[1],
                 direction=key[2],
                 latest=latest,
-                today=_period(values, today_start, generated_at),
-                yesterday=_period(values, yesterday_start, today_start),
-                this_week=_period(values, week_start, generated_at),
-                this_month=_period(values, month_start, generated_at),
-                last_month=_period(values, last_month_start, month_start),
-                latest_reading_end=latest.end_at,
-                data_delay=max(generated_at - latest.end_at, timedelta(0)),
+                today=_period(values, bounds.today_start, generated_at),
+                yesterday=_period(values, bounds.yesterday_start, bounds.today_start),
+                this_week=_period(values, bounds.week_start, generated_at),
+                this_month=_period(values, bounds.month_start, generated_at),
+                last_month=_period(values, bounds.last_month_start, bounds.month_start),
+                latest_reading_end=(latest.end_at if latest is not None else None),
+                data_delay=(
+                    max(generated_at - latest.end_at, timedelta(0)) if latest is not None else None
+                ),
             )
         )
     return AggregationSnapshot(
@@ -174,6 +175,59 @@ def aggregate_calendar(
         generated_at,
         getattr(timezone, "key", str(timezone)),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class _CalendarBounds:
+    today_start: datetime
+    yesterday_start: datetime
+    week_start: datetime
+    month_start: datetime
+    last_month_start: datetime
+
+
+def apply_calendar_coverage(
+    snapshot: AggregationSnapshot,
+    coverage: Mapping[AggregationSeriesKey, Iterable[CoverageRange]],
+    *,
+    timezone: ZoneInfo = TOKYO,
+) -> AggregationSnapshot:
+    """Mark calendar aggregates complete only when authoritative coverage spans them."""
+    bounds = _calendar_bounds(snapshot.generated_at, timezone)
+    projections: list[SupplyPointAggregation] = []
+    for projection in snapshot.supply_points:
+        key = (
+            projection.account_id,
+            projection.supply_point_id,
+            projection.direction,
+        )
+        ranges = tuple(coverage.get(key, ()))
+        projections.append(
+            replace(
+                projection,
+                today=replace(
+                    projection.today,
+                    complete=_covers(ranges, bounds.today_start, snapshot.generated_at),
+                ),
+                yesterday=replace(
+                    projection.yesterday,
+                    complete=_covers(ranges, bounds.yesterday_start, bounds.today_start),
+                ),
+                this_week=replace(
+                    projection.this_week,
+                    complete=_covers(ranges, bounds.week_start, snapshot.generated_at),
+                ),
+                this_month=replace(
+                    projection.this_month,
+                    complete=_covers(ranges, bounds.month_start, snapshot.generated_at),
+                ),
+                last_month=replace(
+                    projection.last_month,
+                    complete=_covers(ranges, bounds.last_month_start, bounds.month_start),
+                ),
+            )
+        )
+    return replace(snapshot, supply_points=tuple(projections))
 
 
 def _select_physical_records(records: list[LedgerRecord]) -> tuple[LedgerRecord, ...]:
@@ -218,6 +272,39 @@ def _select_physical_records(records: list[LedgerRecord]) -> tuple[LedgerRecord,
             key=lambda value: (value[0] or "", value[1] or ""),
         )
     )
+
+
+def _calendar_bounds(now: datetime, timezone: ZoneInfo) -> _CalendarBounds:
+    local_now = _utc(now).astimezone(timezone)
+    today_start = datetime.combine(local_now.date(), datetime.min.time(), timezone)
+    month_start = today_start.replace(day=1)
+    return _CalendarBounds(
+        today_start=today_start,
+        yesterday_start=today_start - timedelta(days=1),
+        week_start=today_start - timedelta(days=today_start.weekday()),
+        month_start=month_start,
+        last_month_start=_previous_month(month_start),
+    )
+
+
+def _covers(
+    ranges: Iterable[CoverageRange],
+    start: datetime,
+    end: datetime,
+) -> bool:
+    required_start = _utc(start)
+    required_end = _utc(end)
+    cursor = required_start
+    normalized = sorted((_utc(value[0]), _utc(value[1])) for value in ranges)
+    for range_start, range_end in normalized:
+        if range_end <= cursor:
+            continue
+        if range_start > cursor:
+            return False
+        cursor = max(cursor, range_end)
+        if cursor >= required_end:
+            return True
+    return cursor >= required_end
 
 
 def _period(

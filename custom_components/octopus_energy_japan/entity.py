@@ -8,7 +8,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .api import ReadingDirection
 from .const import DOMAIN
 from .coordinator import OejpDataUpdateCoordinator, SupplyPointKey
-from .identity import stable_supply_point_identity
+from .identity import stable_account_identity, stable_supply_point_identity
 
 
 class OejpSupplyPointEntity(CoordinatorEntity[OejpDataUpdateCoordinator]):
@@ -33,6 +33,7 @@ class OejpSupplyPointEntity(CoordinatorEntity[OejpDataUpdateCoordinator]):
             account_id,
             supply_point_id,
         )
+        self._account_identity = stable_account_identity(identity_secret, account_id)
         identity = stable_supply_point_identity(
             identity_secret,
             account_id,
@@ -43,6 +44,7 @@ class OejpSupplyPointEntity(CoordinatorEntity[OejpDataUpdateCoordinator]):
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, identity)},
         )
+        self._supply_point_identity = identity
 
     @property
     def available(self) -> bool:
@@ -51,4 +53,19 @@ class OejpSupplyPointEntity(CoordinatorEntity[OejpDataUpdateCoordinator]):
             super().available
             and self.coordinator.data is not None
             and self._supply_point_key in self.coordinator.data.present_supply_points
+            and self._supply_point_key in self.coordinator.data.enabled_supply_points
+            and (
+                self._direction is None
+                or (
+                    (
+                        status := self.coordinator.data.direction_status(
+                            self._account_identity,
+                            self._supply_point_identity,
+                            self._direction,
+                        )
+                    )
+                    is not None
+                    and status.queryable
+                )
+            )
         )

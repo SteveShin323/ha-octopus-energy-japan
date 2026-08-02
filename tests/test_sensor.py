@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import cast
@@ -88,11 +89,11 @@ def _aggregation() -> SupplyPointAggregation:
         supply_point_id=SUPPLY_POINT_ID,
         direction=ReadingDirection.IMPORT,
         latest=latest,
-        today=PeriodAggregate(Decimal("1.25")),
-        yesterday=PeriodAggregate(Decimal("4.5")),
-        this_week=PeriodAggregate(Decimal("12.75")),
-        this_month=PeriodAggregate(Decimal("48.25")),
-        last_month=PeriodAggregate(Decimal("120.5")),
+        today=PeriodAggregate(Decimal("1.25"), complete=True),
+        yesterday=PeriodAggregate(Decimal("4.5"), complete=True),
+        this_week=PeriodAggregate(Decimal("12.75"), complete=True),
+        this_month=PeriodAggregate(Decimal("48.25"), complete=True),
+        last_month=PeriodAggregate(Decimal("120.5"), complete=True),
         latest_reading_end=latest.end_at,
         data_delay=timedelta(minutes=30),
     )
@@ -103,6 +104,7 @@ def _coordinator(
     accounts: tuple[OejpAccount, ...] | None = None,
     present: bool = True,
     queryable: bool = True,
+    enabled: bool = True,
 ) -> OejpDataUpdateCoordinator:
     coordinator = Mock()
     coordinator.accounts = accounts or (_account(),)
@@ -114,6 +116,9 @@ def _coordinator(
         aggregation=AggregationSnapshot((_aggregation(),), NOW),
         present_supply_points=(
             frozenset({(ACCOUNT_ID, SUPPLY_POINT_ID)}) if present else frozenset()
+        ),
+        enabled_supply_points=(
+            frozenset({(ACCOUNT_ID, SUPPLY_POINT_ID)}) if enabled else frozenset()
         ),
         direction_statuses=(
             (
@@ -182,6 +187,26 @@ def test_sensor_returns_unknown_when_direction_has_no_readings() -> None:
     assert entity.native_value is None
 
 
+def test_period_sensor_is_unknown_until_authoritative_coverage_is_complete() -> None:
+    coordinator = _coordinator()
+    aggregate = _aggregation()
+    incomplete = replace(aggregate, this_month=replace(aggregate.this_month, complete=False))
+    coordinator.data = replace(
+        coordinator.data,
+        aggregation=AggregationSnapshot((incomplete,), NOW),
+    )
+    entity = OejpConsumptionSensor(
+        coordinator,
+        SECRET,
+        ACCOUNT_ID,
+        SUPPLY_POINT_ID,
+        ReadingDirection.IMPORT,
+        _description("this_month"),
+    )
+
+    assert entity.native_value is None
+
+
 def test_supply_point_status_and_disappearance() -> None:
     active = OejpSupplyPointStatusSensor(
         _coordinator(),
@@ -199,6 +224,26 @@ def test_supply_point_status_and_disappearance() -> None:
     assert active.native_value == ResourceLifecycle.ACTIVE
     assert active.available
     assert not missing.available
+
+
+def test_disabled_point_and_nonqueryable_direction_are_unavailable() -> None:
+    disabled_status = OejpSupplyPointStatusSensor(
+        _coordinator(enabled=False),
+        SECRET,
+        ACCOUNT_ID,
+        SUPPLY_POINT_ID,
+    )
+    nonqueryable_energy = OejpConsumptionSensor(
+        _coordinator(queryable=False),
+        SECRET,
+        ACCOUNT_ID,
+        SUPPLY_POINT_ID,
+        ReadingDirection.IMPORT,
+        _description("latest_interval"),
+    )
+
+    assert not disabled_status.available
+    assert not nonqueryable_energy.available
 
 
 async def test_sensor_platform_adds_each_entity_once(
@@ -243,3 +288,42 @@ async def test_capability_or_topology_alone_creates_only_status_sensor(
 
     assert len(add_entities.call_args.args[0]) == 1
     assert isinstance(add_entities.call_args.args[0][0], OejpSupplyPointStatusSensor)
+
+
+async def test_direction_entities_are_added_dynamically_exactly_once(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = _coordinator(queryable=False)
+    entry = MockConfigEntry(domain=DOMAIN)
+    entry.runtime_data = OejpRuntimeData(
+        auth=AsyncMock(),
+        accounts=coordinator.accounts,
+        capabilities=coordinator.capabilities,
+        identity_secret=SECRET,
+        coordinator=coordinator,
+    )
+    add_entities = Mock()
+    await async_setup_entry(hass, entry, add_entities)
+    listener = cast("Mock", coordinator.async_add_listener).call_args.args[0]
+
+    coordinator.data = replace(
+        coordinator.data,
+        direction_statuses=(
+            DirectionSyncStatus(
+                account_identity=stable_account_identity(SECRET, ACCOUNT_ID),
+                supply_point_identity=stable_supply_point_identity(
+                    SECRET,
+                    ACCOUNT_ID,
+                    SUPPLY_POINT_ID,
+                ),
+                direction=ReadingDirection.IMPORT,
+                queryable=True,
+                last_success_at=NOW,
+            ),
+        ),
+    )
+    listener()
+    listener()
+
+    assert add_entities.call_count == 2
+    assert len(add_entities.call_args.args[0]) == len(ENERGY_DESCRIPTIONS)

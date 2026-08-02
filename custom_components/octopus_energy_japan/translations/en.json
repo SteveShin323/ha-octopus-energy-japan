@@ -32,7 +32,7 @@
         "title": "Reconnect Octopus Energy Japan"
       },
       "reconfigure": {
-        "description": "Active accounts and supply points are always enabled. Select any ended resources whose devices and future entities should remain enabled.",
+        "description": "Active accounts and supply points are always enabled. Selecting an ended account enables all of its supply points; ended supply points under an active account can be selected individually.",
         "title": "Manage historical OEJP resources",
         "data": {
           "enabled_historical_resources": "Enabled historical resources"
