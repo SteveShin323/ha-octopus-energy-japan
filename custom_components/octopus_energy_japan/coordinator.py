@@ -49,7 +49,7 @@ from .background_sync import (
     BackgroundSyncPlanner,
     BackgroundSyncQueue,
     BackgroundSyncReason,
-    BackgroundWindow,
+    CoverageWindow,
     SyncCheckpoint,
 )
 from .const import DOMAIN
@@ -121,7 +121,7 @@ class DirectionSyncStatus:
     error_class: DirectionErrorClass | None = None
     coverage_start_at: datetime | None = None
     coverage_end_at: datetime | None = None
-    background_coverage: tuple[BackgroundWindow, ...] = ()
+    background_coverage: tuple[CoverageWindow, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

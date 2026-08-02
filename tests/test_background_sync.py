@@ -14,6 +14,7 @@ from custom_components.octopus_energy_japan.background_sync import (
     BackgroundSyncReason,
     BackgroundSyncScope,
     BackgroundWindow,
+    CoverageWindow,
     DailyDirectionCompletion,
     PlannedGeneration,
     SyncCheckpoint,
@@ -226,7 +227,7 @@ def test_authoritative_empty_completion_merges_adjacent_coverage() -> None:
         )
 
     assert checkpoint.coverage_for(ReadingDirection.IMPORT) == (
-        BackgroundWindow(NOW - timedelta(days=14), NOW),
+        CoverageWindow(NOW - timedelta(days=14), NOW),
     )
 
 

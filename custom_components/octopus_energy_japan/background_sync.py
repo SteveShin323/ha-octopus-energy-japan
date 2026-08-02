@@ -60,6 +60,22 @@ class BackgroundWindow:
         object.__setattr__(self, "end_at", end)
 
 
+@dataclass(frozen=True, slots=True, order=True)
+class CoverageWindow:
+    """One merged half-open UTC coverage range without request-size limits."""
+
+    start_at: datetime
+    end_at: datetime
+
+    def __post_init__(self) -> None:
+        start = _utc(self.start_at)
+        end = _utc(self.end_at)
+        if end <= start:
+            raise ValueError("Coverage window end must be later than start")
+        object.__setattr__(self, "start_at", start)
+        object.__setattr__(self, "end_at", end)
+
+
 @dataclass(frozen=True, slots=True)
 class SyncObligation:
     """One reason/generation satisfied by a successful request scope."""
@@ -258,7 +274,7 @@ class DirectionCoverage:
     """One merged background authoritative coverage range."""
 
     direction: ReadingDirection
-    window: BackgroundWindow
+    window: CoverageWindow
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -455,7 +471,7 @@ class SyncCheckpoint:
     def coverage_for(
         self,
         direction: ReadingDirection,
-    ) -> tuple[BackgroundWindow, ...]:
+    ) -> tuple[CoverageWindow, ...]:
         """Return durable background coverage for one direction."""
         return tuple(
             value.window for value in self.background_coverage if value.direction is direction
@@ -553,7 +569,7 @@ class SyncCheckpoint:
             for value in _required_mapping_list(payload, "completed_windows")
         )
         coverage = tuple(
-            DirectionCoverage(_direction(value), _window(value))
+            DirectionCoverage(_direction(value), _coverage_window(value))
             for value in _required_mapping_list(payload, "background_coverage")
         )
         daily = tuple(
@@ -609,15 +625,15 @@ def _newest_first_chunks(start_at: datetime, end_at: datetime) -> tuple[Backgrou
 def _merge_direction_coverage(
     coverage: Iterable[DirectionCoverage],
     direction: ReadingDirection,
-    window: BackgroundWindow,
+    window: BackgroundWindow | CoverageWindow,
 ) -> tuple[DirectionCoverage, ...]:
     values = [value.window for value in coverage if value.direction is direction]
-    values.append(window)
-    merged: list[BackgroundWindow] = []
+    values.append(CoverageWindow(window.start_at, window.end_at))
+    merged: list[CoverageWindow] = []
     for value in sorted(values):
         if merged and value.start_at <= merged[-1].end_at:
             previous = merged[-1]
-            merged[-1] = BackgroundWindow(
+            merged[-1] = CoverageWindow(
                 previous.start_at,
                 max(previous.end_at, value.end_at),
             )
@@ -708,6 +724,13 @@ def _generation_from_dict(value: object) -> PlannedGeneration:
 
 def _window(value: Mapping[str, Any]) -> BackgroundWindow:
     return BackgroundWindow(
+        _datetime(_required_string(value, "start_at")),
+        _datetime(_required_string(value, "end_at")),
+    )
+
+
+def _coverage_window(value: Mapping[str, Any]) -> CoverageWindow:
+    return CoverageWindow(
         _datetime(_required_string(value, "start_at")),
         _datetime(_required_string(value, "end_at")),
     )
