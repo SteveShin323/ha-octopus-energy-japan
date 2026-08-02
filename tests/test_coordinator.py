@@ -39,6 +39,7 @@ from custom_components.octopus_energy_japan.background_sync import (
     BackgroundSyncReason,
     BackgroundSyncScope,
     BackgroundWindow,
+    CoverageWindow,
     PlannedGeneration,
     SyncCheckpoint,
     SyncObligation,
@@ -889,7 +890,9 @@ async def test_background_worker_persists_ledger_before_checkpoint_and_publishes
 
     assert events == ["reconcile", "ledger_flush", "checkpoint_save"]
     assert state.checkpoint.is_completed(direction, obligation, window)
-    assert state.checkpoint.coverage_for(direction) == (window,)
+    assert state.checkpoint.coverage_for(direction) == (
+        CoverageWindow(window.start_at, window.end_at),
+    )
     coordinator.async_set_updated_data.assert_called_once()
 
 
