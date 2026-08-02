@@ -1,7 +1,7 @@
 # Runtime execution and entity projection specification
 
 Status: normative implementation contract for Full Development Plan v3 PR 7
-Reviewed: 2026-07-31
+Reviewed: 2026-08-02
 
 This document defines the only permitted runtime design for the Home Assistant
 integration. It is subordinate to

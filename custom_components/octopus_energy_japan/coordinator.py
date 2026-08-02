@@ -416,7 +416,8 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                     shared_transient
                 )
 
-            await self._async_schedule_background_work(now)
+            if self._background_started:
+                await self._async_schedule_background_work(now)
             combined = CorrectionResult.combine(corrections)
             async with self._mutation_lock:
                 return await self._async_build_snapshot(
@@ -528,10 +529,16 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             ),
         )
 
-    def async_start_background_sync(self) -> None:
-        """Allow queued backfill only after the entry has finished setup."""
+    async def async_start_background_sync(self) -> None:
+        """Plan and start backfill only after the entry has finished setup."""
+        if self._background_started:
+            return
         self._background_started = True
-        self._ensure_background_worker()
+        try:
+            await self._async_schedule_background_work(self._utc_now())
+        except BaseException:
+            self._background_started = False
+            raise
 
     async def async_prepare_shutdown(self) -> None:
         """Quiesce the worker after any active atomic persistence section."""
@@ -589,6 +596,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             last_billing_at=self._schedule.last_billing_at,
         )
         await self._async_apply_resource_lifecycle()
+        await self._async_reconsider_failures_after_discovery()
         from .runtime import OejpRuntimeData, async_project_discovered_devices
 
         runtime = self._entry.runtime_data
@@ -596,6 +604,21 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             runtime.accounts = accounts
             runtime.capabilities = capabilities
             async_project_discovered_devices(self.hass, self._entry, runtime)
+
+    async def _async_reconsider_failures_after_discovery(self) -> None:
+        """Retry permanent windows only after a new relevant discovery generation."""
+        async with self._mutation_lock:
+            for state in self._enabled_states():
+                checkpoint = state.checkpoint
+                for direction in candidate_directions(
+                    state.supply_point,
+                    self._capabilities,
+                    previously_queryable=self._previously_queryable_directions(state),
+                ):
+                    checkpoint = checkpoint.clear_failures(direction)
+                if checkpoint != state.checkpoint:
+                    await state.checkpoint_backend.async_save(checkpoint.as_dict())
+                    state.checkpoint = checkpoint
 
     async def _async_apply_resource_lifecycle(self) -> None:
         """Cancel queued work for disabled or missing resources without deleting stores."""
@@ -778,8 +801,9 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                     obsolete,
                 )
             directions = self._previously_queryable_directions(state)
-            for direction in directions:
-                checkpoint = checkpoint.clear_failures(direction)
+            if daily_plan is not None:
+                for direction in directions:
+                    checkpoint = checkpoint.clear_failures(direction)
             if checkpoint != state.checkpoint:
                 await state.checkpoint_backend.async_save(checkpoint.as_dict())
                 state.checkpoint = checkpoint

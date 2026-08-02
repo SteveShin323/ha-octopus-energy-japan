@@ -49,23 +49,20 @@ class OejpSupplyPointEntity(CoordinatorEntity[OejpDataUpdateCoordinator]):
     @property
     def available(self) -> bool:
         """Retain disappeared entities while marking them unavailable."""
-        return (
-            super().available
-            and self.coordinator.data is not None
-            and self._supply_point_key in self.coordinator.data.present_supply_points
-            and self._supply_point_key in self.coordinator.data.enabled_supply_points
-            and (
-                self._direction is None
-                or (
-                    (
-                        status := self.coordinator.data.direction_status(
-                            self._account_identity,
-                            self._supply_point_identity,
-                            self._direction,
-                        )
-                    )
-                    is not None
-                    and status.queryable
-                )
-            )
+        data = self.coordinator.data
+        if (
+            data is None
+            or self._supply_point_key not in data.present_supply_points
+            or self._supply_point_key not in data.enabled_supply_points
+        ):
+            return False
+        if self._direction is None:
+            return True
+        status = data.direction_status(
+            self._account_identity,
+            self._supply_point_identity,
+            self._direction,
+        )
+        return bool(
+            super().available and status is not None and status.queryable and not status.stale
         )

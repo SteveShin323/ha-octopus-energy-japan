@@ -49,6 +49,7 @@ def _coordinator(
     with_reading: bool = True,
     queryable: bool = True,
     enabled: bool = True,
+    stale: bool = False,
 ) -> OejpDataUpdateCoordinator:
     point = OejpSupplyPoint(
         id=SUPPLY_POINT_ID,
@@ -110,6 +111,7 @@ def _coordinator(
                     ),
                     direction=ReadingDirection.IMPORT,
                     queryable=True,
+                    stale=stale,
                     last_success_at=NOW,
                 ),
             )
@@ -158,8 +160,16 @@ def test_data_available_reflects_completed_ledger_intervals() -> None:
         SUPPLY_POINT_ID,
         ReadingDirection.IMPORT,
     )
+    stale = OejpDataAvailableBinarySensor(
+        _coordinator(stale=True),
+        SECRET,
+        ACCOUNT_ID,
+        SUPPLY_POINT_ID,
+        ReadingDirection.IMPORT,
+    )
     assert not nonqueryable.available
     assert not disabled.available
+    assert not stale.available
 
 
 async def test_binary_sensor_platform_adds_each_entity_once(
