@@ -222,6 +222,123 @@ async def test_setup_entry_requests_reauth_for_invalid_token(
         await async_setup_entry(hass, entry)
 
 
+async def test_setup_failure_cleans_partially_allocated_runtime_and_platforms(
+    hass: HomeAssistant,
+) -> None:
+    entry = _entry()
+    auth = AsyncMock()
+    auth.async_get_authorization_header.return_value = "Bearer access"
+    coordinator = AsyncMock()
+    coordinator.async_config_entry_first_refresh.side_effect = ConfigEntryNotReady("retry")
+    with (
+        patch(
+            "homeassistant.helpers.config_entry_oauth2_flow.async_get_config_entry_implementation",
+            AsyncMock(return_value=AsyncMock()),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.oauth_metadata.require_oauth_metadata",
+            return_value=METADATA,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.oauth.OejpPkceAuthSession",
+            return_value=auth,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_discover_resources",
+            AsyncMock(return_value=()),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_detect_capabilities",
+            AsyncMock(return_value=CapabilitySnapshot()),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.identity.async_get_identity_secret",
+            AsyncMock(return_value="01" * 32),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.coordinator.OejpDataUpdateCoordinator",
+            return_value=coordinator,
+        ),
+        patch.object(
+            hass.config_entries,
+            "async_unload_platforms",
+            AsyncMock(side_effect=RuntimeError("partial unload failed")),
+        ) as unload,
+        patch.object(
+            hass.config_entries,
+            "async_forward_entry_setups",
+            AsyncMock(),
+        ) as forward,
+        pytest.raises(ConfigEntryNotReady),
+    ):
+        await async_setup_entry(hass, entry)
+
+    coordinator.async_shutdown_runtime.assert_awaited_once_with()
+    unload.assert_awaited_once_with(entry, ["sensor", "binary_sensor"])
+    forward.assert_not_awaited()
+    assert entry.runtime_data is None
+
+
+async def test_platform_forward_failure_is_cleaned_without_masking_error(
+    hass: HomeAssistant,
+) -> None:
+    entry = _entry()
+    auth = AsyncMock()
+    auth.async_get_authorization_header.return_value = "Bearer access"
+    coordinator = AsyncMock()
+    forward_error = RuntimeError("platform failed")
+    with (
+        patch(
+            "homeassistant.helpers.config_entry_oauth2_flow.async_get_config_entry_implementation",
+            AsyncMock(return_value=AsyncMock()),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.oauth_metadata.require_oauth_metadata",
+            return_value=METADATA,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.oauth.OejpPkceAuthSession",
+            return_value=auth,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_discover_resources",
+            AsyncMock(return_value=()),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_detect_capabilities",
+            AsyncMock(return_value=CapabilitySnapshot()),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.identity.async_get_identity_secret",
+            AsyncMock(return_value="01" * 32),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.coordinator.OejpDataUpdateCoordinator",
+            return_value=coordinator,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.runtime.async_project_discovered_devices"
+        ) as project_devices,
+        patch.object(
+            hass.config_entries,
+            "async_unload_platforms",
+            AsyncMock(return_value=True),
+        ) as unload,
+        patch.object(
+            hass.config_entries,
+            "async_forward_entry_setups",
+            AsyncMock(side_effect=forward_error),
+        ),
+        pytest.raises(RuntimeError, match="platform failed"),
+    ):
+        await async_setup_entry(hass, entry)
+
+    project_devices.assert_called_once()
+    coordinator.async_shutdown_runtime.assert_awaited_once_with()
+    unload.assert_awaited_once_with(entry, ["sensor", "binary_sensor"])
+    assert entry.runtime_data is None
+
+
 async def test_unload_entry_unloads_platforms_and_clears_runtime(
     hass: HomeAssistant,
 ) -> None:

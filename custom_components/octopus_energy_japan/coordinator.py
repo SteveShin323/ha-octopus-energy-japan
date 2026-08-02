@@ -6,6 +6,7 @@ import logging
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -25,8 +26,15 @@ from .api import (
     LegacyHalfHourlyProvider,
     OejpAccount,
     OejpAuthenticationError,
+    OejpAuthorizationError,
     OejpError,
+    OejpInvalidResponseError,
+    OejpNonRetryableHttpError,
+    OejpNotFoundError,
+    OejpQueryValidationError,
+    OejpRateLimitError,
     OejpSupplyPoint,
+    OejpTransportError,
     ReadingDirection,
     ReadingFallbackReason,
     ReadingProviderName,
@@ -74,6 +82,35 @@ class ProviderObservation:
     observed_at: datetime
 
 
+class DirectionErrorClass(StrEnum):
+    """Privacy-safe current failure category for one reading direction."""
+
+    AUTHORIZATION = "authorization"
+    VALIDATION = "validation"
+    NOT_FOUND = "not_found"
+    INVALID_RESPONSE = "invalid_response"
+    UNAVAILABLE = "unavailable"
+    NON_RETRYABLE_HTTP = "non_retryable_http"
+    RATE_LIMIT = "rate_limit"
+    TRANSIENT = "transient"
+    LEDGER = "ledger"
+
+
+@dataclass(frozen=True, slots=True)
+class DirectionSyncStatus:
+    """Immutable queryability, freshness, and recent coverage state."""
+
+    account_identity: str
+    supply_point_identity: str
+    direction: ReadingDirection
+    queryable: bool = False
+    stale: bool = False
+    last_success_at: datetime | None = None
+    error_class: DirectionErrorClass | None = None
+    coverage_start_at: datetime | None = None
+    coverage_end_at: datetime | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class OejpCoordinatorData:
     """Immutable coordinator snapshot consumed by Home Assistant entities."""
@@ -82,6 +119,8 @@ class OejpCoordinatorData:
     capabilities: CapabilitySnapshot
     aggregation: AggregationSnapshot
     present_supply_points: frozenset[SupplyPointKey]
+    enabled_supply_points: frozenset[SupplyPointKey] = frozenset()
+    direction_statuses: tuple[DirectionSyncStatus, ...] = ()
     provider_observations: tuple[ProviderObservation, ...] = ()
     correction_count: int = 0
     last_refresh_change_count: int = 0
@@ -118,6 +157,24 @@ class OejpCoordinatorData:
                 if point.id == supply_point_id:
                     return point.lifecycle
         return None
+
+    def direction_status(
+        self,
+        account_identity: str,
+        supply_point_identity: str,
+        direction: ReadingDirection,
+    ) -> DirectionSyncStatus | None:
+        """Return one privacy-preserving direction status."""
+        return next(
+            (
+                status
+                for status in self.direction_statuses
+                if status.account_identity == account_identity
+                and status.supply_point_identity == supply_point_identity
+                and status.direction is direction
+            ),
+            None,
+        )
 
 
 @dataclass(slots=True)
@@ -162,7 +219,14 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
         self._planner = SyncWindowPlanner()
         self._schedule = SyncScheduleState(last_discovery_at=self._utc_now())
         self._supply_points: dict[SupplyPointKey, _SupplyPointRuntime] = {}
-        self._first_sync = True
+        self._direction_statuses: dict[
+            tuple[str, str, ReadingDirection],
+            DirectionSyncStatus,
+        ] = {}
+        self._provider_observations: dict[
+            tuple[str, str, ReadingDirection],
+            ProviderObservation,
+        ] = {}
 
     @property
     def accounts(self) -> tuple[OejpAccount, ...]:
@@ -179,51 +243,170 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
         try:
             await self._async_refresh_discovery_if_due(now)
             await self._async_prepare_enabled_supply_points(now)
-            due = slow_cadence_due(now, self._schedule)
-            if self._first_sync:
-                windows = self._planner.initial(now)
-            elif due.reconciliation:
-                windows = self._planner.reconciliation(now)
-            else:
-                windows = self._planner.poll(now)
-
-            observations: dict[
-                tuple[str, str, ReadingDirection],
-                ProviderObservation,
-            ] = {}
-            corrections: list[CorrectionResult] = []
-            for state in self._enabled_states():
+            windows = self._planner.poll(now)
+            enabled_states = self._enabled_states()
+            attempts = tuple(
+                (state, direction, window)
+                for state in enabled_states
                 for direction in candidate_directions(
                     state.supply_point,
                     self._capabilities,
-                ):
-                    for window in windows:
-                        result, observation = await self._async_sync_window(
+                    previously_queryable=self._previously_queryable_directions(state),
+                )
+                for window in windows
+            )
+            corrections: list[CorrectionResult] = []
+            successful_directions: set[tuple[str, str, ReadingDirection]] = set()
+            point_failures: dict[SupplyPointKey, DirectionErrorClass] = {}
+            shared_transient: OejpError | None = None
+            for index, (state, direction, window) in enumerate(attempts):
+                key = self._direction_key(state, direction)
+                self._ensure_direction_status(state, direction)
+                point_key = key[:2]
+                if point_error := point_failures.get(point_key):
+                    self._record_direction_failure(
+                        state,
+                        direction,
+                        point_error,
+                        queryable=False,
+                    )
+                    continue
+                try:
+                    result, observation = await self._async_sync_window(
+                        state,
+                        direction,
+                        window,
+                    )
+                except OejpAuthenticationError:
+                    raise
+                except (OejpRateLimitError, OejpTransportError) as err:
+                    if isinstance(err, OejpNonRetryableHttpError):
+                        self._record_direction_failure(
                             state,
                             direction,
-                            window,
+                            DirectionErrorClass.NON_RETRYABLE_HTTP,
+                            queryable=False,
                         )
-                        corrections.append(result)
-                        observations[
-                            (
-                                state.supply_point.account_number,
-                                state.supply_point.id,
-                                direction,
-                            )
-                        ] = observation
+                        continue
+                    self._record_direction_failure(
+                        state,
+                        direction,
+                        error_class := (
+                            DirectionErrorClass.RATE_LIMIT
+                            if isinstance(err, OejpRateLimitError)
+                            else DirectionErrorClass.TRANSIENT
+                        ),
+                        queryable=None,
+                    )
+                    shared_transient = err
+                    for pending_state, pending_direction, _pending_window in attempts[index + 1 :]:
+                        self._ensure_direction_status(pending_state, pending_direction)
+                        self._record_direction_failure(
+                            pending_state,
+                            pending_direction,
+                            error_class,
+                            queryable=None,
+                        )
+                    break
+                except OejpAuthorizationError:
+                    self._record_direction_failure(
+                        state,
+                        direction,
+                        DirectionErrorClass.AUTHORIZATION,
+                        queryable=False,
+                    )
+                    continue
+                except OejpQueryValidationError:
+                    self._record_direction_failure(
+                        state,
+                        direction,
+                        DirectionErrorClass.VALIDATION,
+                        queryable=False,
+                    )
+                    continue
+                except OejpNotFoundError:
+                    point_failures[point_key] = DirectionErrorClass.NOT_FOUND
+                    self._record_point_failure(
+                        state,
+                        DirectionErrorClass.NOT_FOUND,
+                    )
+                    continue
+                except OejpInvalidResponseError:
+                    point_failures[point_key] = DirectionErrorClass.INVALID_RESPONSE
+                    self._record_point_failure(
+                        state,
+                        DirectionErrorClass.INVALID_RESPONSE,
+                    )
+                    continue
+                except LedgerError:
+                    point_failures[point_key] = DirectionErrorClass.LEDGER
+                    self._record_point_failure(
+                        state,
+                        DirectionErrorClass.LEDGER,
+                    )
+                    continue
+                except ValueError:
+                    point_failures[point_key] = DirectionErrorClass.INVALID_RESPONSE
+                    self._record_point_failure(
+                        state,
+                        DirectionErrorClass.INVALID_RESPONSE,
+                    )
+                    continue
+                except OejpError:
+                    self._record_direction_failure(
+                        state,
+                        direction,
+                        DirectionErrorClass.UNAVAILABLE,
+                        queryable=False,
+                    )
+                    continue
+                else:
+                    corrections.append(result)
+                    successful_directions.add(key)
+                    self._provider_observations[key] = observation
+                    self._record_direction_success(state, direction, window, observation)
+
+            if attempts and not successful_directions and shared_transient is not None:
+                raise UpdateFailed("OEJP reading synchronization is temporarily unavailable") from (
+                    shared_transient
+                )
 
             records: list[LedgerRecord] = []
             aggregate_start = _previous_local_month_start(now)
-            for state in self._supply_points.values():
-                records.extend(await state.ledger.async_records(aggregate_start, now))
+            queryable = {
+                key for key, status in self._direction_statuses.items() if status.queryable
+            }
+            enabled_keys = {
+                (state.supply_point.account_number, state.supply_point.id)
+                for state in enabled_states
+            }
+            for state in enabled_states:
+                try:
+                    state_records = await state.ledger.async_records(aggregate_start, now)
+                except LedgerError, ValueError:
+                    for direction in candidate_directions(
+                        state.supply_point,
+                        self._capabilities,
+                        previously_queryable=self._previously_queryable_directions(state),
+                    ):
+                        self._record_direction_failure(
+                            state,
+                            direction,
+                            DirectionErrorClass.LEDGER,
+                            queryable=False,
+                        )
+                    continue
+                records.extend(
+                    record
+                    for record in state_records
+                    if (
+                        record.reading.account_id,
+                        record.reading.supply_point_id,
+                        record.reading.direction,
+                    )
+                    in queryable
+                )
 
-            self._first_sync = False
-            self._schedule = SyncScheduleState(
-                last_reconciliation_date=now.astimezone(TOKYO).date(),
-                last_discovery_at=self._schedule.last_discovery_at,
-                last_contract_at=self._schedule.last_contract_at,
-                last_billing_at=self._schedule.last_billing_at,
-            )
             combined = CorrectionResult.combine(corrections)
             return OejpCoordinatorData(
                 accounts=self._accounts,
@@ -237,7 +420,17 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                     for account in self._accounts
                     for point in iter_supply_points(account)
                 ),
-                provider_observations=tuple(observations[key] for key in sorted(observations)),
+                enabled_supply_points=frozenset(enabled_keys),
+                direction_statuses=tuple(
+                    self._direction_statuses[key]
+                    for key in sorted(self._direction_statuses, key=_direction_key_sort)
+                    if key[:2] in enabled_keys
+                ),
+                provider_observations=tuple(
+                    self._provider_observations[key]
+                    for key in sorted(self._provider_observations, key=_direction_key_sort)
+                    if key[:2] in enabled_keys
+                ),
                 correction_count=sum(record.correction_count for record in records),
                 last_refresh_change_count=(
                     combined.inserted_count + combined.corrected_count + combined.deleted_count
@@ -248,13 +441,18 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             )
         except OejpAuthenticationError as err:
             raise ConfigEntryAuthFailed("OEJP OAuth authorization must be renewed") from err
+        except UpdateFailed:
+            raise
         except (OejpError, LedgerError, ValueError) as err:
             raise UpdateFailed("OEJP reading synchronization failed") from err
 
     async def async_shutdown_runtime(self) -> None:
         """Flush every debounced ledger write before config-entry unload."""
         for state in self._supply_points.values():
-            await state.backend.async_flush()
+            try:
+                await state.backend.async_flush()
+            except Exception:
+                _LOGGER.exception("Unable to flush an OEJP ledger during runtime cleanup")
 
     async def _async_refresh_discovery_if_due(self, now: datetime) -> None:
         due = slow_cadence_due(now, self._schedule)
@@ -301,7 +499,14 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                     account_id=point.account_number,
                     supply_point_id=point.id,
                 )
-                await ledger.async_initialize(now)
+                try:
+                    await ledger.async_initialize(now)
+                except BaseException:
+                    try:
+                        await backend.async_flush()
+                    except Exception:
+                        _LOGGER.exception("Unable to flush a partially initialized OEJP ledger")
+                    raise
                 state = _SupplyPointRuntime(
                     supply_point=point,
                     backend=backend,
@@ -386,6 +591,137 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             self._supply_points[key] for key in sorted(enabled) if key in self._supply_points
         )
 
+    def _previously_queryable_directions(
+        self,
+        state: _SupplyPointRuntime,
+    ) -> tuple[ReadingDirection, ...]:
+        return tuple(
+            sorted(
+                (
+                    direction
+                    for (
+                        account_id,
+                        point_id,
+                        direction,
+                    ), status in self._direction_statuses.items()
+                    if account_id == state.supply_point.account_number
+                    and point_id == state.supply_point.id
+                    and status.queryable
+                ),
+                key=lambda direction: direction.value,
+            )
+        )
+
+    def _direction_key(
+        self,
+        state: _SupplyPointRuntime,
+        direction: ReadingDirection,
+    ) -> tuple[str, str, ReadingDirection]:
+        return (
+            state.supply_point.account_number,
+            state.supply_point.id,
+            direction,
+        )
+
+    def _ensure_direction_status(
+        self,
+        state: _SupplyPointRuntime,
+        direction: ReadingDirection,
+    ) -> DirectionSyncStatus:
+        key = self._direction_key(state, direction)
+        status = self._direction_statuses.get(key)
+        if status is None:
+            status = DirectionSyncStatus(
+                account_identity=stable_account_identity(
+                    self._identity_secret,
+                    state.supply_point.account_number,
+                ),
+                supply_point_identity=stable_supply_point_identity(
+                    self._identity_secret,
+                    state.supply_point.account_number,
+                    state.supply_point.id,
+                ),
+                direction=direction,
+            )
+            self._direction_statuses[key] = status
+        return status
+
+    def _record_direction_success(
+        self,
+        state: _SupplyPointRuntime,
+        direction: ReadingDirection,
+        window: SyncWindow,
+        observation: ProviderObservation,
+    ) -> None:
+        key = self._direction_key(state, direction)
+        previous = self._ensure_direction_status(state, direction)
+        self._direction_statuses[key] = DirectionSyncStatus(
+            account_identity=previous.account_identity,
+            supply_point_identity=previous.supply_point_identity,
+            direction=direction,
+            queryable=True,
+            stale=False,
+            last_success_at=observation.observed_at,
+            error_class=None,
+            coverage_start_at=(
+                min(previous.coverage_start_at, window.start_at)
+                if previous.coverage_start_at is not None
+                else window.start_at
+            ),
+            coverage_end_at=(
+                max(previous.coverage_end_at, window.end_at)
+                if previous.coverage_end_at is not None
+                else window.end_at
+            ),
+        )
+
+    def _record_direction_failure(
+        self,
+        state: _SupplyPointRuntime,
+        direction: ReadingDirection,
+        error_class: DirectionErrorClass,
+        *,
+        queryable: bool | None,
+    ) -> None:
+        key = self._direction_key(state, direction)
+        previous = self._ensure_direction_status(state, direction)
+        self._direction_statuses[key] = DirectionSyncStatus(
+            account_identity=previous.account_identity,
+            supply_point_identity=previous.supply_point_identity,
+            direction=direction,
+            queryable=(previous.queryable if queryable is None else queryable),
+            stale=(queryable is None or previous.last_success_at is not None),
+            last_success_at=previous.last_success_at,
+            error_class=error_class,
+            coverage_start_at=previous.coverage_start_at,
+            coverage_end_at=previous.coverage_end_at,
+        )
+
+    def _record_point_failure(
+        self,
+        state: _SupplyPointRuntime,
+        error_class: DirectionErrorClass,
+    ) -> None:
+        directions = set(
+            candidate_directions(
+                state.supply_point,
+                self._capabilities,
+                previously_queryable=self._previously_queryable_directions(state),
+            )
+        )
+        directions.update(
+            direction
+            for account_id, point_id, direction in self._direction_statuses
+            if account_id == state.supply_point.account_number and point_id == state.supply_point.id
+        )
+        for direction in sorted(directions, key=lambda value: value.value):
+            self._record_direction_failure(
+                state,
+                direction,
+                error_class,
+                queryable=False,
+            )
+
     def _utc_now(self) -> datetime:
         value = self._now()
         if value.tzinfo is None:
@@ -447,14 +783,21 @@ def entity_directions(
     return tuple(
         sorted(
             {
-                observation.direction
-                for observation in data.provider_observations
-                if observation.account_identity == account_identity
-                and observation.supply_point_identity == point_identity
+                status.direction
+                for status in data.direction_statuses
+                if status.account_identity == account_identity
+                and status.supply_point_identity == point_identity
+                and status.queryable
             },
             key=lambda direction: direction.value,
         )
     )
+
+
+def _direction_key_sort(
+    key: tuple[str, str, ReadingDirection],
+) -> tuple[str, str, str]:
+    return key[0], key[1], key[2].value
 
 
 def _previous_local_month_start(now: datetime) -> datetime:

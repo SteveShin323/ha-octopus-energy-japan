@@ -111,12 +111,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.runtime_data = runtime
     try:
         await coordinator.async_config_entry_first_refresh()
-    except Exception:
+        async_project_discovered_devices(hass, entry, runtime)
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    except BaseException:
+        # Platform forwarding can allocate listeners before it fails. Unload is
+        # intentionally best-effort so cleanup never hides the setup failure.
+        try:
+            await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+        except Exception:
+            _LOGGER.exception("Unable to unload partially set up OEJP platforms")
+        await coordinator.async_shutdown_runtime()
         entry.runtime_data = None
         raise
-
-    async_project_discovered_devices(hass, entry, runtime)
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 
