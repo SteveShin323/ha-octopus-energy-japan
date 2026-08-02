@@ -146,6 +146,12 @@ class BackgroundSyncQueue:
         """Discard a completed request scope."""
         self._items.pop(scope, None)
 
+    def retain_supply_points(self, identities: frozenset[str]) -> None:
+        """Cancel queued work for disabled or missing supply points."""
+        for scope in tuple(self._items):
+            if scope.supply_point_identity not in identities:
+                self._items.pop(scope)
+
     def remove_obligations(
         self,
         reason: BackgroundSyncReason,
@@ -520,6 +526,13 @@ class SyncCheckpoint:
                 )
             )
         return replace(self, failed_windows=tuple(sorted(failures, key=_failure_sort_key)))
+
+    def clear_failures(self, direction: ReadingDirection) -> Self:
+        """Allow one direction to be reconsidered after new provider evidence."""
+        retained = tuple(
+            failure for failure in self.failed_windows if failure.direction is not direction
+        )
+        return self if retained == self.failed_windows else replace(self, failed_windows=retained)
 
     def enqueue_missing(
         self,

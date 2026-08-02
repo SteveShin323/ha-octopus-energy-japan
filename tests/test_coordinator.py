@@ -250,17 +250,94 @@ def test_resource_helpers_never_select_only_the_first_item() -> None:
             historical.id,
         ),
         stable_account_identity(SECRET, historical_account.number),
-        stable_supply_point_identity(
-            SECRET,
-            old_account_id,
-            old_point.id,
-        ),
     ]
     assert set(enabled_supply_points(_entry(selected=selected), accounts, SECRET)) == {
         active,
         historical,
         old_point,
     }
+
+
+@pytest.mark.parametrize(
+    "discovered_accounts",
+    [
+        (),
+        (
+            _account(
+                _point(lifecycle=ResourceLifecycle.HISTORICAL),
+                lifecycle=ResourceLifecycle.HISTORICAL,
+            ),
+        ),
+    ],
+)
+async def test_discovery_cancels_disabled_or_missing_work_but_retains_store(
+    hass: HomeAssistant,
+    discovered_accounts: tuple[OejpAccount, ...],
+) -> None:
+    capabilities = _capabilities(Capability.IMPORT_READINGS)
+    loader = AsyncMock(return_value=(discovered_accounts, capabilities))
+    coordinator = _coordinator(hass, discovery_loader=loader)
+    coordinator._entry.runtime_data = None
+    coordinator._schedule = coordinator._schedule.__class__(
+        last_discovery_at=NOW - timedelta(hours=24),
+    )
+    point = _point()
+    _install_state(coordinator, point, router=AsyncMock())
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+    window = BackgroundWindow(NOW - timedelta(days=7), NOW - timedelta(hours=72))
+    coordinator._background_queue.enqueue(
+        BackgroundSyncScope(
+            stable_supply_point_identity(SECRET, ACCOUNT_ID, SUPPLY_POINT_ID),
+            ReadingDirection.IMPORT,
+            window,
+        ),
+        SyncObligation(BackgroundSyncReason.INITIAL_CURRENT_MONTH, "initial:test"),
+    )
+
+    await coordinator._async_refresh_discovery_if_due(NOW)
+
+    assert coordinator._background_queue.snapshot() == ()
+    assert coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)] is state
+
+
+async def test_new_direction_success_reconsiders_permanent_background_failure(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = _coordinator(hass)
+    point = _point()
+    _install_state(coordinator, point, router=AsyncMock())
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+    window = BackgroundWindow(NOW - timedelta(days=7), NOW - timedelta(hours=72))
+    obligation = SyncObligation(BackgroundSyncReason.INITIAL_CURRENT_MONTH, "initial:test")
+    generation = PlannedGeneration(obligation, window.end_at, (window,))
+    item = BackgroundSyncItem(
+        BackgroundSyncScope(
+            stable_supply_point_identity(SECRET, ACCOUNT_ID, SUPPLY_POINT_ID),
+            ReadingDirection.IMPORT,
+            window,
+        ),
+        frozenset({obligation}),
+    )
+    state.checkpoint = state.checkpoint.register(generation).mark_failed(
+        item,
+        DirectionErrorClass.AUTHORIZATION.value,
+    )
+    coordinator._record_direction_success(
+        state,
+        ReadingDirection.IMPORT,
+        coordinator._planner.poll(NOW)[0],
+        Mock(observed_at=NOW),
+    )
+    coordinator._schedule = coordinator._schedule.__class__(
+        last_reconciliation_date=NOW.date(),
+        last_discovery_at=NOW,
+    )
+
+    await coordinator._async_schedule_background_work_locked(NOW)
+
+    assert state.checkpoint.failed_windows == ()
+    assert coordinator._background_queue.snapshot() == (item,)
+    state.checkpoint_backend.async_save.assert_awaited_once()
 
 
 def test_entity_directions_require_authoritative_direction_success() -> None:
@@ -341,6 +418,11 @@ async def test_update_reconciles_window_and_projects_ledger(
     )
     ledger.async_reconcile.assert_awaited_once()
     assert data.aggregation.supply_points[0].today.energy_kwh == Decimal("0.5")
+    assert data.aggregation.supply_points[0].today.complete
+    assert data.aggregation.supply_points[0].yesterday.complete
+    assert data.aggregation.supply_points[0].this_week.complete
+    assert not data.aggregation.supply_points[0].this_month.complete
+    assert not data.aggregation.supply_points[0].last_month.complete
     assert data.provider_observations[0].provider is ReadingProviderName.GENERIC
     assert data.provider_observations[0].direction is ReadingDirection.IMPORT
     assert data.direction_statuses[0].queryable
@@ -492,7 +574,13 @@ async def test_successful_empty_export_is_queryable_with_import(
         ReadingDirection.EXPORT,
         ReadingDirection.IMPORT,
     )
-    assert len(data.aggregation.supply_points) == 1
+    assert len(data.aggregation.supply_points) == 2
+    export = data.supply_point_aggregation(
+        ACCOUNT_ID,
+        SUPPLY_POINT_ID,
+        ReadingDirection.EXPORT,
+    )
+    assert export is not None and export.latest is None
 
 
 async def test_partial_refresh_preserves_success_when_later_direction_is_forbidden(

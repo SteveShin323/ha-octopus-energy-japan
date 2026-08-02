@@ -20,6 +20,7 @@ from .aggregation import (
     AggregationSnapshot,
     SupplyPointAggregation,
     aggregate_calendar,
+    apply_calendar_coverage,
 )
 from .api import (
     AuthenticatedGraphQLClient,
@@ -473,10 +474,32 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                 )
                 in queryable
             )
+        queryable = {key for key, status in self._direction_statuses.items() if status.queryable}
+        series = tuple(
+            sorted(
+                (key for key in queryable if key[:2] in enabled_keys),
+                key=_direction_key_sort,
+            )
+        )
+        coverage: dict[
+            tuple[str, str, ReadingDirection],
+            tuple[tuple[datetime, datetime], ...],
+        ] = {}
+        for key, status in self._direction_statuses.items():
+            if key not in queryable or key[:2] not in enabled_keys:
+                continue
+            ranges = [(window.start_at, window.end_at) for window in status.background_coverage]
+            if status.coverage_start_at is not None and status.coverage_end_at is not None:
+                ranges.append((status.coverage_start_at, status.coverage_end_at))
+            coverage[key] = tuple(ranges)
+        aggregation = apply_calendar_coverage(
+            aggregate_calendar(records, now, series=series),
+            coverage,
+        )
         return OejpCoordinatorData(
             accounts=self._accounts,
             capabilities=self._capabilities,
-            aggregation=aggregate_calendar(records, now),
+            aggregation=aggregation,
             present_supply_points=frozenset(
                 (
                     point.account_number,
@@ -565,6 +588,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             last_contract_at=self._schedule.last_contract_at,
             last_billing_at=self._schedule.last_billing_at,
         )
+        await self._async_apply_resource_lifecycle()
         from .runtime import OejpRuntimeData, async_project_discovered_devices
 
         runtime = self._entry.runtime_data
@@ -572,6 +596,27 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             runtime.accounts = accounts
             runtime.capabilities = capabilities
             async_project_discovered_devices(self.hass, self._entry, runtime)
+
+    async def _async_apply_resource_lifecycle(self) -> None:
+        """Cancel queued work for disabled or missing resources without deleting stores."""
+        enabled_identities = frozenset(
+            stable_supply_point_identity(
+                self._identity_secret,
+                point.account_number,
+                point.id,
+            )
+            for point in enabled_supply_points(
+                self._entry,
+                self._accounts,
+                self._identity_secret,
+            )
+        )
+        async with self._mutation_lock:
+            self._background_queue.retain_supply_points(enabled_identities)
+            active_scopes = {item.scope for item in self._background_queue.snapshot()}
+            if self._background_active_scope is not None:
+                active_scopes.add(self._background_active_scope)
+            self._retry.prune(frozenset(active_scopes))
 
     async def _async_prepare_enabled_supply_points(self, now: datetime) -> None:
         for point in enabled_supply_points(
@@ -732,10 +777,12 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                     BackgroundSyncReason.DAILY_RECONCILIATION,
                     obsolete,
                 )
+            directions = self._previously_queryable_directions(state)
+            for direction in directions:
+                checkpoint = checkpoint.clear_failures(direction)
             if checkpoint != state.checkpoint:
                 await state.checkpoint_backend.async_save(checkpoint.as_dict())
                 state.checkpoint = checkpoint
-            directions = self._previously_queryable_directions(state)
             for direction in directions:
                 for generation in state.checkpoint.generations:
                     state.checkpoint.enqueue_missing(
@@ -1201,9 +1248,8 @@ def enabled_supply_points(
     enabled: list[OejpSupplyPoint] = []
     for account in accounts:
         account_identity = stable_account_identity(identity_secret, account.number)
-        account_enabled = (
-            account.lifecycle is not ResourceLifecycle.HISTORICAL or account_identity in selected
-        )
+        account_selected = account_identity in selected
+        account_enabled = account.lifecycle is not ResourceLifecycle.HISTORICAL or account_selected
         if not account_enabled:
             continue
         for point in iter_supply_points(account):
@@ -1212,7 +1258,11 @@ def enabled_supply_points(
                 account.number,
                 point.id,
             )
-            if point.lifecycle is not ResourceLifecycle.HISTORICAL or point_identity in selected:
+            if (
+                account_selected
+                or point.lifecycle is not ResourceLifecycle.HISTORICAL
+                or point_identity in selected
+            ):
                 enabled.append(point)
     return tuple(
         sorted(

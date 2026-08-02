@@ -387,6 +387,16 @@ def test_removing_only_obligation_deletes_queue_item() -> None:
     assert len(queue) == 0
 
 
+def test_queue_cancels_only_disabled_supply_point_work() -> None:
+    queue = BackgroundSyncQueue()
+    queue.enqueue(_scope(point=POINT_A), _obligation(generation="a"))
+    queue.enqueue(_scope(point=POINT_B), _obligation(generation="b"))
+
+    queue.retain_supply_points(frozenset({POINT_B}))
+
+    assert tuple(item.scope.supply_point_identity for item in queue.snapshot()) == (POINT_B,)
+
+
 def test_permanent_failure_round_trip_prevents_same_generation_spin() -> None:
     obligation = _obligation()
     generation = PlannedGeneration(obligation, NOW, (_scope().window,))
@@ -408,6 +418,16 @@ def test_permanent_failure_round_trip_prevents_same_generation_spin() -> None:
         generation.windows[0],
     )
     assert queue.snapshot() == ()
+
+    reconsidered = restored.clear_failures(ReadingDirection.IMPORT)
+    reconsidered.enqueue_missing(
+        queue,
+        POINT_A,
+        ReadingDirection.IMPORT,
+        generation,
+    )
+    assert queue.snapshot() == (item,)
+    assert reconsidered.clear_failures(ReadingDirection.EXPORT) is reconsidered
 
 
 def test_permanent_failure_requires_registered_window_and_safe_class() -> None:

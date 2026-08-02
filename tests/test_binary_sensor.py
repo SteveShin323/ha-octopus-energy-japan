@@ -48,6 +48,7 @@ def _coordinator(
     *,
     with_reading: bool = True,
     queryable: bool = True,
+    enabled: bool = True,
 ) -> OejpDataUpdateCoordinator:
     point = OejpSupplyPoint(
         id=SUPPLY_POINT_ID,
@@ -95,6 +96,9 @@ def _coordinator(
         capabilities=CapabilitySnapshot(),
         aggregation=AggregationSnapshot((aggregate,), NOW),
         present_supply_points=frozenset({(ACCOUNT_ID, SUPPLY_POINT_ID)}),
+        enabled_supply_points=(
+            frozenset({(ACCOUNT_ID, SUPPLY_POINT_ID)}) if enabled else frozenset()
+        ),
         direction_statuses=(
             (
                 DirectionSyncStatus(
@@ -138,6 +142,24 @@ def test_data_available_reflects_completed_ledger_intervals() -> None:
     assert available.translation_key == "import_data_available"
     assert ACCOUNT_ID not in available.unique_id
     assert SUPPLY_POINT_ID not in available.unique_id
+    assert available.available
+
+    nonqueryable = OejpDataAvailableBinarySensor(
+        _coordinator(queryable=False),
+        SECRET,
+        ACCOUNT_ID,
+        SUPPLY_POINT_ID,
+        ReadingDirection.IMPORT,
+    )
+    disabled = OejpDataAvailableBinarySensor(
+        _coordinator(enabled=False),
+        SECRET,
+        ACCOUNT_ID,
+        SUPPLY_POINT_ID,
+        ReadingDirection.IMPORT,
+    )
+    assert not nonqueryable.available
+    assert not disabled.available
 
 
 async def test_binary_sensor_platform_adds_each_entity_once(
