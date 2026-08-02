@@ -34,6 +34,15 @@ from custom_components.octopus_energy_japan.api import (
     ReadingSource,
     ResourceLifecycle,
 )
+from custom_components.octopus_energy_japan.background_sync import (
+    BackgroundSyncItem,
+    BackgroundSyncReason,
+    BackgroundSyncScope,
+    BackgroundWindow,
+    PlannedGeneration,
+    SyncCheckpoint,
+    SyncObligation,
+)
 from custom_components.octopus_energy_japan.const import (
     CONF_ENABLED_HISTORICAL_RESOURCES,
     DOMAIN,
@@ -164,6 +173,8 @@ def _install_state(
         backend=backend,
         ledger=ledger,
         router=router,
+        checkpoint_backend=AsyncMock(),
+        checkpoint=SyncCheckpoint.empty(NOW),
     )
     coordinator._async_prepare_enabled_supply_points = AsyncMock()  # type: ignore[method-assign]
     return ledger, backend
@@ -305,6 +316,8 @@ async def test_update_reconciles_window_and_projects_ledger(
         backend=backend,
         ledger=ledger,
         router=router,
+        checkpoint_backend=AsyncMock(),
+        checkpoint=SyncCheckpoint.empty(NOW),
     )
     coordinator._schedule = coordinator._schedule.__class__(
         last_reconciliation_date=NOW.date(),
@@ -370,6 +383,8 @@ async def test_update_normalizes_runtime_failures(
         backend=AsyncMock(),
         ledger=ledger,
         router=router,
+        checkpoint_backend=AsyncMock(),
+        checkpoint=SyncCheckpoint.empty(NOW),
     )
     coordinator._schedule = coordinator._schedule.__class__(
         last_reconciliation_date=NOW.date(),
@@ -727,6 +742,9 @@ async def test_prepare_initializes_each_enabled_supply_point_once(
 ) -> None:
     coordinator = _coordinator(hass)
     backend = Mock()
+    checkpoint_backend = Mock()
+    checkpoint_backend.async_load = AsyncMock(return_value=None)
+    checkpoint_backend.async_save = AsyncMock()
     ledger = Mock()
     ledger.async_initialize = AsyncMock()
     with (
@@ -738,6 +756,10 @@ async def test_prepare_initializes_each_enabled_supply_point_once(
             "custom_components.octopus_energy_japan.coordinator.PersistentIntervalLedger",
             return_value=ledger,
         ) as ledger_type,
+        patch(
+            "custom_components.octopus_energy_japan.coordinator.HomeAssistantSyncCheckpointBackend",
+            return_value=checkpoint_backend,
+        ),
         patch.object(coordinator, "_reading_router", return_value=Mock()),
     ):
         await coordinator._async_prepare_enabled_supply_points(NOW)
@@ -791,12 +813,16 @@ async def test_shutdown_attempts_every_ledger_flush_after_one_failure(
             backend_a,
             AsyncMock(),
             AsyncMock(),
+            AsyncMock(),
+            SyncCheckpoint.empty(NOW),
         ),
         (ACCOUNT_ID, point_b.id): _SupplyPointRuntime(
             point_b,
             backend_b,
             AsyncMock(),
             AsyncMock(),
+            AsyncMock(),
+            SyncCheckpoint.empty(NOW),
         ),
     }
 
@@ -804,3 +830,94 @@ async def test_shutdown_attempts_every_ledger_flush_after_one_failure(
 
     backend_a.async_flush.assert_awaited_once_with()
     backend_b.async_flush.assert_awaited_once_with()
+
+
+async def test_background_worker_persists_ledger_before_checkpoint_and_publishes(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = _coordinator(hass)
+    point = _point()
+    direction = ReadingDirection.IMPORT
+    window = BackgroundWindow(NOW - timedelta(days=7), NOW - timedelta(hours=72))
+    obligation = SyncObligation(
+        BackgroundSyncReason.INITIAL_CURRENT_MONTH,
+        "initial-current:test",
+    )
+    generation = PlannedGeneration(obligation, window.end_at, (window,))
+    checkpoint = SyncCheckpoint.empty(NOW).register(generation)
+    events: list[str] = []
+    ledger = AsyncMock()
+    ledger.corrupt_partitions = frozenset()
+    ledger.async_records.side_effect = ((), ())
+    ledger.async_reconcile.side_effect = lambda *_args: (
+        events.append("reconcile") or CorrectionResult()
+    )
+    backend = AsyncMock()
+    backend.async_flush.side_effect = lambda: events.append("ledger_flush")
+    checkpoint_backend = AsyncMock()
+    checkpoint_backend.async_save.side_effect = lambda _payload: events.append("checkpoint_save")
+    router = AsyncMock()
+    router.async_get_readings.return_value = _direction_result(direction)
+    state = _SupplyPointRuntime(
+        point,
+        backend,
+        ledger,
+        router,
+        checkpoint_backend,
+        checkpoint,
+    )
+    coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)] = state
+    coordinator._ensure_direction_status(state, direction)
+    coordinator._record_direction_success(
+        state,
+        direction,
+        coordinator._planner.poll(NOW)[0],
+        Mock(observed_at=NOW),
+    )
+    item = BackgroundSyncItem(
+        BackgroundSyncScope(
+            stable_supply_point_identity(SECRET, ACCOUNT_ID, SUPPLY_POINT_ID),
+            direction,
+            window,
+        ),
+        frozenset({obligation}),
+    )
+    coordinator._background_queue.enqueue_item(item)
+    coordinator.async_set_updated_data = Mock()
+
+    await coordinator._async_background_worker()
+
+    assert events == ["reconcile", "ledger_flush", "checkpoint_save"]
+    assert state.checkpoint.is_completed(direction, obligation, window)
+    assert state.checkpoint.coverage_for(direction) == (window,)
+    coordinator.async_set_updated_data.assert_called_once()
+
+
+async def test_background_worker_requeues_failed_item_without_spinning(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = _coordinator(hass)
+    point = _point()
+    router = AsyncMock()
+    router.async_get_readings.side_effect = OejpTransportError("offline")
+    _install_state(coordinator, point, router=router)
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+    window = BackgroundWindow(NOW - timedelta(days=7), NOW - timedelta(hours=72))
+    obligation = SyncObligation(BackgroundSyncReason.INITIAL_CURRENT_MONTH, "initial:test")
+    item = BackgroundSyncItem(
+        BackgroundSyncScope(
+            stable_supply_point_identity(SECRET, ACCOUNT_ID, SUPPLY_POINT_ID),
+            ReadingDirection.IMPORT,
+            window,
+        ),
+        frozenset({obligation}),
+    )
+    state.checkpoint = state.checkpoint.register(
+        PlannedGeneration(obligation, window.end_at, (window,))
+    )
+    coordinator._background_queue.enqueue_item(item)
+
+    await coordinator._async_background_worker()
+
+    router.async_get_readings.assert_awaited_once()
+    assert coordinator._background_queue.snapshot() == (item,)

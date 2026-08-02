@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Iterable
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -22,6 +24,7 @@ from .aggregation import (
 from .api import (
     AuthenticatedGraphQLClient,
     CapabilitySnapshot,
+    DirectionReadingResult,
     GenericReadingsProvider,
     LegacyHalfHourlyProvider,
     OejpAccount,
@@ -42,6 +45,13 @@ from .api import (
     ResourceLifecycle,
     candidate_directions,
 )
+from .background_sync import (
+    BackgroundSyncPlanner,
+    BackgroundSyncQueue,
+    BackgroundSyncReason,
+    BackgroundWindow,
+    SyncCheckpoint,
+)
 from .const import DOMAIN
 from .identity import stable_account_identity, stable_supply_point_identity
 from .ledger import (
@@ -55,11 +65,13 @@ from .ledger_store import HomeAssistantLedgerBackend
 from .runtime import selected_historical_resources
 from .sync import (
     POLL_INTERVAL,
+    SyncReason,
     SyncScheduleState,
     SyncWindow,
     SyncWindowPlanner,
     slow_cadence_due,
 )
+from .sync_store import HomeAssistantSyncCheckpointBackend
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -109,6 +121,7 @@ class DirectionSyncStatus:
     error_class: DirectionErrorClass | None = None
     coverage_start_at: datetime | None = None
     coverage_end_at: datetime | None = None
+    background_coverage: tuple[BackgroundWindow, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,6 +198,8 @@ class _SupplyPointRuntime:
     backend: HomeAssistantLedgerBackend
     ledger: PersistentIntervalLedger
     router: ReadingProviderRouter
+    checkpoint_backend: HomeAssistantSyncCheckpointBackend
+    checkpoint: SyncCheckpoint
 
 
 class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
@@ -217,6 +232,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
         self._discovery_loader = discovery_loader
         self._now = now or (lambda: datetime.now(UTC))
         self._planner = SyncWindowPlanner()
+        self._background_planner = BackgroundSyncPlanner()
         self._schedule = SyncScheduleState(last_discovery_at=self._utc_now())
         self._supply_points: dict[SupplyPointKey, _SupplyPointRuntime] = {}
         self._direction_statuses: dict[
@@ -227,6 +243,11 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             tuple[str, str, ReadingDirection],
             ProviderObservation,
         ] = {}
+        self._mutation_lock = asyncio.Lock()
+        self._background_queue = BackgroundSyncQueue()
+        self._background_task: asyncio.Task[None] | None = None
+        self._background_started = False
+        self._closing = False
 
     @property
     def accounts(self) -> tuple[OejpAccount, ...]:
@@ -272,7 +293,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                     )
                     continue
                 try:
-                    result, observation = await self._async_sync_window(
+                    result, _observation = await self._async_sync_window(
                         state,
                         direction,
                         window,
@@ -363,82 +384,20 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                 else:
                     corrections.append(result)
                     successful_directions.add(key)
-                    self._provider_observations[key] = observation
-                    self._record_direction_success(state, direction, window, observation)
 
             if attempts and not successful_directions and shared_transient is not None:
                 raise UpdateFailed("OEJP reading synchronization is temporarily unavailable") from (
                     shared_transient
                 )
 
-            records: list[LedgerRecord] = []
-            aggregate_start = _previous_local_month_start(now)
-            queryable = {
-                key for key, status in self._direction_statuses.items() if status.queryable
-            }
-            enabled_keys = {
-                (state.supply_point.account_number, state.supply_point.id)
-                for state in enabled_states
-            }
-            for state in enabled_states:
-                try:
-                    state_records = await state.ledger.async_records(aggregate_start, now)
-                except LedgerError, ValueError:
-                    for direction in candidate_directions(
-                        state.supply_point,
-                        self._capabilities,
-                        previously_queryable=self._previously_queryable_directions(state),
-                    ):
-                        self._record_direction_failure(
-                            state,
-                            direction,
-                            DirectionErrorClass.LEDGER,
-                            queryable=False,
-                        )
-                    continue
-                records.extend(
-                    record
-                    for record in state_records
-                    if (
-                        record.reading.account_id,
-                        record.reading.supply_point_id,
-                        record.reading.direction,
-                    )
-                    in queryable
-                )
-
+            await self._async_schedule_background_work(now)
             combined = CorrectionResult.combine(corrections)
-            return OejpCoordinatorData(
-                accounts=self._accounts,
-                capabilities=self._capabilities,
-                aggregation=aggregate_calendar(records, now),
-                present_supply_points=frozenset(
-                    (
-                        point.account_number,
-                        point.id,
-                    )
-                    for account in self._accounts
-                    for point in iter_supply_points(account)
-                ),
-                enabled_supply_points=frozenset(enabled_keys),
-                direction_statuses=tuple(
-                    self._direction_statuses[key]
-                    for key in sorted(self._direction_statuses, key=_direction_key_sort)
-                    if key[:2] in enabled_keys
-                ),
-                provider_observations=tuple(
-                    self._provider_observations[key]
-                    for key in sorted(self._provider_observations, key=_direction_key_sort)
-                    if key[:2] in enabled_keys
-                ),
-                correction_count=sum(record.correction_count for record in records),
-                last_refresh_change_count=(
-                    combined.inserted_count + combined.corrected_count + combined.deleted_count
-                ),
-                corrupt_partition_count=sum(
-                    len(state.ledger.corrupt_partitions) for state in self._supply_points.values()
-                ),
-            )
+            async with self._mutation_lock:
+                return await self._async_build_snapshot(
+                    now,
+                    enabled_states,
+                    combined,
+                )
         except OejpAuthenticationError as err:
             raise ConfigEntryAuthFailed("OEJP OAuth authorization must be renewed") from err
         except UpdateFailed:
@@ -446,8 +405,90 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
         except (OejpError, LedgerError, ValueError) as err:
             raise UpdateFailed("OEJP reading synchronization failed") from err
 
+    async def _async_build_snapshot(
+        self,
+        now: datetime,
+        enabled_states: tuple[_SupplyPointRuntime, ...],
+        combined: CorrectionResult,
+    ) -> OejpCoordinatorData:
+        """Build one immutable projection from durable local ledgers."""
+        records: list[LedgerRecord] = []
+        aggregate_start = _previous_local_month_start(now)
+        queryable = {key for key, status in self._direction_statuses.items() if status.queryable}
+        enabled_keys = {
+            (state.supply_point.account_number, state.supply_point.id) for state in enabled_states
+        }
+        for state in enabled_states:
+            try:
+                state_records = await state.ledger.async_records(aggregate_start, now)
+            except LedgerError, ValueError:
+                for direction in candidate_directions(
+                    state.supply_point,
+                    self._capabilities,
+                    previously_queryable=self._previously_queryable_directions(state),
+                ):
+                    self._record_direction_failure(
+                        state,
+                        direction,
+                        DirectionErrorClass.LEDGER,
+                        queryable=False,
+                    )
+                continue
+            records.extend(
+                record
+                for record in state_records
+                if (
+                    record.reading.account_id,
+                    record.reading.supply_point_id,
+                    record.reading.direction,
+                )
+                in queryable
+            )
+        return OejpCoordinatorData(
+            accounts=self._accounts,
+            capabilities=self._capabilities,
+            aggregation=aggregate_calendar(records, now),
+            present_supply_points=frozenset(
+                (
+                    point.account_number,
+                    point.id,
+                )
+                for account in self._accounts
+                for point in iter_supply_points(account)
+            ),
+            enabled_supply_points=frozenset(enabled_keys),
+            direction_statuses=tuple(
+                self._direction_statuses[key]
+                for key in sorted(self._direction_statuses, key=_direction_key_sort)
+                if key[:2] in enabled_keys
+            ),
+            provider_observations=tuple(
+                self._provider_observations[key]
+                for key in sorted(self._provider_observations, key=_direction_key_sort)
+                if key[:2] in enabled_keys
+            ),
+            correction_count=sum(record.correction_count for record in records),
+            last_refresh_change_count=(
+                combined.inserted_count + combined.corrected_count + combined.deleted_count
+            ),
+            corrupt_partition_count=sum(
+                len(state.ledger.corrupt_partitions) for state in self._supply_points.values()
+            ),
+        )
+
+    def async_start_background_sync(self) -> None:
+        """Allow queued backfill only after the entry has finished setup."""
+        self._background_started = True
+        self._ensure_background_worker()
+
     async def async_shutdown_runtime(self) -> None:
-        """Flush every debounced ledger write before config-entry unload."""
+        """Stop background work and flush every pending durable write."""
+        self._closing = True
+        task = self._background_task
+        if task is not None and not task.done():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
         for state in self._supply_points.values():
             try:
                 await state.backend.async_flush()
@@ -499,8 +540,23 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                     account_id=point.account_number,
                     supply_point_id=point.id,
                 )
+                checkpoint_backend = HomeAssistantSyncCheckpointBackend(
+                    self.hass,
+                    self._entry.entry_id,
+                    storage_scope,
+                )
                 try:
                     await ledger.async_initialize(now)
+                    payload = await checkpoint_backend.async_load()
+                    checkpoint = (
+                        SyncCheckpoint.from_dict(payload)
+                        if payload is not None
+                        else SyncCheckpoint.empty(now)
+                    )
+                    rolled = checkpoint.roll_month_pair(now)
+                    if rolled != checkpoint:
+                        checkpoint = rolled
+                        await checkpoint_backend.async_save(checkpoint.as_dict())
                 except BaseException:
                     try:
                         await backend.async_flush()
@@ -512,6 +568,8 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                     backend=backend,
                     ledger=ledger,
                     router=self._reading_router(),
+                    checkpoint_backend=checkpoint_backend,
+                    checkpoint=checkpoint,
                 )
                 self._supply_points[key] = state
             else:
@@ -530,36 +588,229 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             window.start_at,
             window.end_at,
         )
-        existing = await state.ledger.async_records(
-            window.start_at,
-            window.end_at,
-        )
+        observation = self._observation(state, direction, direction_result)
+        async with self._mutation_lock:
+            result = await self._async_reconcile_result(
+                state,
+                direction_result,
+                window.start_at,
+                window.end_at,
+            )
+            self._provider_observations[self._direction_key(state, direction)] = observation
+            self._record_direction_success(state, direction, window, observation)
+        return result, observation
+
+    async def _async_reconcile_result(
+        self,
+        state: _SupplyPointRuntime,
+        direction_result: DirectionReadingResult,
+        start_at: datetime,
+        end_at: datetime,
+    ) -> CorrectionResult:
+        """Reconcile one provider result while the mutation lock is held."""
+        existing = await state.ledger.async_records(start_at, end_at)
         authoritative_series = expand_authoritative_series(
             direction_result.authoritative_series,
             direction_result.authoritative_sources,
             existing,
         )
-        result = await state.ledger.async_reconcile(
+        return await state.ledger.async_reconcile(
             authoritative_series,
-            window.start_at,
-            window.end_at,
+            start_at,
+            end_at,
             direction_result.readings,
             direction_result.observed_at,
         )
-        return result, ProviderObservation(
+
+    async def _async_schedule_background_work(self, now: datetime) -> None:
+        """Persist and enqueue initial/daily obligations for queryable directions."""
+        async with self._mutation_lock:
+            await self._async_schedule_background_work_locked(now)
+        self._ensure_background_worker()
+
+    async def _async_schedule_background_work_locked(self, now: datetime) -> None:
+        """Mutate checkpoint plans while holding the coordinator lock."""
+        due = slow_cadence_due(now, self._schedule)
+        daily_plan = self._background_planner.daily(now) if due.reconciliation else None
+        for state in self._enabled_states():
+            previous_checkpoint = state.checkpoint
+            checkpoint = state.checkpoint.roll_month_pair(now)
+            if checkpoint.month_pair_generation != previous_checkpoint.month_pair_generation:
+                for reason in (
+                    BackgroundSyncReason.INITIAL_CURRENT_MONTH,
+                    BackgroundSyncReason.INITIAL_PREVIOUS_MONTH,
+                ):
+                    obsolete = frozenset(
+                        generation.obligation.generation
+                        for generation in previous_checkpoint.generations
+                        if generation.obligation.reason is reason
+                    )
+                    self._background_queue.remove_obligations(reason, obsolete)
+            initial = tuple(
+                generation
+                for generation in checkpoint.generations
+                if generation.obligation.reason
+                in {
+                    BackgroundSyncReason.INITIAL_CURRENT_MONTH,
+                    BackgroundSyncReason.INITIAL_PREVIOUS_MONTH,
+                }
+            )
+            if not initial:
+                initial = self._background_planner.initial(now)
+                for generation in initial:
+                    checkpoint = checkpoint.register(generation)
+            if daily_plan is not None:
+                existing_daily = next(
+                    (
+                        generation
+                        for generation in checkpoint.generations
+                        if generation.obligation.reason is BackgroundSyncReason.DAILY_RECONCILIATION
+                        and generation.jst_date == daily_plan.jst_date
+                    ),
+                    None,
+                )
+                selected_daily = existing_daily or daily_plan
+                checkpoint, obsolete = checkpoint.supersede_daily(selected_daily)
+                self._background_queue.remove_obligations(
+                    BackgroundSyncReason.DAILY_RECONCILIATION,
+                    obsolete,
+                )
+            if checkpoint != state.checkpoint:
+                await state.checkpoint_backend.async_save(checkpoint.as_dict())
+                state.checkpoint = checkpoint
+            directions = self._previously_queryable_directions(state)
+            for direction in directions:
+                for generation in state.checkpoint.generations:
+                    state.checkpoint.enqueue_missing(
+                        self._background_queue,
+                        self._status_identity(state),
+                        direction,
+                        generation,
+                    )
+            self._apply_checkpoint_coverage(state)
+        if daily_plan is not None:
+            self._schedule = SyncScheduleState(
+                last_reconciliation_date=daily_plan.jst_date,
+                last_discovery_at=self._schedule.last_discovery_at,
+                last_contract_at=self._schedule.last_contract_at,
+                last_billing_at=self._schedule.last_billing_at,
+            )
+
+    def _ensure_background_worker(self) -> None:
+        if (
+            not self._background_started
+            or self._closing
+            or len(self._background_queue) == 0
+            or (self._background_task is not None and not self._background_task.done())
+        ):
+            return
+        self._background_task = self.hass.async_create_background_task(
+            self._async_background_worker(),
+            f"{DOMAIN} background synchronization",
+            eager_start=True,
+        )
+
+    async def _async_background_worker(self) -> None:
+        """Drain durable work sequentially without blocking coordinator setup."""
+        while not self._closing and (item := self._background_queue.pop_next()) is not None:
+            state = self._state_for_identity(item.scope.supply_point_identity)
+            if state is None:
+                continue
+            try:
+                direction_result = await state.router.async_get_readings(
+                    state.supply_point,
+                    item.scope.direction,
+                    item.scope.window.start_at,
+                    item.scope.window.end_at,
+                )
+                async with self._mutation_lock:
+                    correction = await self._async_reconcile_result(
+                        state,
+                        direction_result,
+                        item.scope.window.start_at,
+                        item.scope.window.end_at,
+                    )
+                    await state.backend.async_flush()
+                    state.checkpoint = state.checkpoint.mark_durable(item)
+                    await state.checkpoint_backend.async_save(state.checkpoint.as_dict())
+                    observation = self._observation(state, item.scope.direction, direction_result)
+                    self._provider_observations[
+                        self._direction_key(state, item.scope.direction)
+                    ] = observation
+                    self._record_direction_success(
+                        state,
+                        item.scope.direction,
+                        SyncWindow(
+                            item.scope.window.start_at,
+                            item.scope.window.end_at,
+                            SyncReason.INITIAL,
+                        ),
+                        observation,
+                    )
+                    self._apply_checkpoint_coverage(state)
+                    snapshot = await self._async_build_snapshot(
+                        self._utc_now(),
+                        self._enabled_states(),
+                        correction,
+                    )
+                self.async_set_updated_data(snapshot)
+            except asyncio.CancelledError:
+                self._background_queue.enqueue_item(item)
+                raise
+            except OejpError, LedgerError, ValueError:
+                self._background_queue.enqueue_item(item)
+                _LOGGER.warning("OEJP background synchronization paused after a failure")
+                return
+
+    def _state_for_identity(self, identity: str) -> _SupplyPointRuntime | None:
+        return next(
+            (
+                state
+                for state in self._supply_points.values()
+                if self._status_identity(state) == identity
+            ),
+            None,
+        )
+
+    def _status_identity(self, state: _SupplyPointRuntime) -> str:
+        return stable_supply_point_identity(
+            self._identity_secret,
+            state.supply_point.account_number,
+            state.supply_point.id,
+        )
+
+    def _apply_checkpoint_coverage(self, state: _SupplyPointRuntime) -> None:
+        for direction in self._previously_queryable_directions(state):
+            key = self._direction_key(state, direction)
+            previous = self._direction_statuses[key]
+            self._direction_statuses[key] = DirectionSyncStatus(
+                account_identity=previous.account_identity,
+                supply_point_identity=previous.supply_point_identity,
+                direction=direction,
+                queryable=previous.queryable,
+                stale=previous.stale,
+                last_success_at=previous.last_success_at,
+                error_class=previous.error_class,
+                coverage_start_at=previous.coverage_start_at,
+                coverage_end_at=previous.coverage_end_at,
+                background_coverage=state.checkpoint.coverage_for(direction),
+            )
+
+    def _observation(
+        self,
+        state: _SupplyPointRuntime,
+        direction: ReadingDirection,
+        result: DirectionReadingResult,
+    ) -> ProviderObservation:
+        return ProviderObservation(
             account_identity=stable_account_identity(
-                self._identity_secret,
-                state.supply_point.account_number,
+                self._identity_secret, state.supply_point.account_number
             ),
-            supply_point_identity=stable_supply_point_identity(
-                self._identity_secret,
-                state.supply_point.account_number,
-                state.supply_point.id,
-            ),
+            supply_point_identity=self._status_identity(state),
             direction=direction,
-            provider=direction_result.provider,
-            fallback_reason=direction_result.fallback_reason,
-            observed_at=direction_result.observed_at,
+            provider=result.provider,
+            fallback_reason=result.fallback_reason,
+            observed_at=result.observed_at,
         )
 
     def _reading_router(self) -> ReadingProviderRouter:
@@ -673,6 +924,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                 if previous.coverage_end_at is not None
                 else window.end_at
             ),
+            background_coverage=previous.background_coverage,
         )
 
     def _record_direction_failure(
@@ -695,6 +947,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             error_class=error_class,
             coverage_start_at=previous.coverage_start_at,
             coverage_end_at=previous.coverage_end_at,
+            background_coverage=previous.background_coverage,
         )
 
     def _record_point_failure(
