@@ -291,7 +291,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                     self._record_direction_failure(
                         state,
                         direction,
-                        (
+                        error_class := (
                             DirectionErrorClass.RATE_LIMIT
                             if isinstance(err, OejpRateLimitError)
                             else DirectionErrorClass.TRANSIENT
@@ -304,7 +304,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                         self._record_direction_failure(
                             pending_state,
                             pending_direction,
-                            DirectionErrorClass.TRANSIENT,
+                            error_class,
                             queryable=None,
                         )
                     break
@@ -326,38 +326,30 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                     continue
                 except OejpNotFoundError:
                     point_failures[point_key] = DirectionErrorClass.NOT_FOUND
-                    self._record_direction_failure(
+                    self._record_point_failure(
                         state,
-                        direction,
                         DirectionErrorClass.NOT_FOUND,
-                        queryable=False,
                     )
                     continue
                 except OejpInvalidResponseError:
                     point_failures[point_key] = DirectionErrorClass.INVALID_RESPONSE
-                    self._record_direction_failure(
+                    self._record_point_failure(
                         state,
-                        direction,
                         DirectionErrorClass.INVALID_RESPONSE,
-                        queryable=False,
                     )
                     continue
                 except LedgerError:
                     point_failures[point_key] = DirectionErrorClass.LEDGER
-                    self._record_direction_failure(
+                    self._record_point_failure(
                         state,
-                        direction,
                         DirectionErrorClass.LEDGER,
-                        queryable=False,
                     )
                     continue
                 except ValueError:
                     point_failures[point_key] = DirectionErrorClass.INVALID_RESPONSE
-                    self._record_direction_failure(
+                    self._record_point_failure(
                         state,
-                        direction,
                         DirectionErrorClass.INVALID_RESPONSE,
-                        queryable=False,
                     )
                     continue
                 except OejpError:
@@ -704,6 +696,31 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             coverage_start_at=previous.coverage_start_at,
             coverage_end_at=previous.coverage_end_at,
         )
+
+    def _record_point_failure(
+        self,
+        state: _SupplyPointRuntime,
+        error_class: DirectionErrorClass,
+    ) -> None:
+        directions = set(
+            candidate_directions(
+                state.supply_point,
+                self._capabilities,
+                previously_queryable=self._previously_queryable_directions(state),
+            )
+        )
+        directions.update(
+            direction
+            for account_id, point_id, direction in self._direction_statuses
+            if account_id == state.supply_point.account_number and point_id == state.supply_point.id
+        )
+        for direction in sorted(directions, key=lambda value: value.value):
+            self._record_direction_failure(
+                state,
+                direction,
+                error_class,
+                queryable=False,
+            )
 
     def _utc_now(self) -> datetime:
         value = self._now()

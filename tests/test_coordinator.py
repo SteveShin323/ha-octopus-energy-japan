@@ -19,8 +19,14 @@ from custom_components.octopus_energy_japan.api import (
     OejpAccount,
     OejpAuthenticationError,
     OejpAuthorizationError,
+    OejpError,
     OejpInvalidResponseError,
+    OejpNonRetryableHttpError,
+    OejpNoReadingProviderError,
+    OejpNotFoundError,
     OejpProperty,
+    OejpQueryValidationError,
+    OejpRateLimitError,
     OejpSupplyPoint,
     OejpTransportError,
     ReadingDirection,
@@ -46,7 +52,11 @@ from custom_components.octopus_energy_japan.identity import (
     stable_account_identity,
     stable_supply_point_identity,
 )
-from custom_components.octopus_energy_japan.ledger import CorrectionResult, LedgerRecord
+from custom_components.octopus_energy_japan.ledger import (
+    CorrectionResult,
+    LedgerError,
+    LedgerRecord,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import UpdateFailed
@@ -111,14 +121,17 @@ def _reading() -> EnergyReading:
 def _direction_result(
     direction: ReadingDirection,
     *readings: EnergyReading,
+    point: OejpSupplyPoint | None = None,
 ) -> DirectionReadingResult:
+    account_id = point.account_number if point is not None else ACCOUNT_ID
+    supply_point_id = point.id if point is not None else SUPPLY_POINT_ID
     authoritative_series = frozenset(
         ReadingSeriesKey.from_reading(reading) for reading in readings
     ) or frozenset(
         {
             ReadingSeriesKey(
-                account_id=ACCOUNT_ID,
-                supply_point_id=SUPPLY_POINT_ID,
+                account_id=account_id,
+                supply_point_id=supply_point_id,
                 direction=direction,
                 unit=EnergyUnit.KWH,
                 source=ReadingSource.SUPPLY_POINT_READINGS,
@@ -315,6 +328,22 @@ async def test_update_reconciles_window_and_projects_ledger(
     assert data.direction_statuses[0].queryable
     assert data.direction_statuses[0].coverage_start_at == NOW - timedelta(hours=72)
     assert data.direction_statuses[0].coverage_end_at == NOW
+    assert (
+        data.direction_status(
+            stable_account_identity(SECRET, ACCOUNT_ID),
+            stable_supply_point_identity(SECRET, ACCOUNT_ID, SUPPLY_POINT_ID),
+            ReadingDirection.IMPORT,
+        )
+        is data.direction_statuses[0]
+    )
+    assert (
+        data.direction_status(
+            "missing-account",
+            "missing-point",
+            ReadingDirection.IMPORT,
+        )
+        is None
+    )
     assert data.present_supply_points == {(ACCOUNT_ID, SUPPLY_POINT_ID)}
     await coordinator.async_shutdown_runtime()
     backend.async_flush.assert_awaited_once_with()
@@ -353,12 +382,24 @@ async def test_update_normalizes_runtime_failures(
         await coordinator._async_update_data()
 
 
+@pytest.mark.parametrize(
+    ("error", "error_class"),
+    [
+        (OejpAuthorizationError(()), DirectionErrorClass.AUTHORIZATION),
+        (OejpQueryValidationError(()), DirectionErrorClass.VALIDATION),
+        (OejpNotFoundError(()), DirectionErrorClass.NOT_FOUND),
+        (OejpNonRetryableHttpError(400), DirectionErrorClass.NON_RETRYABLE_HTTP),
+        (OejpNoReadingProviderError("unavailable"), DirectionErrorClass.UNAVAILABLE),
+    ],
+)
 async def test_permanent_only_refresh_publishes_status_without_direction(
     hass: HomeAssistant,
+    error: OejpError,
+    error_class: DirectionErrorClass,
 ) -> None:
     coordinator = _coordinator(hass)
     router = AsyncMock()
-    router.async_get_readings.side_effect = OejpAuthorizationError(())
+    router.async_get_readings.side_effect = error
     _install_state(coordinator, _point(), router=router)
 
     data = await coordinator._async_update_data()
@@ -368,7 +409,7 @@ async def test_permanent_only_refresh_publishes_status_without_direction(
     status = data.direction_statuses[0]
     assert not status.queryable
     assert not status.stale
-    assert status.error_class is DirectionErrorClass.AUTHORIZATION
+    assert status.error_class is error_class
     assert entity_directions(data, SECRET, ACCOUNT_ID, SUPPLY_POINT_ID) == ()
 
 
@@ -393,7 +434,7 @@ async def test_no_enabled_supply_points_publishes_empty_snapshot(
     assert data.aggregation.supply_points == ()
 
 
-async def test_partial_refresh_keeps_success_and_isolates_permanent_direction_failure(
+async def test_successful_empty_export_is_queryable_with_import(
     hass: HomeAssistant,
 ) -> None:
     point = _point(direction=ReadingDirection.UNKNOWN)
@@ -466,14 +507,23 @@ async def test_partial_refresh_preserves_success_when_later_direction_is_forbidd
     assert data.aggregation.supply_points[0].direction is ReadingDirection.IMPORT
 
 
+@pytest.mark.parametrize(
+    ("error", "error_class"),
+    [
+        (OejpTransportError("offline"), DirectionErrorClass.TRANSIENT),
+        (OejpRateLimitError(()), DirectionErrorClass.RATE_LIMIT),
+    ],
+)
 async def test_shared_transient_stops_poll_and_keeps_previous_queryability_stale(
     hass: HomeAssistant,
+    error: OejpTransportError | OejpRateLimitError,
+    error_class: DirectionErrorClass,
 ) -> None:
     point_a = _point(point_id="PRIVATE-POINT-A")
     point_b = _point(point_id="PRIVATE-POINT-B")
     coordinator = _coordinator(hass, accounts=(_account(point_b, point_a),))
     router_a = AsyncMock()
-    router_a.async_get_readings.side_effect = OejpTransportError("offline")
+    router_a.async_get_readings.side_effect = error
     router_b = AsyncMock()
     _install_state(coordinator, point_a, router=router_a)
     _install_state(coordinator, point_b, router=router_b)
@@ -496,7 +546,9 @@ async def test_shared_transient_stops_poll_and_keeps_previous_queryability_stale
     status = coordinator._direction_statuses[(ACCOUNT_ID, point_a.id, ReadingDirection.IMPORT)]
     assert status.queryable
     assert status.stale
-    assert status.error_class is DirectionErrorClass.TRANSIENT
+    assert status.error_class is error_class
+    pending = coordinator._direction_statuses[(ACCOUNT_ID, point_b.id, ReadingDirection.IMPORT)]
+    assert pending.error_class is error_class
 
 
 async def test_aggregation_excludes_nonqueryable_direction_records(
@@ -542,6 +594,22 @@ async def test_aggregation_excludes_nonqueryable_direction_records(
     )
 
 
+async def test_aggregation_ledger_failure_isolated_to_its_point(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = _coordinator(hass)
+    router = AsyncMock()
+    router.async_get_readings.return_value = _direction_result(ReadingDirection.IMPORT)
+    ledger, _backend = _install_state(coordinator, _point(), router=router)
+    ledger.async_records.side_effect = ((), LedgerError("failed"))
+
+    data = await coordinator._async_update_data()
+
+    assert data.aggregation.supply_points == ()
+    assert data.direction_statuses[0].error_class is DirectionErrorClass.LEDGER
+    assert not data.direction_statuses[0].queryable
+
+
 async def test_point_specific_invalid_response_skips_only_that_points_remaining_directions(
     hass: HomeAssistant,
 ) -> None:
@@ -560,7 +628,7 @@ async def test_point_specific_invalid_response_skips_only_that_points_remaining_
     router_b = AsyncMock()
     router_b.async_get_readings.side_effect = (
         OejpAuthorizationError(()),
-        _direction_result(ReadingDirection.IMPORT),
+        _direction_result(ReadingDirection.IMPORT, point=point_b),
     )
     _install_state(coordinator, point_a, router=router_a)
     _install_state(coordinator, point_b, router=router_b)
@@ -582,6 +650,34 @@ async def test_point_specific_invalid_response_skips_only_that_points_remaining_
         statuses[(point_a_identity, ReadingDirection.IMPORT)].error_class
         is DirectionErrorClass.INVALID_RESPONSE
     )
+
+
+async def test_point_failure_invalidates_an_earlier_direction_success(
+    hass: HomeAssistant,
+) -> None:
+    point = _point(direction=ReadingDirection.UNKNOWN)
+    coordinator = _coordinator(
+        hass,
+        accounts=(_account(point),),
+        capabilities=_capabilities(
+            Capability.IMPORT_READINGS,
+            Capability.EXPORT_READINGS,
+        ),
+    )
+    router = AsyncMock()
+    router.async_get_readings.side_effect = (
+        _direction_result(ReadingDirection.EXPORT),
+        OejpInvalidResponseError("malformed"),
+    )
+    _install_state(coordinator, point, router=router)
+
+    data = await coordinator._async_update_data()
+
+    assert {status.error_class for status in data.direction_statuses} == {
+        DirectionErrorClass.INVALID_RESPONSE
+    }
+    assert not any(status.queryable for status in data.direction_statuses)
+    assert entity_directions(data, SECRET, ACCOUNT_ID, SUPPLY_POINT_ID) == ()
 
 
 async def test_regular_poll_orders_points_and_directions_deterministically(
@@ -606,7 +702,7 @@ async def test_regular_poll_orders_points_and_directions_deterministically(
         _end_at: datetime,
     ) -> DirectionReadingResult:
         observed.append((point.id, direction))
-        return _direction_result(direction)
+        return _direction_result(direction, point=point)
 
     router_a = AsyncMock()
     router_a.async_get_readings.side_effect = result_for
