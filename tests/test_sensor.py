@@ -19,14 +19,13 @@ from custom_components.octopus_energy_japan.api import (
     OejpProperty,
     OejpSupplyPoint,
     ReadingDirection,
-    ReadingProviderName,
     ResourceLifecycle,
 )
 from custom_components.octopus_energy_japan.const import DOMAIN
 from custom_components.octopus_energy_japan.coordinator import (
+    DirectionSyncStatus,
     OejpCoordinatorData,
     OejpDataUpdateCoordinator,
-    ProviderObservation,
 )
 from custom_components.octopus_energy_japan.identity import (
     stable_account_identity,
@@ -116,9 +115,9 @@ def _coordinator(
         present_supply_points=(
             frozenset({(ACCOUNT_ID, SUPPLY_POINT_ID)}) if present else frozenset()
         ),
-        provider_observations=(
+        direction_statuses=(
             (
-                ProviderObservation(
+                DirectionSyncStatus(
                     account_identity=stable_account_identity(SECRET, ACCOUNT_ID),
                     supply_point_identity=stable_supply_point_identity(
                         SECRET,
@@ -126,9 +125,8 @@ def _coordinator(
                         SUPPLY_POINT_ID,
                     ),
                     direction=ReadingDirection.IMPORT,
-                    provider=ReadingProviderName.GENERIC,
-                    fallback_reason=None,
-                    observed_at=NOW,
+                    queryable=True,
+                    last_success_at=NOW,
                 ),
             )
             if queryable
