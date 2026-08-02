@@ -270,6 +270,21 @@ class DirectionWindowCompletion:
 
 
 @dataclass(frozen=True, slots=True, order=True)
+class DirectionWindowFailure:
+    """One durable permanent failure for an obligation generation window."""
+
+    direction: ReadingDirection
+    reason: BackgroundSyncReason
+    generation: str
+    window: BackgroundWindow
+    error_class: str
+
+    def __post_init__(self) -> None:
+        if not self.error_class or len(self.error_class) > 64:
+            raise ValueError("Background failure class is invalid")
+
+
+@dataclass(frozen=True, slots=True, order=True)
 class DirectionCoverage:
     """One merged background authoritative coverage range."""
 
@@ -296,6 +311,7 @@ class SyncCheckpoint:
     month_pair_generation: str
     generations: tuple[PlannedGeneration, ...] = ()
     completed_windows: tuple[DirectionWindowCompletion, ...] = ()
+    failed_windows: tuple[DirectionWindowFailure, ...] = ()
     background_coverage: tuple[DirectionCoverage, ...] = ()
     daily_completed: tuple[DailyDirectionCompletion, ...] = ()
     schema_version: int = CHECKPOINT_SCHEMA_VERSION
@@ -318,6 +334,10 @@ class SyncCheckpoint:
             generation = generations.get((completion.reason, completion.generation))
             if generation is None or completion.window not in generation.windows:
                 raise ValueError("Sync checkpoint completion has no matching generation window")
+        for failure in self.failed_windows:
+            generation = generations.get((failure.reason, failure.generation))
+            if generation is None or failure.window not in generation.windows:
+                raise ValueError("Sync checkpoint failure has no matching generation window")
 
     @classmethod
     def empty(cls, now: datetime) -> Self:
@@ -343,11 +363,15 @@ class SyncCheckpoint:
             for completion in self.completed_windows
             if completion.reason not in initial_reasons
         )
+        retained_failed = tuple(
+            failure for failure in self.failed_windows if failure.reason not in initial_reasons
+        )
         return replace(
             self,
             month_pair_generation=current,
             generations=retained_generations,
             completed_windows=retained_completed,
+            failed_windows=retained_failed,
         )
 
     def register(self, generation: PlannedGeneration) -> Self:
@@ -398,10 +422,19 @@ class SyncCheckpoint:
                 and value.generation in obsolete
             )
         )
+        retained_failed = tuple(
+            value
+            for value in self.failed_windows
+            if not (
+                value.reason is BackgroundSyncReason.DAILY_RECONCILIATION
+                and value.generation in obsolete
+            )
+        )
         checkpoint = replace(
             self,
             generations=retained_generations,
             completed_windows=retained_completed,
+            failed_windows=retained_failed,
         ).register(generation)
         return checkpoint, obsolete
 
@@ -420,6 +453,21 @@ class SyncCheckpoint:
                 window,
             )
             in self.completed_windows
+        )
+
+    def is_failed(
+        self,
+        direction: ReadingDirection,
+        obligation: SyncObligation,
+        window: BackgroundWindow,
+    ) -> bool:
+        """Return whether a permanent failure resolved this exact obligation."""
+        return any(
+            failure.direction is direction
+            and failure.reason is obligation.reason
+            and failure.generation == obligation.generation
+            and failure.window == window
+            for failure in self.failed_windows
         )
 
     def mark_durable(self, item: BackgroundSyncItem) -> Self:
@@ -452,6 +500,27 @@ class SyncCheckpoint:
         )
         return checkpoint._advance_daily_barrier(item.scope.direction)
 
+    def mark_failed(self, item: BackgroundSyncItem, error_class: str) -> Self:
+        """Persist a permanent failure without claiming coverage or completion."""
+        failures = set(self.failed_windows)
+        for obligation in item.obligations:
+            generation = next(
+                (value for value in self.generations if value.obligation == obligation),
+                None,
+            )
+            if generation is None or item.scope.window not in generation.windows:
+                raise ValueError("Permanent failure is not a registered generation window")
+            failures.add(
+                DirectionWindowFailure(
+                    item.scope.direction,
+                    obligation.reason,
+                    obligation.generation,
+                    item.scope.window,
+                    error_class,
+                )
+            )
+        return replace(self, failed_windows=tuple(sorted(failures, key=_failure_sort_key)))
+
     def enqueue_missing(
         self,
         queue: BackgroundSyncQueue,
@@ -461,7 +530,11 @@ class SyncCheckpoint:
     ) -> None:
         """Reconstruct only missing windows for one direction and generation."""
         for window in generation.windows:
-            if self.is_completed(direction, generation.obligation, window):
+            if self.is_completed(direction, generation.obligation, window) or self.is_failed(
+                direction,
+                generation.obligation,
+                window,
+            ):
                 continue
             queue.enqueue(
                 BackgroundSyncScope(supply_point_identity, direction, window),
@@ -532,6 +605,17 @@ class SyncCheckpoint:
                 }
                 for value in self.completed_windows
             ],
+            "failed_windows": [
+                {
+                    "direction": value.direction.value,
+                    "reason": value.reason.value,
+                    "generation": value.generation,
+                    "start_at": _iso(value.window.start_at),
+                    "end_at": _iso(value.window.end_at),
+                    "error_class": value.error_class,
+                }
+                for value in self.failed_windows
+            ],
             "background_coverage": [
                 {
                     "direction": value.direction.value,
@@ -568,6 +652,16 @@ class SyncCheckpoint:
             )
             for value in _required_mapping_list(payload, "completed_windows")
         )
+        failed = tuple(
+            DirectionWindowFailure(
+                _direction(value),
+                BackgroundSyncReason(_required_string(value, "reason")),
+                _required_string(value, "generation"),
+                _window(value),
+                _required_string(value, "error_class"),
+            )
+            for value in _optional_mapping_list(payload, "failed_windows")
+        )
         coverage = tuple(
             DirectionCoverage(_direction(value), _coverage_window(value))
             for value in _required_mapping_list(payload, "background_coverage")
@@ -584,6 +678,7 @@ class SyncCheckpoint:
             month_pair_generation=month_pair,
             generations=generations,
             completed_windows=tuple(sorted(set(completed), key=_completion_sort_key)),
+            failed_windows=tuple(sorted(set(failed), key=_failure_sort_key)),
             background_coverage=_normalize_coverage(coverage),
             daily_completed=tuple(sorted(set(daily))),
         )
@@ -662,6 +757,19 @@ def _completion_sort_key(
         value.generation,
         value.window.start_at,
         value.window.end_at,
+    )
+
+
+def _failure_sort_key(
+    value: DirectionWindowFailure,
+) -> tuple[str, str, str, datetime, datetime, str]:
+    return (
+        value.direction.value,
+        value.reason.value,
+        value.generation,
+        value.window.start_at,
+        value.window.end_at,
+        value.error_class,
     )
 
 
@@ -751,6 +859,15 @@ def _required_mapping_list(
     if not all(isinstance(value, Mapping) for value in values):
         raise ValueError(f"Sync checkpoint {key} is malformed")
     return [value for value in values if isinstance(value, Mapping)]
+
+
+def _optional_mapping_list(
+    payload: Mapping[str, Any],
+    key: str,
+) -> list[Mapping[str, Any]]:
+    if key not in payload:
+        return []
+    return _required_mapping_list(payload, key)
 
 
 def _required_list(payload: Mapping[str, Any], key: str) -> list[Any]:

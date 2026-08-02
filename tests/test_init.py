@@ -30,6 +30,7 @@ from custom_components.octopus_energy_japan.oauth_metadata import (
     AuthorizationHeaderScheme,
     OejpOAuthMetadata,
 )
+from custom_components.octopus_energy_japan.runtime import OejpRuntimeData
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import config_entry_oauth2_flow
@@ -355,6 +356,59 @@ async def test_unload_entry_unloads_platforms_and_clears_runtime(
 
     unload.assert_awaited_once_with(entry, ["sensor", "binary_sensor"])
     assert entry.runtime_data is None
+
+
+async def test_unload_quiesces_worker_before_platforms_and_flushes_after(
+    hass: HomeAssistant,
+) -> None:
+    entry = _entry()
+    events: list[str] = []
+    coordinator = AsyncMock()
+    coordinator.async_prepare_shutdown.side_effect = lambda: events.append("prepare")
+    coordinator.async_shutdown_runtime.side_effect = lambda: events.append("flush")
+    entry.runtime_data = OejpRuntimeData(
+        auth=AsyncMock(),
+        accounts=(),
+        capabilities=CapabilitySnapshot(),
+        identity_secret="01" * 32,
+        coordinator=coordinator,
+    )
+
+    async def unload(*_args: object) -> bool:
+        events.append("platforms")
+        return True
+
+    with patch.object(hass.config_entries, "async_unload_platforms", side_effect=unload):
+        assert await async_unload_entry(hass, entry)
+
+    assert events == ["prepare", "platforms", "flush"]
+    assert entry.runtime_data is None
+
+
+async def test_unload_failure_restarts_runtime_once_and_retains_runtime_data(
+    hass: HomeAssistant,
+) -> None:
+    entry = _entry()
+    coordinator = AsyncMock()
+    runtime = OejpRuntimeData(
+        auth=AsyncMock(),
+        accounts=(),
+        capabilities=CapabilitySnapshot(),
+        identity_secret="01" * 32,
+        coordinator=coordinator,
+    )
+    entry.runtime_data = runtime
+    with patch.object(
+        hass.config_entries,
+        "async_unload_platforms",
+        AsyncMock(return_value=False),
+    ):
+        assert not await async_unload_entry(hass, entry)
+
+    coordinator.async_prepare_shutdown.assert_awaited_once_with()
+    coordinator.async_resume_runtime.assert_awaited_once_with()
+    coordinator.async_shutdown_runtime.assert_not_awaited()
+    assert entry.runtime_data is runtime
 
 
 async def test_remove_entry_revokes_authorization_best_effort(

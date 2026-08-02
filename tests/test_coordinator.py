@@ -20,6 +20,7 @@ from custom_components.octopus_energy_japan.api import (
     OejpAccount,
     OejpAuthenticationError,
     OejpAuthorizationError,
+    OejpError,
     OejpInvalidResponseError,
     OejpNonRetryableHttpError,
     OejpNoReadingProviderError,
@@ -28,6 +29,8 @@ from custom_components.octopus_energy_japan.api import (
     OejpQueryValidationError,
     OejpRateLimitError,
     OejpSupplyPoint,
+    OejpTimeoutError,
+    OejpTransientHttpError,
     OejpTransportError,
     ReadingDirection,
     ReadingProviderName,
@@ -214,6 +217,7 @@ def _coordinator(
         SECRET,
         discovery_loader or AsyncMock(return_value=(selected_accounts, selected_capabilities)),
         now=lambda: NOW,
+        startup_delay=timedelta(0),
     )
 
 
@@ -920,11 +924,282 @@ async def test_background_worker_requeues_failed_item_without_spinning(
         PlannedGeneration(obligation, window.end_at, (window,))
     )
     coordinator._background_queue.enqueue_item(item)
+    retry_waiting = asyncio.Event()
 
-    await coordinator._async_background_worker()
+    async def _wait_for_shutdown(_delay: timedelta) -> None:
+        retry_waiting.set()
+        await asyncio.Event().wait()
+
+    coordinator._async_wait = _wait_for_shutdown  # type: ignore[method-assign]
+
+    task = asyncio.create_task(coordinator._async_background_worker())
+    coordinator._background_task = task
+    await retry_waiting.wait()
+    await coordinator.async_prepare_shutdown()
 
     router.async_get_readings.assert_awaited_once()
     assert coordinator._background_queue.snapshot() == (item,)
+
+
+async def test_background_permanent_failure_is_checkpointed_without_retry(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = _coordinator(hass)
+    point = _point()
+    router = AsyncMock()
+    router.async_get_readings.side_effect = OejpAuthorizationError(())
+    _install_state(coordinator, point, router=router)
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+    window = BackgroundWindow(NOW - timedelta(days=7), NOW - timedelta(hours=72))
+    obligation = SyncObligation(BackgroundSyncReason.INITIAL_CURRENT_MONTH, "initial:test")
+    state.checkpoint = state.checkpoint.register(
+        PlannedGeneration(obligation, window.end_at, (window,))
+    )
+    item = BackgroundSyncItem(
+        BackgroundSyncScope(
+            stable_supply_point_identity(SECRET, ACCOUNT_ID, SUPPLY_POINT_ID),
+            ReadingDirection.IMPORT,
+            window,
+        ),
+        frozenset({obligation}),
+    )
+    coordinator._background_queue.enqueue_item(item)
+    coordinator.async_set_updated_data = Mock()
+
+    await coordinator._async_background_worker()
+
+    assert coordinator._background_queue.snapshot() == ()
+    assert state.checkpoint.is_failed(ReadingDirection.IMPORT, obligation, window)
+    state.checkpoint_backend.async_save.assert_awaited_once()
+    status = coordinator._direction_statuses[(ACCOUNT_ID, SUPPLY_POINT_ID, ReadingDirection.IMPORT)]
+    assert status.error_class is DirectionErrorClass.AUTHORIZATION
+    assert not status.queryable
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_class"),
+    [
+        (OejpNonRetryableHttpError(400), DirectionErrorClass.NON_RETRYABLE_HTTP),
+        (OejpQueryValidationError(()), DirectionErrorClass.VALIDATION),
+        (OejpNotFoundError(()), DirectionErrorClass.NOT_FOUND),
+        (OejpInvalidResponseError("invalid"), DirectionErrorClass.INVALID_RESPONSE),
+        (ValueError("invalid"), DirectionErrorClass.INVALID_RESPONSE),
+        (LedgerError("ledger"), DirectionErrorClass.LEDGER),
+        (OejpError("unknown"), DirectionErrorClass.UNAVAILABLE),
+    ],
+)
+async def test_background_permanent_error_categories_do_not_retry(
+    hass: HomeAssistant,
+    error: Exception,
+    expected_class: DirectionErrorClass,
+) -> None:
+    coordinator = _coordinator(hass)
+    point = _point()
+    router = AsyncMock()
+    router.async_get_readings.side_effect = error
+    _install_state(coordinator, point, router=router)
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+    window = BackgroundWindow(NOW - timedelta(days=7), NOW - timedelta(hours=72))
+    obligation = SyncObligation(BackgroundSyncReason.INITIAL_CURRENT_MONTH, "initial:test")
+    state.checkpoint = state.checkpoint.register(
+        PlannedGeneration(obligation, window.end_at, (window,))
+    )
+    coordinator._background_queue.enqueue(
+        BackgroundSyncScope(
+            stable_supply_point_identity(SECRET, ACCOUNT_ID, SUPPLY_POINT_ID),
+            ReadingDirection.IMPORT,
+            window,
+        ),
+        obligation,
+    )
+    coordinator.async_set_updated_data = Mock()
+
+    await coordinator._async_background_worker()
+
+    status = coordinator._direction_statuses[(ACCOUNT_ID, SUPPLY_POINT_ID, ReadingDirection.IMPORT)]
+    assert status.error_class is expected_class
+    assert coordinator._background_queue.snapshot() == ()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        OejpRateLimitError((), retry_after=timedelta(minutes=5)),
+        OejpTimeoutError("timeout"),
+        OejpTransientHttpError(503, retry_after=timedelta(minutes=2)),
+    ],
+)
+async def test_background_retryable_error_categories_are_deferred(
+    hass: HomeAssistant,
+    error: Exception,
+) -> None:
+    coordinator = _coordinator(hass)
+    point = _point()
+    router = AsyncMock()
+    router.async_get_readings.side_effect = error
+    _install_state(coordinator, point, router=router)
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+    window = BackgroundWindow(NOW - timedelta(days=7), NOW - timedelta(hours=72))
+    obligation = SyncObligation(BackgroundSyncReason.INITIAL_CURRENT_MONTH, "initial:test")
+    state.checkpoint = state.checkpoint.register(
+        PlannedGeneration(obligation, window.end_at, (window,))
+    )
+    item = BackgroundSyncItem(
+        BackgroundSyncScope(
+            stable_supply_point_identity(SECRET, ACCOUNT_ID, SUPPLY_POINT_ID),
+            ReadingDirection.IMPORT,
+            window,
+        ),
+        frozenset({obligation}),
+    )
+    coordinator._background_queue.enqueue_item(item)
+    retry_waiting = asyncio.Event()
+
+    async def _wait_for_shutdown(_delay: timedelta) -> None:
+        retry_waiting.set()
+        await asyncio.Event().wait()
+
+    coordinator._async_wait = _wait_for_shutdown  # type: ignore[method-assign]
+    task = asyncio.create_task(coordinator._async_background_worker())
+    coordinator._background_task = task
+    await retry_waiting.wait()
+    await coordinator.async_prepare_shutdown()
+
+    assert coordinator._background_queue.snapshot() == (item,)
+    if isinstance(error, OejpRateLimitError):
+        assert coordinator._retry.entry_not_before == NOW + timedelta(minutes=5)
+
+
+async def test_background_authentication_starts_reauth_and_stops_worker(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = _coordinator(hass)
+    point = _point()
+    router = AsyncMock()
+    router.async_get_readings.side_effect = OejpAuthenticationError(())
+    _install_state(coordinator, point, router=router)
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+    window = BackgroundWindow(NOW - timedelta(days=7), NOW - timedelta(hours=72))
+    obligation = SyncObligation(BackgroundSyncReason.INITIAL_CURRENT_MONTH, "initial:test")
+    state.checkpoint = state.checkpoint.register(
+        PlannedGeneration(obligation, window.end_at, (window,))
+    )
+    item = BackgroundSyncItem(
+        BackgroundSyncScope(
+            stable_supply_point_identity(SECRET, ACCOUNT_ID, SUPPLY_POINT_ID),
+            ReadingDirection.IMPORT,
+            window,
+        ),
+        frozenset({obligation}),
+    )
+    coordinator._background_queue.enqueue_item(item)
+    with patch.object(coordinator._entry, "async_start_reauth", Mock()) as reauth:
+        await coordinator._async_background_worker()
+
+    reauth.assert_called_once_with(hass)
+    assert coordinator._background_queue.snapshot() == (item,)
+    assert coordinator._reauth_pending
+    coordinator._background_started = True
+    coordinator._ensure_background_worker()
+    assert coordinator._background_task is None
+
+
+async def test_background_checkpoint_io_failure_requeues_without_advancing(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = _coordinator(hass)
+    point = _point()
+    router = AsyncMock()
+    router.async_get_readings.return_value = _direction_result(ReadingDirection.IMPORT)
+    ledger, _backend = _install_state(coordinator, point, router=router)
+    ledger.async_records.side_effect = ((), ())
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+    window = BackgroundWindow(NOW - timedelta(days=7), NOW - timedelta(hours=72))
+    obligation = SyncObligation(BackgroundSyncReason.INITIAL_CURRENT_MONTH, "initial:test")
+    state.checkpoint = state.checkpoint.register(
+        PlannedGeneration(obligation, window.end_at, (window,))
+    )
+    original_checkpoint = state.checkpoint
+    state.checkpoint_backend.async_save.side_effect = OSError("disk unavailable")
+    item = BackgroundSyncItem(
+        BackgroundSyncScope(
+            stable_supply_point_identity(SECRET, ACCOUNT_ID, SUPPLY_POINT_ID),
+            ReadingDirection.IMPORT,
+            window,
+        ),
+        frozenset({obligation}),
+    )
+    coordinator._background_queue.enqueue_item(item)
+    retry_waiting = asyncio.Event()
+
+    async def _wait_for_shutdown(_delay: timedelta) -> None:
+        retry_waiting.set()
+        await asyncio.Event().wait()
+
+    coordinator._async_wait = _wait_for_shutdown  # type: ignore[method-assign]
+    task = asyncio.create_task(coordinator._async_background_worker())
+    coordinator._background_task = task
+    await retry_waiting.wait()
+    await coordinator.async_prepare_shutdown()
+
+    assert state.checkpoint == original_checkpoint
+    assert coordinator._background_queue.snapshot() == (item,)
+
+
+async def test_pending_poll_preempts_next_background_request(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = _coordinator(hass)
+    point = _point()
+    router = AsyncMock()
+    router.async_get_readings.return_value = _direction_result(ReadingDirection.IMPORT)
+    ledger, _backend = _install_state(coordinator, point, router=router)
+    ledger.async_records.side_effect = ((), ())
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+    window = BackgroundWindow(NOW - timedelta(days=7), NOW - timedelta(hours=72))
+    obligation = SyncObligation(BackgroundSyncReason.INITIAL_CURRENT_MONTH, "initial:test")
+    state.checkpoint = state.checkpoint.register(
+        PlannedGeneration(obligation, window.end_at, (window,))
+    )
+    coordinator._ensure_direction_status(state, ReadingDirection.IMPORT)
+    coordinator._record_direction_success(
+        state,
+        ReadingDirection.IMPORT,
+        coordinator._planner.poll(NOW)[0],
+        Mock(observed_at=NOW),
+    )
+    coordinator._background_queue.enqueue(
+        BackgroundSyncScope(
+            stable_supply_point_identity(SECRET, ACCOUNT_ID, SUPPLY_POINT_ID),
+            ReadingDirection.IMPORT,
+            window,
+        ),
+        obligation,
+    )
+    coordinator.async_set_updated_data = Mock()
+    original_available = coordinator._retry.available
+    first_selection = True
+    poll_started = asyncio.Event()
+
+    def _start_poll_race(*args: object) -> object:
+        nonlocal first_selection
+        result = original_available(*args)  # type: ignore[arg-type]
+        if first_selection:
+            first_selection = False
+            coordinator._poll_pending = True
+            coordinator._poll_idle.clear()
+            poll_started.set()
+        return result
+
+    with patch.object(coordinator._retry, "available", side_effect=_start_poll_race):
+        task = asyncio.create_task(coordinator._async_background_worker())
+        await poll_started.wait()
+        router.async_get_readings.assert_not_awaited()
+        coordinator._poll_pending = False
+        coordinator._poll_idle.set()
+        await task
+
+    router.async_get_readings.assert_awaited_once()
 
 
 async def test_background_sync_starts_only_when_explicitly_enabled(
@@ -948,6 +1223,21 @@ async def test_background_sync_starts_only_when_explicitly_enabled(
     await coordinator._background_task
 
     assert coordinator._background_queue.snapshot() == ()
+
+
+async def test_background_startup_stagger_applies_once(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = _coordinator(hass)
+    coordinator._startup_delay = timedelta(minutes=3)
+    with patch(
+        "custom_components.octopus_energy_japan.coordinator.asyncio.sleep",
+        AsyncMock(),
+    ) as sleep:
+        await coordinator._async_background_worker()
+        await coordinator._async_background_worker()
+
+    sleep.assert_awaited_once_with(180.0)
 
 
 async def test_shutdown_cancels_inflight_background_fetch_and_requeues(
@@ -986,9 +1276,95 @@ async def test_shutdown_cancels_inflight_background_fetch_and_requeues(
     await coordinator.async_shutdown_runtime()
 
     assert coordinator._background_queue.snapshot() == (item,)
-    assert coordinator._background_task is not None
-    assert coordinator._background_task.cancelled()
+    assert coordinator._background_task is None
     backend.async_flush.assert_awaited_once_with()
+
+
+async def test_prepare_shutdown_waits_for_atomic_section_and_is_idempotent(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = _coordinator(hass)
+    release = asyncio.Event()
+    entered = asyncio.Event()
+
+    async def atomic_section() -> None:
+        async with coordinator._mutation_lock:
+            entered.set()
+            await release.wait()
+
+    mutation = asyncio.create_task(atomic_section())
+    await entered.wait()
+    shutdown = asyncio.create_task(coordinator.async_prepare_shutdown())
+    await asyncio.sleep(0)
+    assert not shutdown.done()
+
+    release.set()
+    await mutation
+    await shutdown
+    await coordinator.async_prepare_shutdown()
+
+    assert coordinator._closing
+    assert coordinator._background_task is None
+
+
+async def test_resume_runtime_restarts_exactly_one_worker(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = _coordinator(hass)
+    point = _point()
+    _install_state(coordinator, point, router=AsyncMock())
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+    window = BackgroundWindow(NOW - timedelta(days=7), NOW - timedelta(hours=72))
+    obligation = SyncObligation(BackgroundSyncReason.INITIAL_CURRENT_MONTH, "initial:test")
+    state.checkpoint = state.checkpoint.register(
+        PlannedGeneration(obligation, window.end_at, (window,))
+    )
+    coordinator._ensure_direction_status(state, ReadingDirection.IMPORT)
+    coordinator._record_direction_success(
+        state,
+        ReadingDirection.IMPORT,
+        coordinator._planner.poll(NOW)[0],
+        Mock(observed_at=NOW),
+    )
+    coordinator._closing = True
+    coordinator._background_started = True
+    with patch.object(coordinator, "_ensure_background_worker") as ensure:
+        await coordinator.async_resume_runtime()
+        await coordinator.async_resume_runtime()
+
+    ensure.assert_called_once_with()
+    assert not coordinator._closing
+    assert len(coordinator._background_queue) == 1
+
+
+async def test_update_rejects_reauth_and_closing_states(hass: HomeAssistant) -> None:
+    coordinator = _coordinator(hass)
+    coordinator._reauth_pending = True
+    with pytest.raises(ConfigEntryAuthFailed):
+        await coordinator._async_update_data()
+
+    coordinator._reauth_pending = False
+    coordinator._closing = True
+    with pytest.raises(UpdateFailed, match="shutting down"):
+        await coordinator._async_update_data()
+
+
+async def test_background_wait_is_interruptible_and_zero_is_immediate(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = _coordinator(hass)
+    await coordinator._async_wait(timedelta(0))
+
+    coordinator._worker_wakeup.set()
+    await coordinator._async_wait(timedelta(hours=1))
+
+    coordinator._worker_wakeup.clear()
+    waiting = asyncio.create_task(coordinator._async_wait(timedelta(hours=1)))
+    await asyncio.sleep(0)
+    coordinator._worker_wakeup.set()
+    await waiting
+
+    await coordinator._async_wait(timedelta(milliseconds=1))
 
 
 async def test_prepare_rolls_and_persists_restored_checkpoint(

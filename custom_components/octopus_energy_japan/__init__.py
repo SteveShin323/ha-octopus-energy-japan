@@ -132,11 +132,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .runtime import OejpRuntimeData
 
     runtime = entry.runtime_data
+    if isinstance(runtime, OejpRuntimeData) and runtime.coordinator is not None:
+        await runtime.coordinator.async_prepare_shutdown()
     unloaded = await hass.config_entries.async_unload_platforms(
         entry,
         PLATFORMS,
     )
     if not unloaded:
+        if isinstance(runtime, OejpRuntimeData) and runtime.coordinator is not None:
+            await runtime.coordinator.async_resume_runtime()
         return False
     if isinstance(runtime, OejpRuntimeData) and runtime.coordinator is not None:
         await runtime.coordinator.async_shutdown_runtime()
