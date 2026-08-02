@@ -300,7 +300,44 @@ async def test_discovery_cancels_disabled_or_missing_work_but_retains_store(
     assert coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)] is state
 
 
-async def test_new_direction_success_reconsiders_permanent_background_failure(
+async def test_daily_generation_reconsiders_permanent_background_failure(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = _coordinator(hass)
+    point = _point()
+    _install_state(coordinator, point, router=AsyncMock())
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+    window = BackgroundWindow(NOW - timedelta(days=7), NOW - timedelta(hours=72))
+    obligation = SyncObligation(BackgroundSyncReason.INITIAL_CURRENT_MONTH, "initial:test")
+    generation = PlannedGeneration(obligation, window.end_at, (window,))
+    item = BackgroundSyncItem(
+        BackgroundSyncScope(
+            stable_supply_point_identity(SECRET, ACCOUNT_ID, SUPPLY_POINT_ID),
+            ReadingDirection.IMPORT,
+            window,
+        ),
+        frozenset({obligation}),
+    )
+    state.checkpoint = state.checkpoint.register(generation).mark_failed(
+        item,
+        DirectionErrorClass.AUTHORIZATION.value,
+    )
+    coordinator._record_direction_success(
+        state,
+        ReadingDirection.IMPORT,
+        coordinator._planner.poll(NOW)[0],
+        Mock(observed_at=NOW),
+    )
+    coordinator._schedule = coordinator._schedule.__class__(last_discovery_at=NOW)
+
+    await coordinator._async_schedule_background_work_locked(NOW)
+
+    assert state.checkpoint.failed_windows == ()
+    assert item in coordinator._background_queue.snapshot()
+    state.checkpoint_backend.async_save.assert_awaited_once()
+
+
+async def test_permanent_background_failure_is_not_retried_by_every_poll(
     hass: HomeAssistant,
 ) -> None:
     coordinator = _coordinator(hass)
@@ -335,8 +372,35 @@ async def test_new_direction_success_reconsiders_permanent_background_failure(
 
     await coordinator._async_schedule_background_work_locked(NOW)
 
+    assert state.checkpoint.failed_windows
+    assert coordinator._background_queue.snapshot() == ()
+    state.checkpoint_backend.async_save.assert_not_awaited()
+
+
+async def test_discovery_generation_reconsiders_relevant_permanent_failure(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = _coordinator(hass)
+    point = _point()
+    _install_state(coordinator, point, router=AsyncMock())
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+    window = BackgroundWindow(NOW - timedelta(days=7), NOW - timedelta(hours=72))
+    obligation = SyncObligation(BackgroundSyncReason.INITIAL_CURRENT_MONTH, "initial:test")
+    item = BackgroundSyncItem(
+        BackgroundSyncScope(
+            stable_supply_point_identity(SECRET, ACCOUNT_ID, SUPPLY_POINT_ID),
+            ReadingDirection.IMPORT,
+            window,
+        ),
+        frozenset({obligation}),
+    )
+    state.checkpoint = state.checkpoint.register(
+        PlannedGeneration(obligation, window.end_at, (window,))
+    ).mark_failed(item, DirectionErrorClass.AUTHORIZATION.value)
+
+    await coordinator._async_reconsider_failures_after_discovery()
+
     assert state.checkpoint.failed_windows == ()
-    assert coordinator._background_queue.snapshot() == (item,)
     state.checkpoint_backend.async_save.assert_awaited_once()
 
 
@@ -411,6 +475,7 @@ async def test_update_reconciles_window_and_projects_ledger(
     data = await coordinator._async_update_data()
 
     router.async_get_readings.assert_awaited_once()
+    assert coordinator._background_queue.snapshot() == ()
     assert router.async_get_readings.await_args.args[1] is ReadingDirection.IMPORT
     assert router.async_get_readings.await_args.args[2:] == (
         NOW - timedelta(hours=72),
@@ -447,6 +512,19 @@ async def test_update_reconciles_window_and_projects_ledger(
     assert data.present_supply_points == {(ACCOUNT_ID, SUPPLY_POINT_ID)}
     await coordinator.async_shutdown_runtime()
     backend.async_flush.assert_awaited_once_with()
+
+
+async def test_regular_refresh_schedules_history_only_after_background_start(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = _coordinator(hass)
+    coordinator._accounts = ()
+    coordinator._background_started = True
+    coordinator._async_schedule_background_work = AsyncMock()  # type: ignore[method-assign]
+
+    await coordinator._async_update_data()
+
+    coordinator._async_schedule_background_work.assert_awaited_once_with(NOW)
 
 
 @pytest.mark.parametrize(
@@ -1306,11 +1384,26 @@ async def test_background_sync_starts_only_when_explicitly_enabled(
     )
 
     assert coordinator._background_task is None
-    coordinator.async_start_background_sync()
+    await coordinator.async_start_background_sync()
     assert coordinator._background_task is not None
     await coordinator._background_task
+    await coordinator.async_start_background_sync()
 
     assert coordinator._background_queue.snapshot() == ()
+
+
+async def test_background_start_resets_state_when_planning_fails(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = _coordinator(hass)
+    coordinator._async_schedule_background_work = AsyncMock(  # type: ignore[method-assign]
+        side_effect=OSError("checkpoint unavailable")
+    )
+
+    with pytest.raises(OSError, match="checkpoint unavailable"):
+        await coordinator.async_start_background_sync()
+
+    assert not coordinator._background_started
 
 
 async def test_background_startup_stagger_applies_once(
@@ -1359,7 +1452,7 @@ async def test_shutdown_cancels_inflight_background_fetch_and_requeues(
     )
     coordinator._background_queue.enqueue_item(item)
 
-    coordinator.async_start_background_sync()
+    await coordinator.async_start_background_sync()
     await started.wait()
     await coordinator.async_shutdown_runtime()
 

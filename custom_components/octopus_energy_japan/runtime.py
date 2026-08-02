@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -104,7 +104,7 @@ def async_project_discovered_devices(
     """Create/update account and supply-point devices without exposing provider IDs."""
     registry = dr.async_get(hass)
     selected = selected_historical_resources(entry)
-    integration_disabler = _integration_device_disabler()
+    integration_disabler = dr.DeviceEntryDisabler.INTEGRATION
     discovered_identities: set[str] = set()
     for account_number, account in enumerate(runtime.accounts, start=1):
         account_identity = stable_account_identity(runtime.identity_secret, account.number)
@@ -188,20 +188,12 @@ def _iter_supply_points(account: OejpAccount) -> tuple[OejpSupplyPoint, ...]:
     )
 
 
-def _integration_device_disabler() -> Any:
-    """Bridge the Home Assistant 2026.8 device disabler enum rename."""
-    disabler_type = getattr(dr, "DeviceEntryDisabler", None)
-    if disabler_type is None:
-        disabler_type = dr.__dict__["RegistryEntryDisabler"]
-    return disabler_type.INTEGRATION
-
-
 def _sync_device_disabled(
-    registry: Any,
-    device: Any,
+    registry: dr.DeviceRegistry,
+    device: dr.DeviceEntry,
     *,
     disabled: bool,
-    integration_disabler: Any,
+    integration_disabler: dr.DeviceEntryDisabler,
 ) -> None:
     """Only change integration-owned disabling; preserve a user's choice."""
     if disabled and device.disabled_by is None:

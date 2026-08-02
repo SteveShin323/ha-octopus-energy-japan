@@ -105,11 +105,13 @@ def _coordinator(
     present: bool = True,
     queryable: bool = True,
     enabled: bool = True,
+    stale: bool = False,
+    update_success: bool = True,
 ) -> OejpDataUpdateCoordinator:
     coordinator = Mock()
     coordinator.accounts = accounts or (_account(),)
     coordinator.capabilities = CapabilitySnapshot()
-    coordinator.last_update_success = True
+    coordinator.last_update_success = update_success
     coordinator.data = OejpCoordinatorData(
         accounts=coordinator.accounts,
         capabilities=coordinator.capabilities,
@@ -131,6 +133,7 @@ def _coordinator(
                     ),
                     direction=ReadingDirection.IMPORT,
                     queryable=True,
+                    stale=stale,
                     last_success_at=NOW,
                 ),
             )
@@ -220,13 +223,29 @@ def test_supply_point_status_and_disappearance() -> None:
         ACCOUNT_ID,
         SUPPLY_POINT_ID,
     )
+    reading_refresh_failed = OejpSupplyPointStatusSensor(
+        _coordinator(update_success=False),
+        SECRET,
+        ACCOUNT_ID,
+        SUPPLY_POINT_ID,
+    )
+    failed_direction = OejpConsumptionSensor(
+        _coordinator(update_success=False),
+        SECRET,
+        ACCOUNT_ID,
+        SUPPLY_POINT_ID,
+        ReadingDirection.IMPORT,
+        _description("latest_interval"),
+    )
 
     assert active.native_value == ResourceLifecycle.ACTIVE
     assert active.available
+    assert reading_refresh_failed.available
+    assert not failed_direction.available
     assert not missing.available
 
 
-def test_disabled_point_and_nonqueryable_direction_are_unavailable() -> None:
+def test_disabled_nonqueryable_and_stale_directions_are_unavailable() -> None:
     disabled_status = OejpSupplyPointStatusSensor(
         _coordinator(enabled=False),
         SECRET,
@@ -241,9 +260,18 @@ def test_disabled_point_and_nonqueryable_direction_are_unavailable() -> None:
         ReadingDirection.IMPORT,
         _description("latest_interval"),
     )
+    stale_energy = OejpConsumptionSensor(
+        _coordinator(stale=True),
+        SECRET,
+        ACCOUNT_ID,
+        SUPPLY_POINT_ID,
+        ReadingDirection.IMPORT,
+        _description("latest_interval"),
+    )
 
     assert not disabled_status.available
     assert not nonqueryable_energy.available
+    assert not stale_energy.available
 
 
 async def test_sensor_platform_adds_each_entity_once(

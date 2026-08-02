@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from custom_components.octopus_energy_japan import (
@@ -63,10 +63,12 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
     hass: HomeAssistant,
 ) -> None:
     entry = _entry()
+    events: list[str] = []
     implementation = AsyncMock()
     auth = AsyncMock()
     coordinator = AsyncMock()
-    coordinator.async_start_background_sync = Mock()
+    coordinator.async_config_entry_first_refresh.side_effect = lambda: events.append("refresh")
+    coordinator.async_start_background_sync.side_effect = lambda: events.append("background")
     auth.async_get_authorization_header.return_value = "Bearer access"
     with (
         patch(
@@ -98,12 +100,13 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
             return_value=coordinator,
         ),
         patch(
-            "custom_components.octopus_energy_japan.runtime.async_project_discovered_devices"
+            "custom_components.octopus_energy_japan.runtime.async_project_discovered_devices",
+            side_effect=lambda *_args: events.append("devices"),
         ) as project_devices,
         patch.object(
             hass.config_entries,
             "async_forward_entry_setups",
-            AsyncMock(),
+            AsyncMock(side_effect=lambda *_args: events.append("platforms")),
         ) as forward,
     ):
         assert await async_setup_entry(hass, entry)
@@ -113,9 +116,10 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
     assert entry.runtime_data.coordinator is coordinator
     auth.async_get_authorization_header.assert_awaited_once_with()
     coordinator.async_config_entry_first_refresh.assert_awaited_once_with()
-    coordinator.async_start_background_sync.assert_called_once_with()
+    coordinator.async_start_background_sync.assert_awaited_once_with()
     project_devices.assert_called_once_with(hass, entry, entry.runtime_data)
     forward.assert_awaited_once_with(entry, ["sensor", "binary_sensor"])
+    assert events == ["refresh", "devices", "platforms", "background"]
 
 
 async def test_discovery_queries_generic_topology_sequentially() -> None:
