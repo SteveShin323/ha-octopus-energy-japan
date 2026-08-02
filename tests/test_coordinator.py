@@ -19,7 +19,6 @@ from custom_components.octopus_energy_japan.api import (
     OejpAccount,
     OejpAuthenticationError,
     OejpAuthorizationError,
-    OejpError,
     OejpInvalidResponseError,
     OejpNonRetryableHttpError,
     OejpNoReadingProviderError,
@@ -390,11 +389,13 @@ async def test_update_normalizes_runtime_failures(
         (OejpNotFoundError(()), DirectionErrorClass.NOT_FOUND),
         (OejpNonRetryableHttpError(400), DirectionErrorClass.NON_RETRYABLE_HTTP),
         (OejpNoReadingProviderError("unavailable"), DirectionErrorClass.UNAVAILABLE),
+        (LedgerError("ledger failed"), DirectionErrorClass.LEDGER),
+        (ValueError("invalid reading"), DirectionErrorClass.INVALID_RESPONSE),
     ],
 )
 async def test_permanent_only_refresh_publishes_status_without_direction(
     hass: HomeAssistant,
-    error: OejpError,
+    error: Exception,
     error_class: DirectionErrorClass,
 ) -> None:
     coordinator = _coordinator(hass)

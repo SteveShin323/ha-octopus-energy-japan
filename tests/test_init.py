@@ -262,7 +262,7 @@ async def test_setup_failure_cleans_partially_allocated_runtime_and_platforms(
         patch.object(
             hass.config_entries,
             "async_unload_platforms",
-            AsyncMock(return_value=True),
+            AsyncMock(side_effect=RuntimeError("partial unload failed")),
         ) as unload,
         patch.object(
             hass.config_entries,
