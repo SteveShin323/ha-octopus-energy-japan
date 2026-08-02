@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from custom_components.octopus_energy_japan import (
@@ -65,6 +65,7 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
     implementation = AsyncMock()
     auth = AsyncMock()
     coordinator = AsyncMock()
+    coordinator.async_start_background_sync = Mock()
     auth.async_get_authorization_header.return_value = "Bearer access"
     with (
         patch(
@@ -111,6 +112,7 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
     assert entry.runtime_data.coordinator is coordinator
     auth.async_get_authorization_header.assert_awaited_once_with()
     coordinator.async_config_entry_first_refresh.assert_awaited_once_with()
+    coordinator.async_start_background_sync.assert_called_once_with()
     project_devices.assert_called_once_with(hass, entry, entry.runtime_data)
     forward.assert_awaited_once_with(entry, ["sensor", "binary_sensor"])
 
