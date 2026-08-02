@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, cast
@@ -924,3 +925,111 @@ async def test_background_worker_requeues_failed_item_without_spinning(
 
     router.async_get_readings.assert_awaited_once()
     assert coordinator._background_queue.snapshot() == (item,)
+
+
+async def test_background_sync_starts_only_when_explicitly_enabled(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = _coordinator(hass)
+    window = BackgroundWindow(NOW - timedelta(days=7), NOW - timedelta(hours=72))
+    obligation = SyncObligation(BackgroundSyncReason.INITIAL_CURRENT_MONTH, "initial:test")
+    coordinator._background_queue.enqueue(
+        BackgroundSyncScope(
+            "supply-point-" + "f" * 64,
+            ReadingDirection.IMPORT,
+            window,
+        ),
+        obligation,
+    )
+
+    assert coordinator._background_task is None
+    coordinator.async_start_background_sync()
+    assert coordinator._background_task is not None
+    await coordinator._background_task
+
+    assert coordinator._background_queue.snapshot() == ()
+
+
+async def test_shutdown_cancels_inflight_background_fetch_and_requeues(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = _coordinator(hass)
+    point = _point()
+    started = asyncio.Event()
+
+    async def wait_forever(*_args: object) -> DirectionReadingResult:
+        started.set()
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    router = AsyncMock()
+    router.async_get_readings.side_effect = wait_forever
+    _ledger, backend = _install_state(coordinator, point, router=router)
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+    window = BackgroundWindow(NOW - timedelta(days=7), NOW - timedelta(hours=72))
+    obligation = SyncObligation(BackgroundSyncReason.INITIAL_CURRENT_MONTH, "initial:test")
+    state.checkpoint = state.checkpoint.register(
+        PlannedGeneration(obligation, window.end_at, (window,))
+    )
+    item = BackgroundSyncItem(
+        BackgroundSyncScope(
+            stable_supply_point_identity(SECRET, ACCOUNT_ID, SUPPLY_POINT_ID),
+            ReadingDirection.IMPORT,
+            window,
+        ),
+        frozenset({obligation}),
+    )
+    coordinator._background_queue.enqueue_item(item)
+
+    coordinator.async_start_background_sync()
+    await started.wait()
+    await coordinator.async_shutdown_runtime()
+
+    assert coordinator._background_queue.snapshot() == (item,)
+    assert coordinator._background_task is not None
+    assert coordinator._background_task.cancelled()
+    backend.async_flush.assert_awaited_once_with()
+
+
+async def test_prepare_rolls_and_persists_restored_checkpoint(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = _coordinator(hass)
+    backend = AsyncMock()
+    ledger = Mock()
+    ledger.async_initialize = AsyncMock()
+    checkpoint_backend = AsyncMock()
+    old = SyncCheckpoint.empty(datetime(2026, 5, 15, tzinfo=UTC))
+    checkpoint_backend.async_load.return_value = old.as_dict()
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.coordinator.HomeAssistantLedgerBackend",
+            return_value=backend,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.coordinator.PersistentIntervalLedger",
+            return_value=ledger,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.coordinator.HomeAssistantSyncCheckpointBackend",
+            return_value=checkpoint_backend,
+        ),
+        patch.object(coordinator, "_reading_router", return_value=Mock()),
+    ):
+        await coordinator._async_prepare_enabled_supply_points(NOW)
+
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+    assert state.checkpoint.month_pair_generation == "2026-06_2026-07"
+    checkpoint_backend.async_save.assert_awaited_once_with(state.checkpoint.as_dict())
+
+
+def test_coordinator_exposes_discovery_and_rejects_naive_clock(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = _coordinator(hass)
+    assert coordinator.accounts == (_account(),)
+    assert coordinator.capabilities == _capabilities(Capability.IMPORT_READINGS)
+    coordinator._now = lambda: datetime(2026, 7, 29)  # noqa: DTZ001
+
+    with pytest.raises(ValueError, match="timezone-aware"):
+        coordinator._utc_now()

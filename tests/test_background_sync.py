@@ -16,6 +16,7 @@ from custom_components.octopus_energy_japan.background_sync import (
     BackgroundWindow,
     CoverageWindow,
     DailyDirectionCompletion,
+    DirectionWindowCompletion,
     PlannedGeneration,
     SyncCheckpoint,
     SyncObligation,
@@ -267,6 +268,10 @@ def test_checkpoint_rejects_invalid_schema_and_payload() -> None:
 
     with pytest.raises(ValueError, match="timestamp"):
         BackgroundWindow(datetime(2026, 7, 1), NOW)  # noqa: DTZ001
+    with pytest.raises(ValueError, match="later"):
+        BackgroundWindow(NOW, NOW)
+    with pytest.raises(ValueError, match="later"):
+        CoverageWindow(NOW, NOW)
     with pytest.raises(ValueError, match="seven-day"):
         BackgroundWindow(NOW - timedelta(days=8), NOW)
     with pytest.raises(ValueError, match="opaque"):
@@ -282,6 +287,39 @@ def test_checkpoint_rejects_invalid_schema_and_payload() -> None:
     with pytest.raises(ValueError, match="registered generation"):
         checkpoint.mark_durable(BackgroundSyncItem(_scope(), frozenset({_obligation()})))
 
+    with pytest.raises(ValueError, match="month-pair"):
+        SyncCheckpoint("invalid")
+    with pytest.raises(ValueError, match="schema version"):
+        SyncCheckpoint("2026-06_2026-07", schema_version=2)
+
+
+def test_checkpoint_rejects_inconsistent_generation_metadata() -> None:
+    obligation = _obligation()
+    generation = PlannedGeneration(obligation, NOW, (_scope().window,))
+    duplicate = (generation, generation)
+    with pytest.raises(ValueError, match="duplicate generations"):
+        SyncCheckpoint("2026-06_2026-07", generations=duplicate)
+
+    completion = DirectionWindowCompletion(
+        ReadingDirection.IMPORT,
+        obligation.reason,
+        obligation.generation,
+        _scope().window,
+    )
+    with pytest.raises(ValueError, match="matching generation"):
+        SyncCheckpoint("2026-06_2026-07", completed_windows=(completion,))
+
+    with pytest.raises(ValueError, match="Daily generation"):
+        PlannedGeneration(
+            SyncObligation(BackgroundSyncReason.DAILY_RECONCILIATION, "daily"),
+            NOW,
+            (_scope().window,),
+        )
+    with pytest.raises(ValueError, match="Only daily"):
+        PlannedGeneration(obligation, NOW, (_scope().window,), NOW.date())
+    with pytest.raises(ValueError, match="Daily supersession"):
+        SyncCheckpoint.empty(NOW).supersede_daily(generation)
+
 
 def test_generation_identifier_cannot_be_reused_for_different_windows() -> None:
     obligation = _obligation()
@@ -291,3 +329,59 @@ def test_generation_identifier_cannot_be_reused_for_different_windows() -> None:
 
     with pytest.raises(ValueError, match="reused"):
         SyncCheckpoint.empty(NOW).register(first).register(second)
+
+
+def test_checkpoint_deserialization_rejects_malformed_nested_values() -> None:
+    valid = SyncCheckpoint.empty(NOW).as_dict()
+    malformed_payloads = (
+        {**valid, "generations": ["not-an-object"]},
+        {
+            **valid,
+            "generations": [
+                {
+                    "reason": BackgroundSyncReason.INITIAL_CURRENT_MONTH.value,
+                    "generation": "test",
+                    "target_end": "2026-07-29T12:34:00Z",
+                    "jst_date": 123,
+                    "windows": [],
+                }
+            ],
+        },
+        {**valid, "completed_windows": ["not-an-object"]},
+        {**valid, "completed_windows": "not-a-list"},
+        {**valid, "month_pair_generation": ""},
+        {
+            **valid,
+            "background_coverage": [
+                {
+                    "direction": ReadingDirection.UNKNOWN.value,
+                    "start_at": "2026-07-01T00:00:00Z",
+                    "end_at": "2026-07-02T00:00:00Z",
+                }
+            ],
+        },
+        {
+            **valid,
+            "background_coverage": [
+                {
+                    "direction": ReadingDirection.IMPORT.value,
+                    "start_at": "not-a-date",
+                    "end_at": "2026-07-02T00:00:00Z",
+                }
+            ],
+        },
+    )
+
+    for payload in malformed_payloads:
+        with pytest.raises((ValueError, TypeError)):
+            SyncCheckpoint.from_dict(payload)
+
+
+def test_removing_only_obligation_deletes_queue_item() -> None:
+    queue = BackgroundSyncQueue()
+    obligation = _obligation(generation="obsolete")
+    queue.enqueue(_scope(), obligation)
+
+    queue.remove_obligations(obligation.reason, frozenset({obligation.generation}))
+
+    assert len(queue) == 0
