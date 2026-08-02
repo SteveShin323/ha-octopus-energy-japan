@@ -142,10 +142,11 @@ class OejpNoReadingProviderError(OejpError):
 
 
 @dataclass(frozen=True, slots=True)
-class ReadingBatch:
-    """One normalized provider result and its observable selection metadata."""
+class DirectionReadingResult:
+    """One authoritative direction result and its provider observation."""
 
     readings: tuple[EnergyReading, ...]
+    direction: ReadingDirection
     provider: ReadingProviderName
     observed_at: datetime
     fallback_reason: ReadingFallbackReason | None = None
@@ -159,6 +160,7 @@ class ReadingProvider(Protocol):
     async def async_get_readings(
         self,
         supply_point: OejpSupplyPoint,
+        direction: ReadingDirection,
         start_at: datetime,
         end_at: datetime,
     ) -> tuple[EnergyReading, ...]:
@@ -200,6 +202,7 @@ class GenericReadingsProvider:
     async def async_get_readings(
         self,
         supply_point: OejpSupplyPoint,
+        direction: ReadingDirection,
         start_at: datetime,
         end_at: datetime,
     ) -> tuple[EnergyReading, ...]:
@@ -213,8 +216,7 @@ class GenericReadingsProvider:
                 GenericUnavailableReason.CAPABILITY_UNSUPPORTED
             )
 
-        directions = self._directions()
-        if not directions:
+        if direction not in self._directions():
             raise OejpGenericProviderUnavailableError(GenericUnavailableReason.NO_READING_DIRECTION)
 
         external_identifier = supply_point.spin or supply_point.id
@@ -224,18 +226,17 @@ class GenericReadingsProvider:
         fetched_at = _utc_datetime(self._now(), "Provider clock")
         readings: list[EnergyReading] = []
         for target in _generic_targets(supply_point):
-            for direction in directions:
-                readings.extend(
-                    await self._async_fetch_series(
-                        supply_point,
-                        external_identifier,
-                        target,
-                        direction,
-                        start,
-                        end,
-                        fetched_at,
-                    )
+            readings.extend(
+                await self._async_fetch_series(
+                    supply_point,
+                    external_identifier,
+                    target,
+                    direction,
+                    start,
+                    end,
+                    fetched_at,
                 )
+            )
         return _deduplicate_readings(readings)
 
     def _directions(self) -> tuple[ReadingDirection, ...]:
@@ -311,11 +312,16 @@ class LegacyHalfHourlyProvider:
     async def async_get_readings(
         self,
         supply_point: OejpSupplyPoint,
+        direction: ReadingDirection,
         start_at: datetime,
         end_at: datetime,
     ) -> tuple[EnergyReading, ...]:
         """Fetch every available legacy reading family for one supply point."""
         start, end = _validated_window(start_at, end_at)
+        if direction is not _legacy_direction(supply_point):
+            raise OejpNoReadingProviderError(
+                "Legacy readings cannot represent the requested direction"
+            )
         fetched_at = _utc_datetime(self._now(), "Provider clock")
         readings: list[EnergyReading] = []
         half_availability = self._capabilities.availability(Capability.LEGACY_HALF_HOURLY_READINGS)
@@ -397,14 +403,18 @@ class ReadingProviderRouter:
     async def async_get_readings(
         self,
         supply_point: OejpSupplyPoint,
+        direction: ReadingDirection,
         start_at: datetime,
         end_at: datetime,
-    ) -> ReadingBatch:
-        """Return a provider batch without masking operational failures."""
+    ) -> DirectionReadingResult:
+        """Return one direction result without masking operational failures."""
+        if direction not in {ReadingDirection.IMPORT, ReadingDirection.EXPORT}:
+            raise ValueError("Reading provider routing requires import or export direction")
         availability = self._capabilities.availability(Capability.GENERIC_READINGS)
         if availability is CapabilityAvailability.UNSUPPORTED:
             return await self._legacy_batch(
                 supply_point,
+                direction,
                 start_at,
                 end_at,
                 ReadingFallbackReason.GENERIC_CAPABILITY_UNSUPPORTED,
@@ -412,6 +422,7 @@ class ReadingProviderRouter:
         if availability is CapabilityAvailability.FORBIDDEN:
             return await self._legacy_batch(
                 supply_point,
+                direction,
                 start_at,
                 end_at,
                 ReadingFallbackReason.GENERIC_CAPABILITY_FORBIDDEN,
@@ -420,6 +431,7 @@ class ReadingProviderRouter:
         try:
             readings = await self._generic.async_get_readings(
                 supply_point,
+                direction,
                 start_at,
                 end_at,
             )
@@ -428,6 +440,7 @@ class ReadingProviderRouter:
                 raise
             return await self._legacy_batch(
                 supply_point,
+                direction,
                 start_at,
                 end_at,
                 ReadingFallbackReason.GENERIC_PERMISSION_GAP,
@@ -446,6 +459,7 @@ class ReadingProviderRouter:
             }[err.reason]
             return await self._legacy_batch(
                 supply_point,
+                direction,
                 start_at,
                 end_at,
                 reason,
@@ -455,17 +469,19 @@ class ReadingProviderRouter:
                 raise
             return await self._legacy_batch(
                 supply_point,
+                direction,
                 start_at,
                 end_at,
                 ReadingFallbackReason.GENERIC_FIELD_DISABLED,
             )
-        return ReadingBatch(
+        return DirectionReadingResult(
             readings=readings,
+            direction=direction,
             provider=ReadingProviderName.GENERIC,
-            observed_at=_batch_observed_at(readings, self._now()),
+            observed_at=_result_observed_at(readings, self._now()),
             authoritative_series=_generic_authoritative_series(
                 supply_point,
-                self._capabilities,
+                direction,
             ),
             authoritative_sources=frozenset(
                 {
@@ -477,19 +493,27 @@ class ReadingProviderRouter:
     async def _legacy_batch(
         self,
         supply_point: OejpSupplyPoint,
+        direction: ReadingDirection,
         start_at: datetime,
         end_at: datetime,
         reason: ReadingFallbackReason,
-    ) -> ReadingBatch:
-        readings = await self._legacy.async_get_readings(supply_point, start_at, end_at)
+    ) -> DirectionReadingResult:
+        readings = await self._legacy.async_get_readings(
+            supply_point,
+            direction,
+            start_at,
+            end_at,
+        )
         authoritative_series = _legacy_authoritative_series(
             supply_point,
             self._capabilities,
+            direction,
         )
-        return ReadingBatch(
+        return DirectionReadingResult(
             readings=readings,
+            direction=direction,
             provider=ReadingProviderName.LEGACY,
-            observed_at=_batch_observed_at(readings, self._now()),
+            observed_at=_result_observed_at(readings, self._now()),
             fallback_reason=reason,
             authoritative_series=authoritative_series,
             authoritative_sources=frozenset(
@@ -851,7 +875,7 @@ def _generic_directions(
 
 def _generic_authoritative_series(
     supply_point: OejpSupplyPoint,
-    capabilities: CapabilitySnapshot,
+    direction: ReadingDirection,
 ) -> frozenset[ReadingSeriesKey]:
     return frozenset(
         ReadingSeriesKey(
@@ -864,7 +888,6 @@ def _generic_authoritative_series(
             source=ReadingSource.SUPPLY_POINT_READINGS,
         )
         for target in _generic_targets(supply_point)
-        for direction in _generic_directions(capabilities)
         for unit in EnergyUnit
     )
 
@@ -872,6 +895,7 @@ def _generic_authoritative_series(
 def _legacy_authoritative_series(
     supply_point: OejpSupplyPoint,
     capabilities: CapabilitySnapshot,
+    direction: ReadingDirection,
 ) -> frozenset[ReadingSeriesKey]:
     excluded = {
         CapabilityAvailability.UNSUPPORTED,
@@ -891,7 +915,7 @@ def _legacy_authoritative_series(
         ReadingSeriesKey(
             account_id=supply_point.account_number,
             supply_point_id=supply_point.id,
-            direction=_legacy_direction(supply_point),
+            direction=direction,
             unit=EnergyUnit.KWH,
             source=source,
         )
@@ -1012,7 +1036,7 @@ def _deduplicate_readings(readings: list[EnergyReading]) -> tuple[EnergyReading,
     )
 
 
-def _batch_observed_at(
+def _result_observed_at(
     readings: tuple[EnergyReading, ...],
     fallback: datetime,
 ) -> datetime:
@@ -1062,6 +1086,40 @@ def _legacy_direction(supply_point: OejpSupplyPoint) -> ReadingDirection:
     if supply_point.direction is not ReadingDirection.UNKNOWN:
         return supply_point.direction
     return ReadingDirection.IMPORT
+
+
+def candidate_directions(
+    supply_point: OejpSupplyPoint,
+    capabilities: CapabilitySnapshot,
+    previously_queryable: tuple[ReadingDirection, ...] = (),
+) -> tuple[ReadingDirection, ...]:
+    """Return deterministic probe candidates without implying entity support."""
+    directions = {
+        direction
+        for direction in previously_queryable
+        if direction in {ReadingDirection.IMPORT, ReadingDirection.EXPORT}
+    }
+    if supply_point.direction in {ReadingDirection.IMPORT, ReadingDirection.EXPORT}:
+        directions.add(supply_point.direction)
+    if capabilities.availability(Capability.IMPORT_READINGS) is CapabilityAvailability.SUPPORTED:
+        directions.add(ReadingDirection.IMPORT)
+    if capabilities.availability(Capability.EXPORT_READINGS) is CapabilityAvailability.SUPPORTED:
+        directions.add(ReadingDirection.EXPORT)
+
+    legacy_unavailable = {
+        CapabilityAvailability.UNSUPPORTED,
+        CapabilityAvailability.FORBIDDEN,
+    }
+    legacy_may_work = any(
+        capabilities.availability(capability) not in legacy_unavailable
+        for capability in (
+            Capability.LEGACY_HALF_HOURLY_READINGS,
+            Capability.LEGACY_INTERVAL_READINGS,
+        )
+    )
+    if supply_point.direction is ReadingDirection.UNKNOWN and legacy_may_work:
+        directions.add(ReadingDirection.IMPORT)
+    return tuple(sorted(directions, key=lambda item: item.value))
 
 
 def _validated_window(start_at: datetime, end_at: datetime) -> tuple[datetime, datetime]:

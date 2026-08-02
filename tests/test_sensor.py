@@ -19,12 +19,18 @@ from custom_components.octopus_energy_japan.api import (
     OejpProperty,
     OejpSupplyPoint,
     ReadingDirection,
+    ReadingProviderName,
     ResourceLifecycle,
 )
 from custom_components.octopus_energy_japan.const import DOMAIN
 from custom_components.octopus_energy_japan.coordinator import (
     OejpCoordinatorData,
     OejpDataUpdateCoordinator,
+    ProviderObservation,
+)
+from custom_components.octopus_energy_japan.identity import (
+    stable_account_identity,
+    stable_supply_point_identity,
 )
 from custom_components.octopus_energy_japan.runtime import OejpRuntimeData
 from custom_components.octopus_energy_japan.sensor import (
@@ -97,6 +103,7 @@ def _coordinator(
     *,
     accounts: tuple[OejpAccount, ...] | None = None,
     present: bool = True,
+    queryable: bool = True,
 ) -> OejpDataUpdateCoordinator:
     coordinator = Mock()
     coordinator.accounts = accounts or (_account(),)
@@ -108,6 +115,24 @@ def _coordinator(
         aggregation=AggregationSnapshot((_aggregation(),), NOW),
         present_supply_points=(
             frozenset({(ACCOUNT_ID, SUPPLY_POINT_ID)}) if present else frozenset()
+        ),
+        provider_observations=(
+            (
+                ProviderObservation(
+                    account_identity=stable_account_identity(SECRET, ACCOUNT_ID),
+                    supply_point_identity=stable_supply_point_identity(
+                        SECRET,
+                        ACCOUNT_ID,
+                        SUPPLY_POINT_ID,
+                    ),
+                    direction=ReadingDirection.IMPORT,
+                    provider=ReadingProviderName.GENERIC,
+                    fallback_reason=None,
+                    observed_at=NOW,
+                ),
+            )
+            if queryable
+            else ()
         ),
     )
     coordinator.async_add_listener.return_value = Mock()
@@ -200,3 +225,23 @@ async def test_sensor_platform_adds_each_entity_once(
     listener = cast("Mock", coordinator.async_add_listener).call_args.args[0]
     listener()
     assert add_entities.call_count == 1
+
+
+async def test_capability_or_topology_alone_creates_only_status_sensor(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = _coordinator(queryable=False)
+    entry = MockConfigEntry(domain=DOMAIN)
+    entry.runtime_data = OejpRuntimeData(
+        auth=AsyncMock(),
+        accounts=coordinator.accounts,
+        capabilities=coordinator.capabilities,
+        identity_secret=SECRET,
+        coordinator=coordinator,
+    )
+    add_entities = Mock()
+
+    await async_setup_entry(hass, entry, add_entities)
+
+    assert len(add_entities.call_args.args[0]) == 1
+    assert isinstance(add_entities.call_args.args[0][0], OejpSupplyPointStatusSensor)

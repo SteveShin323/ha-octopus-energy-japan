@@ -127,8 +127,10 @@ async def async_setup_entry(
                     created.add(status_unique_id)
                     entities.append(status)
                 for direction in entity_directions(
-                    point,
-                    coordinator.capabilities,
+                    coordinator.data,
+                    runtime.identity_secret,
+                    account.number,
+                    point.id,
                 ):
                     for description in ENERGY_DESCRIPTIONS:
                         entity = OejpConsumptionSensor(

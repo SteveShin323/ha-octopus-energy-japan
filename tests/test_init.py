@@ -2,15 +2,25 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from custom_components.octopus_energy_japan import (
+    _async_discover_state,
     async_remove_entry,
     async_setup_entry,
     async_unload_entry,
 )
-from custom_components.octopus_energy_japan.api import CapabilitySnapshot
+from custom_components.octopus_energy_japan.api import (
+    Capability,
+    CapabilityAvailability,
+    CapabilitySnapshot,
+    CapabilityStatus,
+    OejpAccount,
+    OejpProperty,
+    OejpSupplyPoint,
+)
 from custom_components.octopus_energy_japan.const import DOMAIN
 from custom_components.octopus_energy_japan.oauth import (
     OejpOAuthError,
@@ -103,6 +113,73 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
     coordinator.async_config_entry_first_refresh.assert_awaited_once_with()
     project_devices.assert_called_once_with(hass, entry, entry.runtime_data)
     forward.assert_awaited_once_with(entry, ["sensor", "binary_sensor"])
+
+
+async def test_discovery_queries_generic_topology_sequentially() -> None:
+    accounts = (
+        OejpAccount(
+            number="PRIVATE-ACCOUNT",
+            properties=(
+                OejpProperty(
+                    id="PRIVATE-PROPERTY",
+                    supply_points=(
+                        OejpSupplyPoint(
+                            id="PRIVATE-POINT-A",
+                            spin="PRIVATE-SPIN-A",
+                            account_number="PRIVATE-ACCOUNT",
+                        ),
+                        OejpSupplyPoint(
+                            id="PRIVATE-POINT-B",
+                            spin="PRIVATE-SPIN-B",
+                            account_number="PRIVATE-ACCOUNT",
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+    capabilities = CapabilitySnapshot(
+        (
+            CapabilityStatus(
+                Capability.DEVICES,
+                CapabilityAvailability.SUPPORTED,
+            ),
+        )
+    )
+    active = 0
+    maximum_active = 0
+
+    async def discover_devices(_client: object, _identifier: str) -> tuple[()]:
+        nonlocal active, maximum_active
+        active += 1
+        maximum_active = max(maximum_active, active)
+        await asyncio.sleep(0)
+        active -= 1
+        return ()
+
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.api.async_discover_resources",
+            AsyncMock(return_value=accounts),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_detect_capabilities",
+            AsyncMock(return_value=capabilities),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_discover_generic_devices",
+            AsyncMock(side_effect=discover_devices),
+        ) as topology,
+    ):
+        discovered, observed_capabilities = await _async_discover_state(AsyncMock())
+
+    assert discovered == accounts
+    assert observed_capabilities is capabilities
+    assert maximum_active == 1
+    assert [call.args[1] for call in topology.await_args_list] == [
+        "PRIVATE-SPIN-A",
+        "PRIVATE-SPIN-B",
+    ]
 
 
 async def test_setup_entry_retries_when_oauth_implementation_is_unavailable(

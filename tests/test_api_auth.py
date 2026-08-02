@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -114,3 +115,69 @@ async def test_optional_operation_retries_authentication_partial_response(
 
     assert result.data == {"viewer": {"id": "viewer"}}
     auth.async_refresh.assert_awaited_once_with()
+
+
+async def test_optional_operation_refreshes_when_auth_and_permission_errors_are_mixed() -> None:
+    client = AsyncMock(spec=OejpGraphQLClient)
+    client.execute_optional.side_effect = [
+        GraphQLResult(
+            data={"viewer": None},
+            errors=(
+                GraphQLErrorDetail("safe", error_type="AUTHORIZATION"),
+                GraphQLErrorDetail("safe", error_type="AUTHENTICATION"),
+            ),
+        ),
+        GraphQLResult(data={"viewer": {"id": "viewer"}}),
+    ]
+    auth = AsyncMock()
+    auth.async_get_authorization_header.side_effect = ["Bearer old", "Bearer new"]
+
+    result = await AuthenticatedGraphQLClient(client, auth).execute_optional(
+        "query Viewer { viewer }"
+    )
+
+    assert result.data == {"viewer": {"id": "viewer"}}
+    auth.async_refresh.assert_awaited_once_with()
+
+
+async def test_operation_gate_spans_header_refresh_and_retry() -> None:
+    client = AsyncMock(spec=OejpGraphQLClient)
+    auth = AsyncMock()
+    auth.async_get_authorization_header.return_value = "Bearer access"
+    active = 0
+    maximum_active = 0
+    calls = 0
+
+    async def execute(*_args: object, **_kwargs: object) -> dict[str, object]:
+        nonlocal active, calls, maximum_active
+        calls += 1
+        active += 1
+        maximum_active = max(maximum_active, active)
+        await asyncio.sleep(0)
+        active -= 1
+        if calls == 1:
+            raise _graphql_error(OejpAuthenticationError)
+        return {"viewer": {"id": "viewer"}}
+
+    async def refresh() -> None:
+        nonlocal active, maximum_active
+        active += 1
+        maximum_active = max(maximum_active, active)
+        await asyncio.sleep(0)
+        active -= 1
+
+    client.execute.side_effect = execute
+    auth.async_refresh.side_effect = refresh
+    gated = AuthenticatedGraphQLClient(client, auth)
+
+    results = await asyncio.gather(
+        gated.execute("query First { viewer { id } }"),
+        gated.execute("query Second { viewer { id } }"),
+    )
+
+    assert results == [
+        {"viewer": {"id": "viewer"}},
+        {"viewer": {"id": "viewer"}},
+    ]
+    assert calls == 3
+    assert maximum_active == 1

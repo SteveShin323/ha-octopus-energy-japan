@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -208,15 +207,14 @@ async def _async_discover_state(
         }
     )
     try:
-        discovered_devices = await asyncio.gather(
-            *(
-                async_discover_generic_devices(
+        discovered_devices = []
+        for external_identifier in external_identifiers:
+            discovered_devices.append(
+                await async_discover_generic_devices(
                     client,
                     external_identifier,
                 )
-                for external_identifier in external_identifiers
             )
-        )
     except OejpAuthenticationError:
         raise
     except OejpAuthorizationError:

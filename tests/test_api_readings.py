@@ -47,6 +47,7 @@ from custom_components.octopus_energy_japan.api import (
     ReadingProviderRouter,
     ReadingSource,
     build_generic_readings_query,
+    candidate_directions,
     parse_generic_readings_page,
     parse_legacy_half_hourly_readings,
     parse_legacy_interval_readings,
@@ -423,7 +424,7 @@ async def test_generic_provider_validates_capability_identity_and_window(
             AsyncMock(spec=AuthenticatedGraphQLClient),
             capabilities,
             now=lambda: FETCHED,
-        ).async_get_readings(point, start, end)
+        ).async_get_readings(point, ReadingDirection.IMPORT, start, end)
 
 
 async def test_generic_provider_validates_provider_clock() -> None:
@@ -432,7 +433,7 @@ async def test_generic_provider_validates_provider_clock() -> None:
             AsyncMock(spec=AuthenticatedGraphQLClient),
             _capabilities(),
             now=lambda: FETCHED.replace(tzinfo=None),
-        ).async_get_readings(_point(), START, END)
+        ).async_get_readings(_point(), ReadingDirection.IMPORT, START, END)
 
 
 async def test_generic_provider_paginates_with_utc_window_and_stable_fetch_time() -> None:
@@ -458,6 +459,7 @@ async def test_generic_provider_paginates_with_utc_window_and_stable_fetch_time(
 
     readings = await provider.async_get_readings(
         _point(),
+        ReadingDirection.IMPORT,
         START.astimezone(timezone(timedelta(hours=9))),
         END.astimezone(timezone(timedelta(hours=9))),
     )
@@ -490,7 +492,7 @@ async def test_generic_provider_prefers_register_series_over_parent_totals() -> 
         client,
         _capabilities(quality=CapabilityAvailability.UNSUPPORTED),
         now=lambda: FETCHED,
-    ).async_get_readings(point, START, END)
+    ).async_get_readings(point, ReadingDirection.IMPORT, START, END)
 
     assert len(readings) == 1
     assert readings[0].register_id == "register-1"
@@ -515,7 +517,7 @@ async def test_generic_provider_reads_device_export_series() -> None:
             quality=CapabilityAvailability.UNSUPPORTED,
         ),
         now=lambda: FETCHED,
-    ).async_get_readings(point, START, END)
+    ).async_get_readings(point, ReadingDirection.EXPORT, START, END)
 
     assert readings[0].device_id == "device-1"
     assert readings[0].direction is ReadingDirection.EXPORT
@@ -542,7 +544,7 @@ async def test_generic_provider_retries_without_forbidden_optional_quality() -> 
         client,
         _capabilities(),
         now=lambda: FETCHED,
-    ).async_get_readings(_point(), START, END)
+    ).async_get_readings(_point(), ReadingDirection.IMPORT, START, END)
 
     assert len(readings) == 1
     assert readings[0].qualities == ()
@@ -573,7 +575,7 @@ async def test_generic_provider_does_not_retry_unscoped_authorization(
             client,
             _capabilities(),
             now=lambda: FETCHED,
-        ).async_get_readings(_point(), START, END)
+        ).async_get_readings(_point(), ReadingDirection.IMPORT, START, END)
     assert client.execute.await_count == 1
 
 
@@ -847,7 +849,7 @@ async def test_legacy_provider_queries_enabled_families_with_bounded_window() ->
         now=lambda: FETCHED,
     )
 
-    assert await provider.async_get_readings(_point(), START, END) == ()
+    assert await provider.async_get_readings(_point(), ReadingDirection.IMPORT, START, END) == ()
     assert client.execute.await_count == 2
     assert client.execute.await_args_list[0].args[1] == {
         "accountNumber": "account-id",
@@ -883,7 +885,7 @@ async def test_legacy_provider_skips_unavailable_families(
         client,
         _capabilities(half_hourly=half, interval=interval),
         now=lambda: FETCHED,
-    ).async_get_readings(_point(), START, END)
+    ).async_get_readings(_point(), ReadingDirection.IMPORT, START, END)
     assert client.execute.await_count == 1
 
 
@@ -899,7 +901,7 @@ async def test_legacy_provider_rejects_when_no_legacy_family_is_available() -> N
                 interval=CapabilityAvailability.FORBIDDEN,
             ),
             now=lambda: FETCHED,
-        ).async_get_readings(_point(), START, END)
+        ).async_get_readings(_point(), ReadingDirection.IMPORT, START, END)
 
 
 def test_legacy_parser_rejects_wrong_missing_or_duplicate_supply_point() -> None:
@@ -1014,6 +1016,7 @@ class _ProviderStub:
     async def async_get_readings(
         self,
         _supply_point: OejpSupplyPoint,
+        _direction: ReadingDirection,
         _start_at: datetime,
         _end_at: datetime,
     ) -> tuple:
@@ -1048,7 +1051,7 @@ async def test_router_falls_back_from_observed_capability_gap(
         _capabilities(generic=availability),
     )
 
-    batch = await router.async_get_readings(_point(), START, END)
+    batch = await router.async_get_readings(_point(), ReadingDirection.IMPORT, START, END)
 
     assert batch.provider is ReadingProviderName.LEGACY
     assert batch.fallback_reason is reason
@@ -1100,7 +1103,7 @@ async def test_router_falls_back_only_for_recognized_runtime_gaps(
         _ProviderStub(error=error),
         _ProviderStub(),
         _capabilities(),
-    ).async_get_readings(_point(), START, END)
+    ).async_get_readings(_point(), ReadingDirection.IMPORT, START, END)
 
     assert batch.provider is ReadingProviderName.LEGACY
     assert batch.fallback_reason is reason
@@ -1146,7 +1149,7 @@ async def test_router_never_masks_non_fallback_failures(error: Exception) -> Non
             _ProviderStub(error=error),
             legacy,
             _capabilities(),
-        ).async_get_readings(_point(), START, END)
+        ).async_get_readings(_point(), ReadingDirection.IMPORT, START, END)
     assert legacy.calls == 0
 
 
@@ -1159,7 +1162,7 @@ async def test_router_reports_generic_selection_without_fallback() -> None:
         legacy,
         _capabilities(),
         now=lambda: FETCHED,
-    ).async_get_readings(_point(), START, END)
+    ).async_get_readings(_point(), ReadingDirection.IMPORT, START, END)
 
     assert batch.readings == ()
     assert batch.provider is ReadingProviderName.GENERIC
@@ -1202,7 +1205,7 @@ async def test_router_rejects_invalid_provider_observation_times(
             _ProviderStub(result=readings),
             _ProviderStub(),
             _capabilities(),
-        ).async_get_readings(_point(), START, END)
+        ).async_get_readings(_point(), ReadingDirection.IMPORT, START, END)
 
 
 async def test_router_rejects_naive_empty_batch_clock() -> None:
@@ -1212,7 +1215,7 @@ async def test_router_rejects_naive_empty_batch_clock() -> None:
             _ProviderStub(),
             _capabilities(),
             now=lambda: FETCHED.replace(tzinfo=None),
-        ).async_get_readings(_point(), START, END)
+        ).async_get_readings(_point(), ReadingDirection.IMPORT, START, END)
 
 
 async def test_generic_null_supply_point_is_not_a_fallback_signal() -> None:
@@ -1226,5 +1229,109 @@ async def test_generic_null_supply_point_is_not_a_fallback_signal() -> None:
             generic,
             legacy,
             _capabilities(),
-        ).async_get_readings(_point(), START, END)
+        ).async_get_readings(_point(), ReadingDirection.IMPORT, START, END)
     assert legacy.calls == 0
+
+
+async def test_router_rejects_unknown_direction() -> None:
+    with pytest.raises(ValueError, match="requires import or export"):
+        await ReadingProviderRouter(
+            _ProviderStub(),
+            _ProviderStub(),
+            _capabilities(),
+        ).async_get_readings(_point(), ReadingDirection.UNKNOWN, START, END)
+
+
+def test_candidate_directions_follow_exact_probe_rules() -> None:
+    unknown = _point(direction=ReadingDirection.UNKNOWN)
+    no_legacy = _capabilities(
+        generic=CapabilityAvailability.UNKNOWN,
+        half_hourly=CapabilityAvailability.UNSUPPORTED,
+        interval=CapabilityAvailability.FORBIDDEN,
+        import_=CapabilityAvailability.UNKNOWN,
+        export=CapabilityAvailability.UNKNOWN,
+    )
+    assert candidate_directions(unknown, no_legacy) == ()
+    assert candidate_directions(
+        unknown,
+        no_legacy,
+        (ReadingDirection.EXPORT,),
+    ) == (ReadingDirection.EXPORT,)
+    assert candidate_directions(
+        unknown,
+        _capabilities(
+            generic=CapabilityAvailability.UNKNOWN,
+            import_=CapabilityAvailability.UNKNOWN,
+            export=CapabilityAvailability.UNKNOWN,
+        ),
+    ) == (ReadingDirection.IMPORT,)
+    assert candidate_directions(
+        _point(direction=ReadingDirection.EXPORT),
+        _capabilities(export=CapabilityAvailability.SUPPORTED),
+    ) == (ReadingDirection.EXPORT, ReadingDirection.IMPORT)
+
+
+async def test_successful_empty_export_is_direction_scoped_and_authoritative() -> None:
+    batch = await ReadingProviderRouter(
+        _ProviderStub(),
+        _ProviderStub(),
+        _capabilities(
+            import_=CapabilityAvailability.UNSUPPORTED,
+            export=CapabilityAvailability.SUPPORTED,
+        ),
+        now=lambda: FETCHED,
+    ).async_get_readings(_point(), ReadingDirection.EXPORT, START, END)
+
+    assert batch.direction is ReadingDirection.EXPORT
+    assert batch.readings == ()
+    assert {series.direction for series in batch.authoritative_series} == {ReadingDirection.EXPORT}
+
+
+async def test_direction_failure_does_not_discard_other_direction_result() -> None:
+    class DirectionProvider:
+        async def async_get_readings(
+            self,
+            _point: OejpSupplyPoint,
+            direction: ReadingDirection,
+            _start: datetime,
+            _end: datetime,
+        ) -> tuple[EnergyReading, ...]:
+            if direction is ReadingDirection.EXPORT:
+                raise OejpAuthorizationError(
+                    (GraphQLErrorDetail("safe", error_type="AUTHORIZATION"),)
+                )
+            return (_reading(),)
+
+    router = ReadingProviderRouter(
+        DirectionProvider(),
+        _ProviderStub(),
+        _capabilities(export=CapabilityAvailability.SUPPORTED),
+    )
+    imported = await router.async_get_readings(_point(), ReadingDirection.IMPORT, START, END)
+    with pytest.raises(OejpAuthorizationError):
+        await router.async_get_readings(_point(), ReadingDirection.EXPORT, START, END)
+
+    assert imported.direction is ReadingDirection.IMPORT
+    assert imported.readings == (_reading(),)
+
+
+async def test_legacy_unknown_direction_never_substitutes_import_for_export() -> None:
+    generic = _ProviderStub(
+        error=OejpGenericProviderUnavailableError(GenericUnavailableReason.SERIES_NOT_CONFIGURED)
+    )
+    legacy = LegacyHalfHourlyProvider(
+        AsyncMock(spec=AuthenticatedGraphQLClient),
+        _capabilities(),
+        now=lambda: FETCHED,
+    )
+    with pytest.raises(OejpNoReadingProviderError, match="requested direction"):
+        await ReadingProviderRouter(
+            generic,
+            legacy,
+            _capabilities(export=CapabilityAvailability.SUPPORTED),
+        ).async_get_readings(
+            _point(direction=ReadingDirection.UNKNOWN),
+            ReadingDirection.EXPORT,
+            START,
+            END,
+        )
