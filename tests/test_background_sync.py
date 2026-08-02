@@ -385,3 +385,57 @@ def test_removing_only_obligation_deletes_queue_item() -> None:
     queue.remove_obligations(obligation.reason, frozenset({obligation.generation}))
 
     assert len(queue) == 0
+
+
+def test_permanent_failure_round_trip_prevents_same_generation_spin() -> None:
+    obligation = _obligation()
+    generation = PlannedGeneration(obligation, NOW, (_scope().window,))
+    item = BackgroundSyncItem(_scope(), frozenset({obligation}))
+
+    failed = SyncCheckpoint.empty(NOW).register(generation).mark_failed(item, "authorization")
+    restored = SyncCheckpoint.from_dict(failed.as_dict())
+    queue = BackgroundSyncQueue()
+    restored.enqueue_missing(
+        queue,
+        POINT_A,
+        ReadingDirection.IMPORT,
+        generation,
+    )
+
+    assert restored.is_failed(
+        ReadingDirection.IMPORT,
+        obligation,
+        generation.windows[0],
+    )
+    assert queue.snapshot() == ()
+
+
+def test_permanent_failure_requires_registered_window_and_safe_class() -> None:
+    item = BackgroundSyncItem(_scope(), frozenset({_obligation()}))
+    with pytest.raises(ValueError, match="registered generation"):
+        SyncCheckpoint.empty(NOW).mark_failed(item, "authorization")
+
+    generation = PlannedGeneration(_obligation(), NOW, (_scope().window,))
+    with pytest.raises(ValueError, match="failure class"):
+        SyncCheckpoint.empty(NOW).register(generation).mark_failed(item, "")
+
+    failure_payload = SyncCheckpoint.empty(NOW).register(generation).as_dict()
+    failure_payload["failed_windows"] = [
+        {
+            "direction": "import",
+            "reason": generation.obligation.reason.value,
+            "generation": generation.obligation.generation,
+            "start_at": (NOW - timedelta(days=6)).isoformat(),
+            "end_at": NOW.isoformat(),
+            "error_class": "authorization",
+        }
+    ]
+    with pytest.raises(ValueError, match="failure has no matching"):
+        SyncCheckpoint.from_dict(failure_payload)
+
+
+def test_checkpoint_without_failure_field_restores_backward_compatibly() -> None:
+    payload = SyncCheckpoint.empty(NOW).as_dict()
+    payload.pop("failed_windows")
+
+    assert SyncCheckpoint.from_dict(payload).failed_windows == ()

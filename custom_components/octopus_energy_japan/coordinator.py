@@ -7,7 +7,7 @@ import logging
 from collections.abc import Awaitable, Callable, Iterable
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
 from homeassistant.config_entries import ConfigEntry
@@ -37,6 +37,8 @@ from .api import (
     OejpQueryValidationError,
     OejpRateLimitError,
     OejpSupplyPoint,
+    OejpTimeoutError,
+    OejpTransientHttpError,
     OejpTransportError,
     ReadingDirection,
     ReadingFallbackReason,
@@ -46,9 +48,11 @@ from .api import (
     candidate_directions,
 )
 from .background_sync import (
+    BackgroundSyncItem,
     BackgroundSyncPlanner,
     BackgroundSyncQueue,
     BackgroundSyncReason,
+    BackgroundSyncScope,
     CoverageWindow,
     SyncCheckpoint,
 )
@@ -70,7 +74,9 @@ from .sync import (
     SyncWindow,
     SyncWindowPlanner,
     slow_cadence_due,
+    startup_stagger,
 )
+from .sync_runtime import BackgroundRetryController
 from .sync_store import HomeAssistantSyncCheckpointBackend
 
 _LOGGER = logging.getLogger(__name__)
@@ -216,6 +222,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
         discovery_loader: DiscoveryLoader,
         *,
         now: Callable[[], datetime] | None = None,
+        startup_delay: timedelta | None = None,
     ) -> None:
         super().__init__(
             hass,
@@ -246,8 +253,19 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
         self._mutation_lock = asyncio.Lock()
         self._background_queue = BackgroundSyncQueue()
         self._background_task: asyncio.Task[None] | None = None
+        self._background_active_scope: BackgroundSyncScope | None = None
         self._background_started = False
         self._closing = False
+        self._reauth_pending = False
+        self._poll_pending = False
+        self._poll_idle = asyncio.Event()
+        self._poll_idle.set()
+        self._worker_wakeup = asyncio.Event()
+        self._retry = BackgroundRetryController()
+        self._startup_delay = (
+            startup_stagger(entry.entry_id) if startup_delay is None else startup_delay
+        )
+        self._startup_complete = False
 
     @property
     def accounts(self) -> tuple[OejpAccount, ...]:
@@ -260,6 +278,13 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
         return self._capabilities
 
     async def _async_update_data(self) -> OejpCoordinatorData:
+        if self._reauth_pending:
+            raise ConfigEntryAuthFailed("OEJP OAuth authorization must be renewed")
+        if self._closing:
+            raise UpdateFailed("OEJP runtime is shutting down")
+        self._poll_pending = True
+        self._poll_idle.clear()
+        self._worker_wakeup.set()
         now = self._utc_now()
         try:
             await self._async_refresh_discovery_if_due(now)
@@ -404,6 +429,10 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             raise
         except (OejpError, LedgerError, ValueError) as err:
             raise UpdateFailed("OEJP reading synchronization failed") from err
+        finally:
+            self._poll_pending = False
+            self._poll_idle.set()
+            self._worker_wakeup.set()
 
     async def _async_build_snapshot(
         self,
@@ -481,14 +510,42 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
         self._background_started = True
         self._ensure_background_worker()
 
-    async def async_shutdown_runtime(self) -> None:
-        """Stop background work and flush every pending durable write."""
+    async def async_prepare_shutdown(self) -> None:
+        """Quiesce the worker after any active atomic persistence section."""
+        if self._closing and (self._background_task is None or self._background_task.done()):
+            return
         self._closing = True
+        self._worker_wakeup.set()
+        self._poll_idle.set()
+        async with self._mutation_lock:
+            pass
         task = self._background_task
         if task is not None and not task.done():
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
+        self._background_task = None
+
+    async def async_resume_runtime(self) -> None:
+        """Reconstruct missing work and resume exactly one worker after unload failure."""
+        if not self._closing:
+            return
+        self._closing = False
+        async with self._mutation_lock:
+            for state in self._enabled_states():
+                for direction in self._previously_queryable_directions(state):
+                    for generation in state.checkpoint.generations:
+                        state.checkpoint.enqueue_missing(
+                            self._background_queue,
+                            self._status_identity(state),
+                            direction,
+                            generation,
+                        )
+        self._ensure_background_worker()
+
+    async def async_shutdown_runtime(self) -> None:
+        """Idempotently stop background work and flush pending durable writes."""
+        await self.async_prepare_shutdown()
         for state in self._supply_points.values():
             try:
                 await state.backend.async_flush()
@@ -695,11 +752,16 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                 last_contract_at=self._schedule.last_contract_at,
                 last_billing_at=self._schedule.last_billing_at,
             )
+        active_scopes = {item.scope for item in self._background_queue.snapshot()}
+        if self._background_active_scope is not None:
+            active_scopes.add(self._background_active_scope)
+        self._retry.prune(frozenset(active_scopes))
 
     def _ensure_background_worker(self) -> None:
         if (
             not self._background_started
             or self._closing
+            or self._reauth_pending
             or len(self._background_queue) == 0
             or (self._background_task is not None and not self._background_task.done())
         ):
@@ -711,10 +773,38 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
         )
 
     async def _async_background_worker(self) -> None:
-        """Drain durable work sequentially without blocking coordinator setup."""
-        while not self._closing and (item := self._background_queue.pop_next()) is not None:
+        """Drain durable work with poll priority and bounded retry scheduling."""
+        if not self._startup_complete:
+            await asyncio.sleep(max(0.0, self._startup_delay.total_seconds()))
+            self._startup_complete = True
+        while not self._closing:
+            await self._poll_idle.wait()
+            if self._closing:
+                return
+            # Clear before inspecting the queue so a poll completion or newly
+            # scheduled item cannot be lost between selection and waiting.
+            self._worker_wakeup.clear()
+            now = self._utc_now()
+            async with self._mutation_lock:
+                available = self._retry.available(self._background_queue.snapshot(), now)
+                item = available.item
+                if item is not None:
+                    self._background_queue.discard(item.scope)
+            if item is None:
+                if available.not_before is None:
+                    return
+                await self._async_wait(available.not_before - now)
+                continue
+            self._background_active_scope = item.scope
+            if self._poll_pending:
+                self._background_queue.enqueue_item(item)
+                self._background_active_scope = None
+                await self._poll_idle.wait()
+                continue
             state = self._state_for_identity(item.scope.supply_point_identity)
             if state is None:
+                self._retry.resolve(item.scope)
+                self._background_active_scope = None
                 continue
             try:
                 direction_result = await state.router.async_get_readings(
@@ -731,8 +821,9 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                         item.scope.window.end_at,
                     )
                     await state.backend.async_flush()
-                    state.checkpoint = state.checkpoint.mark_durable(item)
-                    await state.checkpoint_backend.async_save(state.checkpoint.as_dict())
+                    checkpoint = state.checkpoint.mark_durable(item)
+                    await state.checkpoint_backend.async_save(checkpoint.as_dict())
+                    state.checkpoint = checkpoint
                     observation = self._observation(state, item.scope.direction, direction_result)
                     self._provider_observations[
                         self._direction_key(state, item.scope.direction)
@@ -757,10 +848,123 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             except asyncio.CancelledError:
                 self._background_queue.enqueue_item(item)
                 raise
-            except OejpError, LedgerError, ValueError:
+            except OejpAuthenticationError:
                 self._background_queue.enqueue_item(item)
-                _LOGGER.warning("OEJP background synchronization paused after a failure")
+                self._reauth_pending = True
+                self._entry.async_start_reauth(self.hass)
                 return
+            except (OejpRateLimitError, OejpTimeoutError, OejpTransientHttpError) as err:
+                self._background_queue.enqueue_item(item)
+                retry_after = (
+                    err.retry_after
+                    if isinstance(err, (OejpRateLimitError, OejpTransientHttpError))
+                    else None
+                )
+                self._retry.record_transient(
+                    item.scope,
+                    self._utc_now(),
+                    retry_after=retry_after,
+                    rate_limited=isinstance(err, OejpRateLimitError),
+                )
+            except OejpTransportError as err:
+                if isinstance(err, OejpNonRetryableHttpError):
+                    await self._async_resolve_permanent_failure(
+                        state,
+                        item,
+                        DirectionErrorClass.NON_RETRYABLE_HTTP,
+                    )
+                    continue
+                self._background_queue.enqueue_item(item)
+                self._retry.record_transient(
+                    item.scope,
+                    self._utc_now(),
+                    retry_after=None,
+                    rate_limited=False,
+                )
+            except OSError:
+                self._background_queue.enqueue_item(item)
+                self._retry.record_transient(
+                    item.scope,
+                    self._utc_now(),
+                    retry_after=None,
+                    rate_limited=False,
+                )
+            except OejpAuthorizationError:
+                await self._async_resolve_permanent_failure(
+                    state,
+                    item,
+                    DirectionErrorClass.AUTHORIZATION,
+                )
+            except OejpQueryValidationError:
+                await self._async_resolve_permanent_failure(
+                    state,
+                    item,
+                    DirectionErrorClass.VALIDATION,
+                )
+            except OejpNotFoundError:
+                await self._async_resolve_permanent_failure(
+                    state,
+                    item,
+                    DirectionErrorClass.NOT_FOUND,
+                )
+            except OejpInvalidResponseError, ValueError:
+                await self._async_resolve_permanent_failure(
+                    state,
+                    item,
+                    DirectionErrorClass.INVALID_RESPONSE,
+                )
+            except LedgerError:
+                await self._async_resolve_permanent_failure(
+                    state,
+                    item,
+                    DirectionErrorClass.LEDGER,
+                )
+            except OejpError:
+                await self._async_resolve_permanent_failure(
+                    state,
+                    item,
+                    DirectionErrorClass.UNAVAILABLE,
+                )
+            else:
+                self._retry.resolve(item.scope)
+            finally:
+                self._background_active_scope = None
+
+    async def _async_resolve_permanent_failure(
+        self,
+        state: _SupplyPointRuntime,
+        item: BackgroundSyncItem,
+        error_class: DirectionErrorClass,
+    ) -> None:
+        """Persist a generation-scoped failure and publish without retry spin."""
+        async with self._mutation_lock:
+            checkpoint = state.checkpoint.mark_failed(item, error_class.value)
+            await state.checkpoint_backend.async_save(checkpoint.as_dict())
+            state.checkpoint = checkpoint
+            self._record_direction_failure(
+                state,
+                item.scope.direction,
+                error_class,
+                queryable=False,
+            )
+            snapshot = await self._async_build_snapshot(
+                self._utc_now(),
+                self._enabled_states(),
+                CorrectionResult(),
+            )
+        self._retry.resolve(item.scope)
+        self.async_set_updated_data(snapshot)
+
+    async def _async_wait(self, delay: timedelta) -> None:
+        """Wait interruptibly without holding the request gate or mutation lock."""
+        seconds = max(0.0, delay.total_seconds())
+        if seconds == 0:
+            return
+        try:
+            async with asyncio.timeout(seconds):
+                await self._worker_wakeup.wait()
+        except TimeoutError:
+            pass
 
     def _state_for_identity(self, identity: str) -> _SupplyPointRuntime | None:
         return next(
