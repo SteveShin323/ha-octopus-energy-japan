@@ -1,6 +1,6 @@
 # Runtime execution and entity projection specification
 
-Status: normative implementation contract for Full Development Plan v3 PR 7
+Status: implemented normative contract, merged through PR #14
 Reviewed: 2026-08-02
 
 This document defines the only permitted runtime design for the Home Assistant
@@ -525,6 +525,8 @@ PR 7 is complete only when:
 5. no PR 7 TODO, FIXME, placeholder, open design choice, temporary compatibility
    path, or unchecked completion item remains;
 6. all required checks pass on the final `codex/runtime-entities` head; and
-7. PR #14 is marked ready for review but is not merged automatically.
+7. PR #14 is marked ready for review but is not merged automatically by the
+   delivery procedure.
 
-PR 8 Energy statistics MUST NOT begin before this definition is met.
+This definition was met before PR #14 was manually squash-merged into `main` on
+2026-08-03. PR 8 Energy statistics began from that merged `main` state.

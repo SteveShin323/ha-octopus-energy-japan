@@ -56,6 +56,7 @@ from custom_components.octopus_energy_japan.coordinator import (
     DirectionErrorClass,
     DirectionSyncStatus,
     OejpDataUpdateCoordinator,
+    _StatisticsPending,
     _SupplyPointRuntime,
     enabled_supply_points,
     entity_directions,
@@ -67,9 +68,12 @@ from custom_components.octopus_energy_japan.identity import (
 )
 from custom_components.octopus_energy_japan.ledger import (
     CorrectionResult,
+    LedgerChange,
     LedgerError,
+    LedgerMergeStatus,
     LedgerRecord,
 )
+from custom_components.octopus_energy_japan.statistics_runtime import StatisticsProjector
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import UpdateFailed
@@ -204,6 +208,7 @@ def _coordinator(
     accounts: tuple[OejpAccount, ...] | None = None,
     capabilities: CapabilitySnapshot | None = None,
     discovery_loader: AsyncMock | None = None,
+    statistics_projector: StatisticsProjector | None = None,
 ) -> OejpDataUpdateCoordinator:
     selected_entry = entry or _entry()
     selected_accounts = accounts or (_account(),)
@@ -218,6 +223,7 @@ def _coordinator(
         discovery_loader or AsyncMock(return_value=(selected_accounts, selected_capabilities)),
         now=lambda: NOW,
         startup_delay=timedelta(0),
+        statistics_projector=statistics_projector,
     )
 
 
@@ -256,6 +262,134 @@ def test_resource_helpers_never_select_only_the_first_item() -> None:
         historical,
         old_point,
     }
+
+
+async def test_statistics_projection_flushes_ledger_and_clears_pending(
+    hass: HomeAssistant,
+) -> None:
+    projector = AsyncMock()
+    coordinator = _coordinator(
+        hass,
+        statistics_projector=cast("StatisticsProjector", projector),
+    )
+    point = _point()
+    ledger, backend = _install_state(coordinator, point, router=AsyncMock())
+    key = (ACCOUNT_ID, SUPPLY_POINT_ID)
+    coordinator._statistics_pending[key] = _StatisticsPending(None)
+
+    await coordinator._async_publish_pending_statistics(NOW)
+
+    backend.async_flush.assert_awaited_once_with()
+    projector.async_project_supply_point.assert_awaited_once_with(
+        ledger,
+        ACCOUNT_ID,
+        SUPPLY_POINT_ID,
+        NOW,
+        dirty_from=None,
+        reset_directions=frozenset(),
+    )
+    assert key not in coordinator._statistics_pending
+
+
+async def test_statistics_projection_failure_is_retried_and_recovers(
+    hass: HomeAssistant,
+) -> None:
+    projector = AsyncMock()
+    projector.async_project_supply_point.side_effect = [OSError("recorder offline"), None]
+    coordinator = _coordinator(
+        hass,
+        statistics_projector=cast("StatisticsProjector", projector),
+    )
+    point = _point()
+    _ledger, backend = _install_state(coordinator, point, router=AsyncMock())
+    key = (ACCOUNT_ID, SUPPLY_POINT_ID)
+    coordinator._statistics_pending[key] = _StatisticsPending(NOW - timedelta(hours=2))
+
+    await coordinator._async_publish_pending_statistics(NOW)
+
+    assert key in coordinator._statistics_pending
+    assert key in coordinator._statistics_failures
+
+    await coordinator._async_publish_pending_statistics(NOW)
+
+    assert key not in coordinator._statistics_pending
+    assert key not in coordinator._statistics_failures
+    assert backend.async_flush.await_count == 2
+
+
+async def test_statistics_success_for_another_point_does_not_mask_failure(
+    hass: HomeAssistant,
+) -> None:
+    projector = AsyncMock()
+    projector.async_project_supply_point.side_effect = [OSError("recorder offline"), None]
+    coordinator = _coordinator(
+        hass,
+        statistics_projector=cast("StatisticsProjector", projector),
+    )
+    first_key = (ACCOUNT_ID, SUPPLY_POINT_ID)
+    second_key = (ACCOUNT_ID, "PRIVATE-SUPPLY-POINT-2")
+    _install_state(coordinator, _point(), router=AsyncMock())
+    _install_state(
+        coordinator,
+        _point(point_id=second_key[1]),
+        router=AsyncMock(),
+    )
+    coordinator._statistics_pending[first_key] = _StatisticsPending(NOW)
+    coordinator._statistics_pending[second_key] = _StatisticsPending(NOW)
+
+    await coordinator._async_publish_pending_statistics(NOW)
+
+    assert first_key in coordinator._statistics_pending
+    assert first_key in coordinator._statistics_failures
+    assert second_key not in coordinator._statistics_pending
+    assert second_key not in coordinator._statistics_failures
+
+
+def test_statistics_dirty_state_retains_earliest_change(hass: HomeAssistant) -> None:
+    coordinator = _coordinator(hass)
+    point = _point()
+    _install_state(coordinator, point, router=AsyncMock())
+    key = (ACCOUNT_ID, SUPPLY_POINT_ID)
+    record = LedgerRecord(_reading())
+    later = NOW - timedelta(minutes=30)
+    coordinator._statistics_pending[key] = _StatisticsPending(later)
+
+    coordinator._mark_statistics_dirty(
+        CorrectionResult(
+            (
+                LedgerChange(
+                    record.key,
+                    LedgerMergeStatus.CORRECTED,
+                    previous=record,
+                    current=record,
+                ),
+            )
+        )
+    )
+
+    assert coordinator._statistics_pending[key].dirty_from == record.key.start_at
+
+
+def test_statistics_deletion_requests_direction_reset(hass: HomeAssistant) -> None:
+    coordinator = _coordinator(hass)
+    _install_state(coordinator, _point(), router=AsyncMock())
+    record = LedgerRecord(_reading())
+
+    coordinator._mark_statistics_dirty(
+        CorrectionResult(
+            (
+                LedgerChange(
+                    record.key,
+                    LedgerMergeStatus.DELETED,
+                    previous=record,
+                ),
+            )
+        )
+    )
+
+    pending = coordinator._statistics_pending[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+    assert pending.dirty_from == record.key.start_at
+    assert pending.reset_directions == frozenset({ReadingDirection.IMPORT})
 
 
 @pytest.mark.parametrize(
