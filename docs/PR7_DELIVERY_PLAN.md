@@ -1,19 +1,21 @@
 # PR 7 sequential delivery plan
 
-Status: normative branch and review procedure for PR #14
-Reviewed: 2026-07-31
+Status: completed delivery record for PR #14
+Reviewed: 2026-08-03
 
-This document controls how the remaining PR 7 work is delivered. Runtime
-behavior is controlled by [`RUNTIME_AND_ENTITIES.md`](RUNTIME_AND_ENTITIES.md).
-The delivery procedure MUST NOT weaken or reinterpret that specification.
+This document records the normative procedure used to deliver PR 7. All six
+stages were completed sequentially and PR #14 was marked ready for review on
+2026-08-02. Runtime behavior remains controlled by
+[`RUNTIME_AND_ENTITIES.md`](RUNTIME_AND_ENTITIES.md); the historical delivery
+procedure does not weaken or reinterpret that specification.
 
 ## 1. Fixed integration target
 
 - Integration branch: `codex/runtime-entities`
 - Integration pull request: PR #14, base `main`
-- PR #14 remains Draft until the complete PR 7 definition of done is met.
+- PR #14 remained Draft until the complete PR 7 definition of done was met.
 - No child PR and no automation may merge PR #14 into `main`.
-- PR 8 and later feature work MUST NOT start before PR #14 is ready for review.
+- PR 8 and later feature work did not start before PR #14 was ready for review.
 
 ## 2. Sequential child-PR model
 

@@ -31,6 +31,8 @@ from .runtime import OejpRuntimeData
 
 type SensorValue = Decimal | datetime | float | None
 
+PARALLEL_UPDATES = 0
+
 
 @dataclass(frozen=True, kw_only=True)
 class OejpSensorEntityDescription(SensorEntityDescription):

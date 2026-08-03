@@ -17,6 +17,8 @@ from .coordinator import (
 from .entity import OejpSupplyPointEntity
 from .runtime import OejpRuntimeData
 
+PARALLEL_UPDATES = 0
+
 
 async def async_setup_entry(
     hass: HomeAssistant,

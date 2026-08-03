@@ -22,7 +22,7 @@ Japan (OEJP).
 | Account and supply-point discovery | Implemented |
 | Import/export reading providers | Implemented |
 | Correction-aware ledger and JST aggregation | Implemented |
-| Home Assistant runtime and entities | Implemented in PR #14; final review pending |
+| Home Assistant runtime and entities | Implemented in PR #14; ready for review |
 | Energy Dashboard statistics | Planned |
 | Tariff and billing summaries | Planned |
 | Supported installation | Not available yet |

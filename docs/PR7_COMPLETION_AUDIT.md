@@ -1,7 +1,7 @@
 # PR 7 completion audit
 
-Status: completion evidence for PR #14  
-Reviewed: 2026-08-02
+Status: completion evidence for PR #14, ready for review
+Reviewed: 2026-08-03
 
 This audit verifies the implementation against
 [`RUNTIME_AND_ENTITIES.md`](RUNTIME_AND_ENTITIES.md),
@@ -76,6 +76,6 @@ property-based reconciliation invariants.
   entity implementation, diagnostics download, or Repairs implementation.
 - Production OAuth metadata and OEJP public-client approval remain release
   blockers, not fixture-based PR 7 implementation blockers.
-- PR #14 is not merged by this delivery process. PR 8 must not begin until the
-  final integration head passes every required check and PR #14 is ready for
-  review.
+- The final integration head passed every required check and PR #14 was marked
+  ready for review. This delivery process does not merge PR #14; PR 8 starts
+  from `main` only after that integration PR is merged.

@@ -1,7 +1,7 @@
 # OEJP Home Assistant Integration — Master Technical Design v3
 
 Status: normative implementation plan
-Reviewed: 2026-07-31
+Reviewed: 2026-08-03
 Repository: `SteveShin323/ha-octopus-energy-japan`
 Domain: `octopus_energy_japan`
 
@@ -15,8 +15,8 @@ More specific active specifications control within their scope:
   deterministic aggregation semantics;
 - [`RUNTIME_AND_ENTITIES.md`](RUNTIME_AND_ENTITIES.md) controls PR 7 runtime and
   entity behavior; and
-- [`PR7_DELIVERY_PLAN.md`](PR7_DELIVERY_PLAN.md) controls PR #14 branch and
-  child-PR mechanics without changing runtime behavior.
+- [`PR7_DELIVERY_PLAN.md`](PR7_DELIVERY_PLAN.md) records the completed PR #14
+  branch and child-PR procedure without changing runtime behavior.
 
 The design is informed by the official OEJP GraphQL documentation and example,
 plus code-level review of `strongbugman/ha-octopusenergy-oejp`,
@@ -358,11 +358,12 @@ drift, and prolonged lack of readings. No external telemetry is sent.
 11. **Documentation and release** — user documentation, templates, release
     process, HACS artifact, attestation, and clean lifecycle validation.
 
-PR 7 is delivered through the sequential child-PR procedure in
-[`PR7_DELIVERY_PLAN.md`](PR7_DELIVERY_PLAN.md). Child PRs target
-`codex/runtime-entities`, are squash-merged one at a time after complete CI, and
-never target `main`. PR #14 alone remains the integration PR to `main` and is
-only marked ready after all PR 7 requirements pass. It is not auto-merged.
+PR 7 was delivered through the sequential child-PR procedure in
+[`PR7_DELIVERY_PLAN.md`](PR7_DELIVERY_PLAN.md). Its child PRs targeted
+`codex/runtime-entities`, were squash-merged one at a time after complete CI,
+and never targeted `main`. PR #14 is the sole integration PR to `main`; it was
+marked ready only after every PR 7 requirement passed and is not auto-merged by
+the delivery procedure.
 
 Each PR is complete only after its normative scope, tests, checks, and actionable
 review findings are resolved.
