@@ -14,7 +14,9 @@ More specific active specifications control within their scope:
 - [`LEDGER_AND_AGGREGATION.md`](LEDGER_AND_AGGREGATION.md) controls ledger and
   deterministic aggregation semantics;
 - [`RUNTIME_AND_ENTITIES.md`](RUNTIME_AND_ENTITIES.md) controls PR 7 runtime and
-  entity behavior; and
+  entity behavior;
+- [`ENERGY_STATISTICS.md`](ENERGY_STATISTICS.md) controls PR 8 recorder
+  statistics projection; and
 - [`PR7_DELIVERY_PLAN.md`](PR7_DELIVERY_PLAN.md) records the completed PR #14
   branch and child-PR procedure without changing runtime behavior.
 
@@ -45,6 +47,17 @@ Release quality gates are:
 
 The project targets Home Assistant Gold requirements before beta and
 Platinum-oriented async, typing, and efficiency practices for 1.0.
+
+Current implementation status:
+
+| Plan scope | Status |
+|---|---|
+| PR 1–7: foundation through runtime/entities | Implemented and validated |
+| PR 8: Energy statistics | Implemented and validated |
+| PR 9: contract, tariff, and billing | Planned |
+| PR 10: diagnostics and Repairs | Planned |
+| PR 11: release documentation and packaging | Planned |
+| Production OAuth metadata and real-account release matrix | Awaiting OEJP |
 
 ## 2. Authentication
 
@@ -363,7 +376,8 @@ PR 7 was delivered through the sequential child-PR procedure in
 `codex/runtime-entities`, were squash-merged one at a time after complete CI,
 and never targeted `main`. PR #14 is the sole integration PR to `main`; it was
 marked ready only after every PR 7 requirement passed and is not auto-merged by
-the delivery procedure.
+the delivery procedure. The maintainer subsequently squash-merged PR #14 into
+`main` as commit `0349b79771b5b23a2ebbd63db00d4459c5661c4e` on 2026-08-03.
 
 Each PR is complete only after its normative scope, tests, checks, and actionable
 review findings are resolved.

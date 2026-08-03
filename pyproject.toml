@@ -35,6 +35,9 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "--strict-markers --strict-config"
 pythonpath = ["."]
+markers = [
+  "recorder_harness: starts the real Home Assistant recorder before custom integration setup",
+]
 
 [tool.coverage.run]
 branch = true

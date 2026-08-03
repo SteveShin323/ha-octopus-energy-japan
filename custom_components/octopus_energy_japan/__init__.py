@@ -47,6 +47,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         require_oauth_metadata,
     )
     from .runtime import OejpRuntimeData, async_project_discovered_devices
+    from .statistics_runtime import HomeAssistantStatisticsProjector
 
     try:
         implementation = await config_entry_oauth2_flow.async_get_config_entry_implementation(
@@ -106,6 +107,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         capabilities,
         identity_secret,
         load_discovery,
+        statistics_projector=HomeAssistantStatisticsProjector(
+            hass,
+            identity_secret,
+        ),
     )
     runtime.coordinator = coordinator
     entry.runtime_data = runtime
