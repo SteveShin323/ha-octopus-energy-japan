@@ -62,12 +62,14 @@ from .identity import stable_account_identity, stable_supply_point_identity
 from .ledger import (
     CorrectionResult,
     LedgerError,
+    LedgerMergeStatus,
     LedgerRecord,
     PersistentIntervalLedger,
     expand_authoritative_series,
 )
 from .ledger_store import HomeAssistantLedgerBackend
 from .runtime import selected_historical_resources
+from .statistics_runtime import StatisticsProjector
 from .sync import (
     POLL_INTERVAL,
     SyncReason,
@@ -197,6 +199,14 @@ class OejpCoordinatorData:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class _StatisticsPending:
+    """Earliest dirty hour and directions requiring a destructive rebuild."""
+
+    dirty_from: datetime | None
+    reset_directions: frozenset[ReadingDirection] = frozenset()
+
+
 @dataclass(slots=True)
 class _SupplyPointRuntime:
     """Private raw-identifier state for one supply point."""
@@ -224,6 +234,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
         *,
         now: Callable[[], datetime] | None = None,
         startup_delay: timedelta | None = None,
+        statistics_projector: StatisticsProjector | None = None,
     ) -> None:
         super().__init__(
             hass,
@@ -267,6 +278,9 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             startup_stagger(entry.entry_id) if startup_delay is None else startup_delay
         )
         self._startup_complete = False
+        self._statistics_projector = statistics_projector
+        self._statistics_pending: dict[SupplyPointKey, _StatisticsPending] = {}
+        self._statistics_failures: set[SupplyPointKey] = set()
 
     @property
     def accounts(self) -> tuple[OejpAccount, ...]:
@@ -420,11 +434,14 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                 await self._async_schedule_background_work(now)
             combined = CorrectionResult.combine(corrections)
             async with self._mutation_lock:
-                return await self._async_build_snapshot(
+                self._mark_statistics_dirty(combined)
+                snapshot = await self._async_build_snapshot(
                     now,
                     enabled_states,
                     combined,
                 )
+                await self._async_publish_pending_statistics(now)
+                return snapshot
         except OejpAuthenticationError as err:
             raise ConfigEntryAuthFailed("OEJP OAuth authorization must be renewed") from err
         except UpdateFailed:
@@ -697,9 +714,80 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                     checkpoint=checkpoint,
                 )
                 self._supply_points[key] = state
+                self._statistics_pending[key] = _StatisticsPending(None)
             else:
                 state.supply_point = point
                 state.router = self._reading_router()
+
+    def _mark_statistics_dirty(self, correction: CorrectionResult) -> None:
+        """Retain the earliest unprojected ledger change for each supply point."""
+        changed_statuses = {
+            LedgerMergeStatus.INSERTED,
+            LedgerMergeStatus.CORRECTED,
+            LedgerMergeStatus.DELETED,
+        }
+        for change in correction.changes:
+            if change.status not in changed_statuses:
+                continue
+            key = (
+                change.key.series.account_id,
+                change.key.series.supply_point_id,
+            )
+            if key not in self._supply_points:
+                continue
+            reset_direction = (
+                change.key.series.direction if change.status is LedgerMergeStatus.DELETED else None
+            )
+            if key not in self._statistics_pending:
+                self._statistics_pending[key] = _StatisticsPending(
+                    change.key.start_at,
+                    frozenset({reset_direction}) if reset_direction is not None else frozenset(),
+                )
+                continue
+            pending = self._statistics_pending[key]
+            dirty_from = (
+                None if pending.dirty_from is None else min(pending.dirty_from, change.key.start_at)
+            )
+            reset_directions = pending.reset_directions
+            if reset_direction is not None:
+                reset_directions |= {reset_direction}
+            self._statistics_pending[key] = _StatisticsPending(
+                dirty_from,
+                frozenset(reset_directions),
+            )
+
+    async def _async_publish_pending_statistics(self, generated_at: datetime) -> None:
+        """Publish durable ledger projections without failing consumption updates."""
+        if self._statistics_projector is None:
+            self._statistics_pending.clear()
+            self._statistics_failures.clear()
+            return
+        for key, pending in tuple(self._statistics_pending.items()):
+            state = self._supply_points.get(key)
+            if state is None:
+                self._statistics_pending.pop(key, None)
+                self._statistics_failures.discard(key)
+                continue
+            try:
+                await state.backend.async_flush()
+                await self._statistics_projector.async_project_supply_point(
+                    state.ledger,
+                    key[0],
+                    key[1],
+                    generated_at,
+                    dirty_from=pending.dirty_from,
+                    reset_directions=pending.reset_directions,
+                )
+            except Exception:
+                if key not in self._statistics_failures:
+                    _LOGGER.exception("Unable to project OEJP Energy Dashboard statistics")
+                    self._statistics_failures.add(key)
+            else:
+                if key in self._statistics_failures:
+                    _LOGGER.info("OEJP Energy Dashboard statistics projection recovered")
+                    self._statistics_failures.discard(key)
+                if self._statistics_pending.get(key) == pending:
+                    self._statistics_pending.pop(key, None)
 
     async def _async_sync_window(
         self,
@@ -892,6 +980,8 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                         item.scope.window.end_at,
                     )
                     await state.backend.async_flush()
+                    self._mark_statistics_dirty(correction)
+                    await self._async_publish_pending_statistics(self._utc_now())
                     checkpoint = state.checkpoint.mark_durable(item)
                     await state.checkpoint_backend.async_save(checkpoint.as_dict())
                     state.checkpoint = checkpoint

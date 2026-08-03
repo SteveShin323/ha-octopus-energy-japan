@@ -67,6 +67,7 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
     implementation = AsyncMock()
     auth = AsyncMock()
     coordinator = AsyncMock()
+    statistics_projector = AsyncMock()
     coordinator.async_config_entry_first_refresh.side_effect = lambda: events.append("refresh")
     coordinator.async_start_background_sync.side_effect = lambda: events.append("background")
     auth.async_get_authorization_header.return_value = "Bearer access"
@@ -98,7 +99,11 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
         patch(
             "custom_components.octopus_energy_japan.coordinator.OejpDataUpdateCoordinator",
             return_value=coordinator,
-        ),
+        ) as coordinator_factory,
+        patch(
+            "custom_components.octopus_energy_japan.statistics_runtime.HomeAssistantStatisticsProjector",
+            return_value=statistics_projector,
+        ) as projector_factory,
         patch(
             "custom_components.octopus_energy_japan.runtime.async_project_discovered_devices",
             side_effect=lambda *_args: events.append("devices"),
@@ -117,6 +122,8 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
     auth.async_get_authorization_header.assert_awaited_once_with()
     coordinator.async_config_entry_first_refresh.assert_awaited_once_with()
     coordinator.async_start_background_sync.assert_awaited_once_with()
+    projector_factory.assert_called_once_with(hass, "01" * 32)
+    assert coordinator_factory.call_args.kwargs["statistics_projector"] is statistics_projector
     project_devices.assert_called_once_with(hass, entry, entry.runtime_data)
     forward.assert_awaited_once_with(entry, ["sensor", "binary_sensor"])
     assert events == ["refresh", "devices", "platforms", "background"]

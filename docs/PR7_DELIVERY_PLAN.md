@@ -5,7 +5,9 @@ Reviewed: 2026-08-03
 
 This document records the normative procedure used to deliver PR 7. All six
 stages were completed sequentially and PR #14 was marked ready for review on
-2026-08-02. Runtime behavior remains controlled by
+2026-08-02. The maintainer subsequently squash-merged PR #14 into `main` as
+commit `0349b79771b5b23a2ebbd63db00d4459c5661c4e` on 2026-08-03. Runtime
+behavior remains controlled by
 [`RUNTIME_AND_ENTITIES.md`](RUNTIME_AND_ENTITIES.md); the historical delivery
 procedure does not weaken or reinterpret that specification.
 

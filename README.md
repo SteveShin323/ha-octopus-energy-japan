@@ -22,8 +22,8 @@ Japan (OEJP).
 | Account and supply-point discovery | Implemented |
 | Import/export reading providers | Implemented |
 | Correction-aware ledger and JST aggregation | Implemented |
-| Home Assistant runtime and entities | Implemented in PR #14; ready for review |
-| Energy Dashboard statistics | Planned |
+| Home Assistant runtime and entities | Implemented and validated |
+| Energy Dashboard statistics | Implemented and validated |
 | Tariff and billing summaries | Planned |
 | Supported installation | Not available yet |
 
@@ -49,6 +49,8 @@ The current normative architecture and implementation plan is:
 - [`docs/OAUTH_APPLICATION_STATUS.md`](docs/OAUTH_APPLICATION_STATUS.md)
 - [`docs/LEDGER_AND_AGGREGATION.md`](docs/LEDGER_AND_AGGREGATION.md)
 - [`docs/RUNTIME_AND_ENTITIES.md`](docs/RUNTIME_AND_ENTITIES.md)
+- [`docs/ENERGY_STATISTICS.md`](docs/ENERGY_STATISTICS.md)
+- [`docs/ja/ENERGY_DASHBOARD.md`](docs/ja/ENERGY_DASHBOARD.md)
 - [`docs/PR7_DELIVERY_PLAN.md`](docs/PR7_DELIVERY_PLAN.md)
 - [`docs/PR7_COMPLETION_AUDIT.md`](docs/PR7_COMPLETION_AUDIT.md)
 - [`docs/adr/`](docs/adr/)
@@ -90,6 +92,11 @@ accepts an OEJP email address or password. OAuth setup remains intentionally
 unavailable until OEJP confirms the production endpoints, scopes, authorization
 header scheme, and public-client terms recorded in
 [`docs/OAUTH_APPLICATION_STATUS.md`](docs/OAUTH_APPLICATION_STATUS.md).
+
+Energy Dashboard statistics are implemented, but cannot be used through a
+supported installation until that OAuth release gate is satisfied. Their exact
+identity, correction, deletion, and privacy behavior is documented in
+[`docs/ENERGY_STATISTICS.md`](docs/ENERGY_STATISTICS.md).
 
 ## Development
 

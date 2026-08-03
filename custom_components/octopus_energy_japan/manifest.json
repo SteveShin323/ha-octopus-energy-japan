@@ -1,6 +1,7 @@
 {
   "domain": "octopus_energy_japan",
   "name": "Octopus Energy Japan",
+  "after_dependencies": ["recorder"],
   "codeowners": ["@SteveShin323"],
   "config_flow": true,
   "dependencies": ["application_credentials", "auth"],

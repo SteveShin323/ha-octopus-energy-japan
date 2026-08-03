@@ -1,6 +1,6 @@
 # PR 7 completion audit
 
-Status: completion evidence for PR #14, ready for review
+Status: completed and merged into `main`
 Reviewed: 2026-08-03
 
 This audit verifies the implementation against
@@ -77,5 +77,7 @@ property-based reconciliation invariants.
 - Production OAuth metadata and OEJP public-client approval remain release
   blockers, not fixture-based PR 7 implementation blockers.
 - The final integration head passed every required check and PR #14 was marked
-  ready for review. This delivery process does not merge PR #14; PR 8 starts
-  from `main` only after that integration PR is merged.
+  ready for review. The delivery automation did not merge it. The maintainer
+  subsequently squash-merged it into `main` as commit
+  `0349b79771b5b23a2ebbd63db00d4459c5661c4e` on 2026-08-03, satisfying the
+  prerequisite for PR 8.
