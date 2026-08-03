@@ -10,6 +10,7 @@ from custom_components.octopus_energy_japan.identity import (
     stable_account_identity,
     stable_login_identity,
     stable_resource_identity,
+    stable_supply_point_identity,
 )
 from homeassistant.core import HomeAssistant
 
@@ -85,6 +86,33 @@ def test_resource_identity_requires_type_and_provider_identifier() -> None:
     for resource_type, provider_id in (("", "id"), ("type", ""), (" ", "id"), ("type", " ")):
         with pytest.raises(ValueError, match="resource type and provider identifier"):
             stable_resource_identity("01" * 32, resource_type, provider_id)
+
+
+def test_supply_point_identity_is_account_scoped_and_private() -> None:
+    secret = "01" * 32
+    identity = stable_supply_point_identity(secret, "ACCOUNT-A", "POINT-1")
+
+    assert identity == stable_supply_point_identity(
+        secret,
+        " ACCOUNT-A ",
+        " POINT-1 ",
+    )
+    assert identity != stable_supply_point_identity(secret, "ACCOUNT-B", "POINT-1")
+    assert identity != stable_supply_point_identity(secret, "ACCOUNT-A", "POINT-2")
+    assert "ACCOUNT-A" not in identity
+    assert "POINT-1" not in identity
+
+
+@pytest.mark.parametrize(
+    ("account", "supply_point"),
+    [("", "point"), (" ", "point"), ("account", ""), ("account", " ")],
+)
+def test_supply_point_identity_requires_both_scopes(
+    account: str,
+    supply_point: str,
+) -> None:
+    with pytest.raises(ValueError, match="Account and supply-point"):
+        stable_supply_point_identity("01" * 32, account, supply_point)
 
 
 def test_login_identity_is_private_stable_and_canonical() -> None:

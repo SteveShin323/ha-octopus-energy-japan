@@ -22,7 +22,11 @@ from .api import (
 from .const import CONF_ENABLED_HISTORICAL_RESOURCES, DOMAIN
 from .identity import async_get_identity_secret, stable_login_identity
 from .oauth_metadata import OejpOAuthMetadata
-from .runtime import OejpRuntimeData, selected_historical_resources
+from .runtime import (
+    OejpRuntimeData,
+    normalize_historical_selection,
+    selected_historical_resources,
+)
 
 _LOGGER = logging.getLogger(__name__)
 _TRANSIENT_ERRORS = (OejpRateLimitError, OejpTransportError)
@@ -118,15 +122,19 @@ class OctopusEnergyJapanConfigFlow(
         if user_input is not None:
             requested = user_input.get(CONF_ENABLED_HISTORICAL_RESOURCES, [])
             enabled = (
-                sorted(value for value in requested if isinstance(value, str) and value in options)
+                normalize_historical_selection(
+                    runtime.accounts,
+                    runtime.identity_secret,
+                    (value for value in requested if isinstance(value, str) and value in options),
+                )
                 if isinstance(requested, list)
-                else []
+                else ()
             )
             return self.async_update_reload_and_abort(
                 entry,
                 options={
                     **entry.options,
-                    CONF_ENABLED_HISTORICAL_RESOURCES: enabled,
+                    CONF_ENABLED_HISTORICAL_RESOURCES: list(enabled),
                 },
             )
 

@@ -4,15 +4,20 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
+from datetime import timedelta
 from typing import Any, Self, cast
 
 import pytest
 from aiohttp import ClientError, ClientSession
 from custom_components.octopus_energy_japan.api import (
+    OejpAuthenticationError,
     OejpAuthorizationError,
     OejpGraphQLClient,
     OejpInvalidResponseError,
+    OejpNonRetryableHttpError,
+    OejpRateLimitError,
     OejpTimeoutError,
+    OejpTransientHttpError,
     OejpTransportError,
 )
 
@@ -27,8 +32,10 @@ class FakeResponse:
         status: int = 200,
         json_error: Exception | None = None,
         enter_delay: float = 0,
+        headers: Mapping[str, str] | None = None,
     ) -> None:
         self.status = status
+        self.headers = dict(headers or {})
         self._payload = payload
         self._json_error = json_error
         self._enter_delay = enter_delay
@@ -205,14 +212,89 @@ async def test_invalid_json_is_wrapped() -> None:
         await _client(session).execute("query { viewer { id } }")
 
 
-async def test_http_error_is_wrapped_and_body_is_consumed() -> None:
+async def test_transient_http_error_is_typed_and_body_is_consumed() -> None:
     response = FakeResponse(status=503)
     session = FakeSession(response)
 
-    with pytest.raises(OejpTransportError, match="HTTP 503"):
+    with pytest.raises(OejpTransientHttpError, match="HTTP 503") as raised:
         await _client(session).execute("query { viewer { id } }")
 
     assert response.read_called
+    assert raised.value.status == 503
+
+
+@pytest.mark.parametrize("status", [400, 404, 418])
+async def test_other_http_failures_are_non_retryable(status: int) -> None:
+    with pytest.raises(OejpNonRetryableHttpError) as raised:
+        await _client(FakeSession(FakeResponse(status=status))).execute("query { viewer }")
+    assert raised.value.status == status
+
+
+async def test_http_rate_limit_preserves_bounded_retry_after() -> None:
+    response = FakeResponse(
+        status=429,
+        headers={"Retry-After": "7200"},
+    )
+    with pytest.raises(OejpRateLimitError) as raised:
+        await _client(FakeSession(response)).execute("query { viewer }")
+    assert raised.value.status == 429
+    assert raised.value.retry_after == timedelta(hours=1)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("-30", timedelta(0)),
+        ("", None),
+        ("not-a-date", None),
+    ],
+)
+async def test_retry_after_invalid_and_negative_values_are_safe(
+    value: str,
+    expected: timedelta | None,
+) -> None:
+    response = FakeResponse(status=503, headers={"Retry-After": value})
+    with pytest.raises(OejpTransientHttpError) as raised:
+        await _client(FakeSession(response)).execute("query { viewer }")
+    assert raised.value.retry_after == expected
+
+
+async def test_retry_after_naive_http_date_is_treated_as_utc() -> None:
+    response = FakeResponse(
+        status=503,
+        headers={"Retry-After": "Wed, 01 Jul 2099 00:30:00"},
+    )
+    with pytest.raises(OejpTransientHttpError) as raised:
+        await _client(FakeSession(response)).execute("query { viewer }")
+    assert raised.value.retry_after == timedelta(hours=1)
+
+
+async def test_graphql_rate_limit_preserves_http_date_retry_after() -> None:
+    response = FakeResponse(
+        {
+            "errors": [
+                {"extensions": {"errorCode": "KT-CT-1199"}},
+            ]
+        },
+        headers={"Retry-After": "Wed, 01 Jul 2099 00:30:00 GMT"},
+    )
+    client = _client(FakeSession(response))
+    with pytest.raises(OejpRateLimitError) as raised:
+        await client.execute("query { viewer }")
+    assert raised.value.retry_after == timedelta(hours=1)
+
+
+@pytest.mark.parametrize(
+    ("status", "error_type"),
+    [(401, OejpAuthenticationError), (403, OejpAuthorizationError)],
+)
+async def test_http_auth_failures_are_classified_exactly(
+    status: int,
+    error_type: type[Exception],
+) -> None:
+    with pytest.raises(error_type) as raised:
+        await _client(FakeSession(FakeResponse(status=status))).execute("query { viewer }")
+    assert raised.value.status == status
 
 
 async def test_client_error_is_wrapped() -> None:

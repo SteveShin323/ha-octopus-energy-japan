@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any
 
 _SAFE_ERROR_MESSAGE = "GraphQL operation failed"
@@ -50,6 +51,28 @@ class OejpTransportError(OejpError):
     """Network or HTTP transport failure."""
 
 
+class OejpHttpError(OejpTransportError):
+    """Typed non-success HTTP response without provider-rendered content."""
+
+    def __init__(
+        self,
+        status: int,
+        *,
+        retry_after: timedelta | None = None,
+    ) -> None:
+        self.status = status
+        self.retry_after = retry_after
+        super().__init__(f"OEJP returned HTTP {status}")
+
+
+class OejpTransientHttpError(OejpHttpError):
+    """HTTP response that background synchronization may retry."""
+
+
+class OejpNonRetryableHttpError(OejpHttpError):
+    """HTTP response that must not be retried automatically."""
+
+
 class OejpTimeoutError(OejpTransportError):
     """Request timeout."""
 
@@ -61,8 +84,16 @@ class OejpInvalidResponseError(OejpError):
 class OejpGraphQLError(OejpError):
     """GraphQL operation error with structured metadata."""
 
-    def __init__(self, details: tuple[GraphQLErrorDetail, ...]) -> None:
+    def __init__(
+        self,
+        details: tuple[GraphQLErrorDetail, ...],
+        *,
+        retry_after: timedelta | None = None,
+        status: int | None = None,
+    ) -> None:
         self.details = details
+        self.retry_after = retry_after
+        self.status = status
         markers = sorted(
             {
                 "/".join(
@@ -105,13 +136,15 @@ def classify_graphql_errors(errors: list[dict[str, Any]]) -> OejpGraphQLError:
 
 def classify_graphql_error_details(
     details: tuple[GraphQLErrorDetail, ...],
+    *,
+    retry_after: timedelta | None = None,
 ) -> OejpGraphQLError:
     """Map sanitized GraphQL error details to a stable exception hierarchy."""
     codes = {detail.error_code for detail in details if detail.error_code}
     types = {_normalize_error_type(detail.error_type) for detail in details if detail.error_type}
 
     if codes & _RATE_LIMIT_CODES:
-        return OejpRateLimitError(details)
+        return OejpRateLimitError(details, retry_after=retry_after)
     if codes & _AUTHENTICATION_CODES:
         return OejpAuthenticationError(details)
     if codes & _AUTHORIZATION_CODES or types & _AUTHORIZATION_TYPES:
