@@ -1,58 +1,56 @@
 # OEJP Home Assistant Integration — Master Technical Design v3
 
 Status: normative implementation plan
-Reviewed: 2026-07-29
+Reviewed: 2026-08-03
 Repository: `SteveShin323/ha-octopus-energy-japan`
 Domain: `octopus_energy_japan`
 
 ## 1. Authority and objectives
 
-This document is the normative architecture and delivery plan for the project. It
-supersedes the archived architecture and comparative-review documents when they
-conflict. Decisions that need a durable rationale are also recorded in
-`docs/adr/`.
+This document is the normative project architecture and phase plan. Archived
+designs are research history only. Durable decisions are recorded in `docs/adr/`.
+More specific active specifications control within their scope:
 
-The design is informed by:
+- [`LEDGER_AND_AGGREGATION.md`](LEDGER_AND_AGGREGATION.md) controls ledger and
+  deterministic aggregation semantics;
+- [`RUNTIME_AND_ENTITIES.md`](RUNTIME_AND_ENTITIES.md) controls PR 7 runtime and
+  entity behavior; and
+- [`PR7_DELIVERY_PLAN.md`](PR7_DELIVERY_PLAN.md) records the completed PR #14
+  branch and child-PR procedure without changing runtime behavior.
 
-- the official OEJP GraphQL guides, reference, changelog, and API example;
-- `strongbugman/ha-octopusenergy-oejp`;
-- `Shuangbing/oejp-hacs`;
-- `mapplebox/oejp`; and
-- `lvctr/hass-oejp`.
+The design is informed by the official OEJP GraphQL documentation and example,
+plus code-level review of `strongbugman/ha-octopusenergy-oejp`,
+`Shuangbing/oejp-hacs`, `mapplebox/oejp`, and `lvctr/hass-oejp`.
 
-The project will provide:
+The project provides:
 
-- a high-quality, read-only Home Assistant integration for OEJP;
-- HACS-first distribution with architecture suitable for a future Home Assistant
-  Core proposal;
-- correct handling of multiple accounts, supply points, meters, registers, and
-  import/export series;
-- deterministic results after delayed, duplicated, corrected, or reordered
-  readings and Home Assistant restarts;
-- contributor-friendly English documentation and user-facing Japanese
-  documentation; and
+- a high-quality read-only Home Assistant integration for OEJP;
+- HACS-first distribution with a future Home Assistant Core-compatible shape;
+- multiple accounts, supply points, meters/registers, and import/export series;
+- deterministic behavior after delayed, duplicated, corrected, omitted, or
+  reordered readings and restarts;
+- English normative contributor documentation and Japanese user documentation;
+  and
 - privacy-preserving diagnostics without external telemetry.
 
 Release quality gates are:
 
 - all required GitHub checks pass;
 - line and branch coverage is at least 95%;
-- authentication, ledger, statistics, and migration code reaches 100% coverage;
+- authentication, ledger, statistics, and migration modules reach 100% coverage;
 - no known P0 or P1 defects;
-- all supported config-entry lifecycle paths are exercised with the Home
-  Assistant test harness; and
-- release candidates pass a real OEJP account test matrix and clean HACS
-  install, upgrade, and removal tests.
+- supported config-entry lifecycle paths use the Home Assistant test harness; and
+- release candidates pass real-account and clean HACS install/upgrade/removal
+  matrices.
 
-The project targets Home Assistant Gold quality requirements before beta and
+The project targets Home Assistant Gold requirements before beta and
 Platinum-oriented async, typing, and efficiency practices for 1.0.
 
 ## 2. Authentication
 
-### 2.1 Public integration behavior
+### 2.1 Public behavior
 
-The public integration must not collect or retain an OEJP password. It uses the
-OEJP authorization server:
+The public integration never collects or retains an OEJP password.
 
 ```text
 Add integration
@@ -64,20 +62,19 @@ Add integration
   -> Home Assistant reauthentication after revoke or terminal refresh failure
 ```
 
-Authorization Code with PKCE is the primary flow. Device Authorization Grant is
-an optional fallback for environments where a browser redirect cannot be
-completed. A client secret is never embedded in the repository or distributed
-integration.
+Authorization Code with PKCE is primary. Device Authorization Grant is an
+optional fallback if OEJP approves it. A client secret is never embedded or
+distributed.
 
-The shared public client ID may be committed only after OEJP confirms that a
-single published client ID may be used by multiple Home Assistant installations.
-If OEJP requires a user-provided client ID, the integration will use Home
-Assistant Application Credentials instead.
+A shared public client ID may be committed only after OEJP confirms publication
+and reuse across installations. If user-specific client IDs are required, use
+Home Assistant Application Credentials. If a client secret is mandatory, do not
+ship it and renegotiate public-client terms.
 
-The OAuth access and refresh tokens remain in the user's Home Assistant config
-entry. They must not appear in logs, entity states, diagnostics, fixtures, or
-issue templates. The GraphQL authorization scheme is implemented only after
-OEJP confirms it or an authorized local probe verifies it.
+Tokens remain in the Home Assistant config entry and never appear in logs,
+states, diagnostics, fixtures, issue templates, or telemetry. Authorization
+scheme and scopes are implemented only after official confirmation or an
+authorized redacted local probe.
 
 ### 2.2 Authentication abstraction
 
@@ -88,379 +85,334 @@ class AuthSession(Protocol):
     async def async_revoke(self) -> None: ...
 ```
 
-Implementations:
+Implementations are `OejpPkceAuthSession`, optional
+`OejpDeviceAuthSession`, deterministic `FakeAuthSession`, and a probe-only
+`LegacyKrakenAuthSession`. Deprecated password operations never enter public
+config flow or runtime.
 
-- `OejpPkceAuthSession`;
-- `OejpDeviceAuthSession`;
-- `FakeAuthSession` for deterministic tests; and
-- `LegacyKrakenAuthSession`, isolated to local read-only API probes.
-
-The deprecated email/password Kraken operation is removed from the public config
-flow and runtime before alpha. It may remain temporarily in probe-only code while
-the OAuth application is pending.
-
-### 2.3 OAuth application outcomes
-
-The implementation responds to OEJP's application decision as follows:
+### 2.3 OEJP application outcomes
 
 | OEJP response | Project response |
 |---|---|
-| Shared public client and PKCE approved | Ship PKCE as the default |
-| PKCE and device grant approved | PKCE default, device flow fallback |
+| Shared public client and PKCE approved | Ship PKCE as default |
+| PKCE and device grant approved | PKCE default, device fallback |
 | Separate client IDs required | Register separate HA auth implementations |
-| Device flow only | Make device flow the supported setup path |
-| Client secret required | Do not ship it; renegotiate public-client terms |
+| Device flow only | Support device flow as setup path |
+| Client secret required | Do not ship; renegotiate |
 | User-specific client ID required | Use Application Credentials |
-| Broad customer scope only | Document impact and request least privilege |
-| Application rejected | Do not publish a functional release; continue fixture-based development |
+| Broad customer scope only | Document and request least privilege |
+| Application rejected | No functional public release; fixture development continues |
 
-The response record must capture client IDs per grant, redirect URI, scopes and
-GraphQL permissions, token lifetimes, refresh rotation behavior, authorization
-scheme, generic/legacy reading access, billing access, and permission to publish
-the client ID.
+The status record captures client IDs per grant, redirect URIs, scopes,
+permissions, token lifetimes, refresh rotation, authorization scheme,
+generic/legacy access, billing access, and client-ID publication permission.
 
 ## 3. Config entries, identity, and privacy
 
-One OAuth login identity owns one config entry. All accounts and supply points
-visible to that login are managed by that entry.
-
+One OAuth login identity owns one config entry and all resources visible to it.
 The config-entry unique ID is:
 
 ```text
 HMAC(local installation secret, issuer + OIDC subject)
 ```
 
-Account and supply-point device identifiers use the same installation-local HMAC
-construction over provider identifiers. This keeps identifiers stable within one
-Home Assistant installation while preventing cross-installation correlation.
+Account and supply-point registry identities use installation-local HMACs over
+provider identifiers. They are stable inside one installation and not
+correlatable across installations.
 
-Raw provider identifiers may be stored locally when required to call the API and
-join ledger records. The privacy document must state this explicitly. Raw
-account numbers, supply-point identifiers, names, and addresses are excluded
-from entity states and attributes, logs, diagnostics, and external telemetry.
-Addresses are not used as device or entity names.
+Raw identifiers may exist only in private runtime/storage joins required to call
+OEJP. Account numbers, supply-point identifiers, SPINs, meter/register IDs,
+addresses, names, email, tokens, and raw readings/bills are excluded from public
+states, attributes, names, logs, diagnostics, fixtures, and telemetry.
 
-Active accounts and supply points are enabled automatically. Historical or
-closed resources are discovered but disabled by default and can be selected
-during reconfiguration. New supply points are added without creating a new
-config entry. Removed or closed supply points remain unavailable rather than
-being deleted, preserving statistics continuity.
+Active/unknown resources are enabled automatically. Historical resources are
+discovered but disabled unless selected during reconfiguration. New points join
+the existing entry. Closed or removed points retain registry, ledger, checkpoint,
+and statistics continuity rather than being deleted.
 
-The current pre-alpha account-per-entry format is not a compatibility contract.
-Existing development installs must reconfigure before the first alpha. After the
-first alpha, every config or storage format change requires a migration and
-migration tests.
+The pre-alpha data format is not a compatibility contract. After first alpha,
+every config or storage format change requires migrations and migration tests.
 
 ## 4. Architecture and type boundaries
 
 ```text
 OAuth implementation / AuthSession
-  -> GraphQL transport
-  -> operations and strict parsers
+  -> gated authenticated GraphQL transport
+  -> strict operations and parsers
   -> discovery and capability registry
-  -> reading providers
+  -> direction-scoped reading providers
   -> persistent interval ledger
   -> aggregation service
+  -> PR 7 runtime synchronization and entity projection
   -> external statistics projector
-  -> cadence-specific coordinators
-  -> Home Assistant devices and entities
+  -> optional contract/tariff/billing coordinators
   -> diagnostics and repairs
 ```
 
-Raw GraphQL dictionaries do not cross a parser boundary. Coordinators and
-entities consume typed domain models only.
+Raw GraphQL dictionaries stop at parser boundaries. Coordinators and entities
+consume typed domain models only.
 
-The normalized `EnergyReading` contains:
+`EnergyReading` contains account/supply-point/device/register join IDs,
+direction, timezone-aware UTC interval, `Decimal` value, unit, granularity,
+source/revision, quality, official provider cost when present, and observation
+time.
 
-- account, supply-point, device, and register identifiers;
-- import/export direction;
-- timezone-aware UTC start and end timestamps;
-- `Decimal` value;
-- unit and granularity;
-- provider source and revision/version;
-- quality metadata;
-- provider-issued official cost, if present; and
-- fetch timestamp.
-
-`ReadingSeriesKey` identifies account, supply point, device/register, direction,
-unit, and source. Other core types are `CapabilitySnapshot`, `LedgerRecord`,
-`CorrectionResult`, `AggregationSnapshot`, `StatisticsProjection`, and
+Core types include `ReadingSeriesKey`, `CapabilitySnapshot`, `LedgerRecord`,
+`CorrectionResult`, `AggregationSnapshot`, direction-scoped provider results,
+runtime coverage/status snapshots, `StatisticsProjection`, and
 `OejpRuntimeData`.
 
 ## 5. GraphQL operations, providers, and errors
 
-### 5.1 Reading providers
+### 5.1 Providers
 
-`GenericReadingsProvider` handles the current `SupplyPointType.readings` model,
-including devices, registers, import/export, units, granularity, and quality.
+`GenericReadingsProvider` handles current supply-point/device/register readings,
+including import/export, units, granularity, pagination, and quality.
+`LegacyHalfHourlyProvider` handles legacy half-hour and billing-period interval
+operations, retaining version and official cost fields where available.
 
-`LegacyHalfHourlyProvider` handles `halfHourlyReadings` and
-`intervalReadings`, preserving version and `costEstimate` where available.
+Provider selection is per supply point and direction. Generic is preferred.
+Legacy fallback is allowed only for an allow-listed direction-specific disabled
+field, unsupported configuration, permission gap, or schema compatibility
+condition that legacy can represent.
 
-The generic provider is preferred. Legacy fallback is allowed only for a
-disabled/unavailable generic field, a supply point that is not configured for
-the generic model, a known OAuth permission gap, or a recognized schema
-capability mismatch.
+Fallback is forbidden for authentication, rate limit, timeout, server,
+malformed-response, and invalid-identifier failures. Mixed outcomes such as
+generic import success and export failure preserve the successful direction.
+Global schema capability is a probe hint only and never creates an entity.
 
-Fallback is forbidden for authentication failures, rate limits, timeouts,
-server failures, malformed responses, and invalid account or supply-point
-identifiers. Those conditions must remain visible and must not be disguised as
-provider incompatibility.
+### 5.2 Strict, optional, and typed failures
 
-### 5.2 Strict and optional operations
+Strict operations include viewer identity, core discovery, and readings.
+Optional operations include introspection details, balance, billing, tariff,
+cost, and optional topology metadata. Partial data is accepted only through an
+explicit optional execution path.
 
-Strict operations include authentication, viewer identity, core discovery, and
-core readings. Their failure affects coordinator availability or triggers
-reauthentication.
+Failures are typed as authentication, authorization, rate/complexity/node limit,
+validation/schema, not found, retriable HTTP/transport, non-retriable HTTP,
+invalid response, or optional partial failure. Safe structured GraphQL
+code/type/path and optional bounded `Retry-After` are preserved separately from
+provider-rendered text.
 
-Optional operations include balance, billing, tariff, cost, and optional
-device/register metadata. Partial data may be accepted only by an explicitly
-optional execution path. Optional errors are recorded in capabilities and
-redacted diagnostics without disabling consumption data.
-
-Errors are normalized into:
-
-- authentication;
-- authorization;
-- rate limit, complexity, or node limit;
-- validation or schema change;
-- not found;
-- transient transport or server failure;
-- invalid response; and
-- optional-field partial failure.
-
-Structured GraphQL codes, types, descriptions, and paths drive classification.
-User-safe exception messages remain separate from redacted diagnostic details.
+One logical GraphQL operation per config entry is allowed in flight. The gate
+covers authorization-header acquisition and the single refresh retry. Runtime
+code never bypasses it.
 
 ## 6. Persistent interval ledger
 
-The ledger stores authoritative interval records, not only cumulative values or
-the last synchronization cursor.
-
-The logical key is:
+The ledger persists authoritative interval records rather than only cumulative
+values or a cursor.
 
 ```text
 ReadingSeriesKey + UTC start_at + UTC end_at
 ```
 
-Merge rules:
+Rules:
 
-- identical interval and content is a no-op;
-- value, version, quality, or official-cost changes are corrections;
-- the provider snapshot returned for the requested range is authoritative for
-  that fetch;
-- conflicting duplicate intervals in one response are parser errors;
-- correction count and fetch timestamps are retained; and
-- aggregates and statistics can be rebuilt entirely from ledger data.
+- identical content is a no-op;
+- changed value/version/quality/official-cost is a correction;
+- a successful provider snapshot is authoritative only for its exact direction,
+  series, source family, and half-open window;
+- conflicting duplicates in one response are parser errors;
+- observation time and correction count are retained; and
+- aggregates/statistics rebuild entirely from ledger data.
 
-Storage uses versioned Home Assistant `Store` partitions by config entry,
-supply point, and month. Current and previous month stay resident; older
-partitions load lazily. Saves are atomic and debounced. Schema migrations are
-explicit and tested. A damaged partition creates a repair issue without taking
-down unrelated partitions or the entire integration. Damaged raw files and
-tokens are never copied into diagnostics.
+Storage uses versioned Home Assistant `Store` partitions by entry, HMAC point,
+and month. Saves are atomic and debounced. Current/previous month stay resident;
+older data loads lazily. Corruption is partition-isolated and later surfaced as
+a repair without exposing payloads.
 
-Property-based tests verify merge-order independence, idempotency, aggregation
-sums, interval ordering, and correction projection.
+Property tests enforce order independence, idempotency, interval ordering,
+correction behavior, and aggregation invariants.
 
 ## 7. Synchronization and scheduling
 
-Default cadence:
+The fixed PR 7 runtime is non-blocking beyond recent data:
 
-| Data | Cadence |
-|---|---:|
-| Consumption | 30 minutes |
-| Regular reading overlap | Most recent 72 hours |
-| Initial backfill | Current and previous month |
-| Query chunk | At most 7 days |
-| Full recent reconciliation | Daily, current and previous month |
+| Operation | Window/cadence and execution |
+|---|---|
+| Blocking first refresh | latest 72 hours only; no sleep or retry loop |
+| Consumption poll | every 30 minutes, latest 72 hours |
+| Initial month history | persistent background queue; previous/current JST month excluding final 72 hours |
+| Daily reconciliation | persistent background queue; previous/current JST month |
+| Query chunk | at most 7 days |
 | Discovery | 24 hours |
-| Agreement/contract/tariff | 12 hours |
-| Billing | 12 hours |
-| Optional long backfill | Up to 13 months |
+| Background GraphQL concurrency | one logical operation per entry |
+| Contract/tariff | 12 hours in later coordinator |
+| Billing | 12 hours in later coordinator |
+| Optional long backfill | background queue, up to 13 months |
 
-Long backfills use a rate-aware queue. Rate-limit responses honor `Retry-After`
-when supplied, otherwise exponential backoff with jitter. Repeated identical
-errors are log-throttled. Startup calls are staggered so multiple coordinators
-or entries do not create a request burst.
+One worker per entry executes direction-specific request scopes with coalesced
+reason/generation obligations. Regular polls preempt the next background request.
+Background checkpoints are private, HMAC-scoped, and persisted only after
+affected ledger partitions are flushed. They retain completed windows,
+daily barriers, and reconstructable historical coverage across restarts.
 
-Ledger timestamps are UTC. Day, week, month, and year aggregates use
-`Asia/Tokyo` boundaries.
+Rate limits honor valid `Retry-After`; other transient background failures use
+bounded deterministic full-jitter exponential backoff. Setup and regular polls
+do not sleep internally. Permanent failures do not spin. Authentication triggers
+reauthentication.
+
+Ledger timestamps are UTC. User periods and planning generations use
+`Asia/Tokyo` boundaries. The complete executable contract is
+[`RUNTIME_AND_ENTITIES.md`](RUNTIME_AND_ENTITIES.md) and ADR 0004.
 
 ## 8. Home Assistant devices and entities
-
-Device hierarchy:
 
 ```text
 OEJP account device
   -> electricity supply-point device
-     -> meter/register/direction entity series
+     -> direction-specific entity series
 ```
 
-Meters and registers do not become separate devices unless the API exposes them
-as independently manageable resources.
+Meters/registers remain internal series dimensions unless independently
+manageable.
 
-Enabled by default:
+Enabled by default after successful direction discovery:
 
-- latest reported interval consumption;
-- today, yesterday, this week, this month, and last month consumption;
+- latest reported interval energy;
+- today, yesterday, this week, this month, and last month;
 - latest reading timestamp;
 - data delay;
 - supply-point status; and
 - data available.
 
-Disabled by default:
+Disabled by default in later work:
 
-- average power for the latest reported interval;
-- reading quality and correction count;
-- API rate-limit information;
-- account balance;
-- latest bill/payment summary; and
-- official OEJP cost estimate.
+- latest interval average power;
+- quality/correction count;
+- rate-limit information;
+- balance;
+- bill/payment summary; and
+- official cost estimate.
 
-Names must not say "live", "real-time", or "current power" for delayed interval
-data. Average power is labeled as an interval average. Official provider cost is
-distinguished from any estimate. Full reading arrays and financial histories are
-not exposed as attributes. Device/state classes are finalized only after
-recorder and long-term-statistics tests.
+Names never claim live, real-time, or current power. Period totals are unknown
+until authoritative query coverage spans the requested JST period. A successful
+empty direction is queryable and can create entities; no individual zero
+intervals are fabricated. Current direction failures affect only that direction.
+
+Period sensors are convenience projections, not Energy Dashboard truth.
+Device/state classes are finalized with recorder/statistics tests.
 
 ## 9. Energy Dashboard and statistics
 
-External statistics are projected per supply point and direction:
+External statistics are projected per supply point/direction for imported kWh,
+exported kWh, and official JPY cost only when OEJP supplies it.
 
-- imported energy in kWh;
-- exported energy in kWh; and
-- official cost in JPY only when OEJP supplies it.
+Projection produces hourly state and cumulative sum. On correction:
 
-Projection produces hourly state and cumulative sum. When the ledger reports a
-correction:
+1. find earliest changed interval and affected hour;
+2. load the preceding cumulative checkpoint;
+3. recalculate hourly values through present;
+4. regenerate every affected cumulative sum; and
+5. update through supported Home Assistant recorder APIs.
 
-1. find the earliest changed interval;
-2. identify the affected first hour;
-3. load the preceding cumulative checkpoint;
-4. recalculate hourly values from the changed hour to the present;
-5. regenerate every affected cumulative sum; and
-6. update using supported Home Assistant recorder statistics APIs.
-
-Projection is idempotent. Restarts, duplicate fetches, and reprocessing the same
-correction must yield the same statistics. Period aggregate sensors are not the
-Energy Dashboard source of truth.
+Projection is idempotent across restart, duplicate fetch, and correction replay.
+It consumes ledger and runtime coverage contracts without replacing them.
 
 ## 10. Account, contract, tariff, and billing
 
-After consumption is stable, optional operations add:
+After consumption/statistics are stable, optional operations may add account
+status/balance, agreement periods, product/tariff components, official
+`costEstimate`, latest bill/due date, and summarized payment information.
 
-- account status and balance;
-- agreement and contract periods;
-- product/tariff names and rate components;
-- official `costEstimate`;
-- latest bill/invoice amount and due date; and
-- summarized payment/transaction information.
-
-Complete bills or transaction histories are not stored in entity attributes.
-Simple user-entered `kWh x rate` cost sensors are outside the 1.0 scope because
-they cannot faithfully represent Japanese billing.
+Complete bills/transaction histories are not entity attributes. User-entered
+simple `kWh × rate` cost is outside 1.0 because it cannot faithfully model
+Japanese billing.
 
 ## 11. Diagnostics, repairs, and observability
 
-Redacted diagnostics include integration and HA versions, selected providers and
-capabilities, coordinator success/failure times, reading counts and ranges,
-correction counts, ledger schema/partition health, projection status,
-non-identifying rate-limit information, and redacted GraphQL code/type/path.
+Redacted diagnostics include versions, providers/capabilities, coordinator and
+per-direction status, coverage, reading ranges/counts, corrections, ledger and
+checkpoint health, projection status, safe rate-limit metadata, and redacted
+GraphQL code/type/path.
 
-They exclude OAuth tokens, email, account and supply-point identifiers,
-addresses, names, raw bills/transactions, and raw reading arrays.
-
-Repairs cover revoked OAuth, missing auth implementation, missing required
-scope, provider capability/schema changes, ledger migration or partition damage,
-statistics drift, and prolonged lack of readings. The integration sends no
-external telemetry.
+They exclude tokens, email, raw IDs, addresses, names, raw readings, and raw
+financial data. Repairs cover revoked OAuth, missing auth implementation/scope,
+provider/schema changes, ledger/checkpoint migration or corruption, statistics
+drift, and prolonged lack of readings. No external telemetry is sent.
 
 ## 12. Pull-request delivery sequence
 
-1. **Design v3 and quality baseline** — this document and ADRs, archived prior
-   designs, OAuth status record, legacy token-field correction, full-integration
-   typing, 95% coverage gate, pinned Actions, security automation, and quality
-   scale tracking.
-2. **OAuth and AuthSession** — PKCE/Application Credentials, device-flow
-   abstraction, refresh/rotation/revoke/reauth, mock-server tests, password-flow
-   removal, and one-entry-per-login identity.
-3. **Safe real-account probe** — read-only operations, automatic PII
-   substitution, synthetic fixtures, secret/PII scanner, and contract
-   provenance.
-4. **Discovery and capabilities** — all accounts/properties/supply points,
-   meters/devices/registers, pagination, active/historical treatment,
-   reconfiguration, and devices.
-5. **Reading providers** — generic and legacy models, import/export,
-   unit/granularity/quality/version/cost, strict fallback, and fixture contracts.
-6. **Ledger and aggregation** — partitioned storage, deduplication, corrections,
-   migration/recovery, JST aggregation, and backfill/reconciliation.
-7. **Runtime and entities** — typed runtime, cadence coordinators, lifecycle,
-   entities, availability, and English/Japanese UI translations.
+1. **Design v3 and quality baseline** — architecture, ADRs, OAuth status,
+   archived prior designs, strict typing, coverage gates, pinned Actions,
+   security automation, and quality tracking.
+2. **OAuth and AuthSession** — PKCE/Application Credentials, optional device
+   abstraction, refresh/rotation/revoke/reauth, and password-flow removal.
+3. **Safe real-account probe** — read-only allow list, PII substitution,
+   synthetic fixtures, scanning, and provenance.
+4. **Discovery and capabilities** — all accounts/resources, pagination,
+   lifecycle, reconfiguration, and registry devices.
+5. **Reading providers** — generic/legacy direction models, units, quality,
+   revision/cost, strict fallback, and fixture contracts.
+6. **Ledger and aggregation** — partitions, dedup/correction, migration/recovery,
+   JST aggregation, and pure planning.
+7. **Runtime and entities** — gated requests, bounded setup, persistent queue,
+   retry/recovery, lifecycle, coverage, entities, and translations.
 8. **Energy statistics** — import/export/cost projection, correction replay,
-   recorder harness tests, and Energy Dashboard documentation.
-9. **Contract, tariff, and billing** — account/agreement/tariff and optional
-   official cost/billing with partial-permission behavior.
-10. **Diagnostics and operational recovery** — redaction, repairs, drift/schema
-    handling, and non-blocking API/OIDC change monitoring.
-11. **Documentation, translation, and release** — English normative docs,
-    Japanese user docs, community templates, release process, HACS artifact,
-    checksum/attestation, and clean install/upgrade/removal validation.
+   recorder harness, and Energy Dashboard documentation.
+9. **Contract, tariff, and billing** — only officially confirmed or sanitized
+   probed operations, with partial-permission behavior.
+10. **Diagnostics and recovery** — redaction, Repairs, drift/schema handling,
+    and non-blocking API/OIDC monitoring.
+11. **Documentation and release** — user documentation, templates, release
+    process, HACS artifact, attestation, and clean lifecycle validation.
 
-Each PR is complete only after all required checks pass and actionable review
-threads are resolved.
+PR 7 was delivered through the sequential child-PR procedure in
+[`PR7_DELIVERY_PLAN.md`](PR7_DELIVERY_PLAN.md). Its child PRs targeted
+`codex/runtime-entities`, were squash-merged one at a time after complete CI,
+and never targeted `main`. PR #14 is the sole integration PR to `main`; it was
+marked ready only after every PR 7 requirement passed and is not auto-merged by
+the delivery procedure.
+
+Each PR is complete only after its normative scope, tests, checks, and actionable
+review findings are resolved.
 
 ## 13. Test matrix
 
 Automated tests cover:
 
-- HTTP 200 responses containing GraphQL errors, partial responses, and malformed
-  payloads;
-- timeout, retry, rate limit, backoff, and offline authorization server;
-- exact authentication/authorization classification;
+- HTTP 200 GraphQL errors/partial data and malformed payloads;
+- exact HTTP/GraphQL classification, timeout, retry-after, rate limit, backoff,
+  and offline authorization server;
 - PKCE, refresh rotation, revoke, and reauthentication;
-- multiple or duplicate accounts and resource addition/closure;
-- pagination and capability detection;
-- only permitted generic-to-legacy fallback cases;
-- import/export, multiple units, nullable granularity, quality, and revisions;
+- request-gate concurrency across auth retry;
+- multiple/duplicate accounts and resource addition/closure/reappearance;
+- pagination, capability detection, and candidate-direction rules;
+- only permitted per-direction generic-to-legacy fallback;
+- import/export, units, nullable granularity, quality, and revision;
 - reordering, duplication, correction, omission, and delayed arrival;
 - ledger restart, atomic save, corruption, migration, and JST boundaries;
-- statistics correction and idempotency;
-- setup, unload, reload, registries, reconfigure, options, and reauth;
+- background obligation/checkpoint durability and coverage reconstruction;
+- setup, partial success, unload/reload, registries, reconfigure, and reauth;
+- statistics correction/idempotency;
 - diagnostics redaction and English/Japanese translations; and
 - clean HACS packaging.
 
-CI stores no real OEJP credential. Authorized API validation is performed
-locally with the redacting probe, and only synthetic sanitized fixtures enter
-the repository.
+CI contains no real OEJP credential. Authorized validation uses the redacting
+probe and only sanitized synthetic fixtures enter the repository.
 
 ## 14. Documentation policy
 
-English is the normative source. English documentation includes the README,
-architecture, API contracts, development, testing, fixture redaction,
-contributing, security, privacy, release process, and ADRs.
+English is normative for repository design, API contracts, development, testing,
+fixture redaction, contributing, security, privacy, and release. Japanese covers
+installation, OAuth, entities, Energy Dashboard, delayed readings, privacy,
+troubleshooting, diagnostics submission, and local-data removal.
 
-Japanese documentation includes the README, installation, OAuth setup, entity
-reference, Energy Dashboard setup, delayed-reading explanation, privacy,
-troubleshooting, diagnostic issue submission, and local-data removal.
-
-Japanese user documentation and English/Japanese UI translations are synchronized
-for every public release. Repository documentation and translations are not
-maintained in Korean.
+Japanese user documentation and English/Japanese UI translations remain aligned
+for public releases. Repository documentation is not maintained in Korean.
 
 ## 15. Release gates
 
 - `0.1.x alpha`: OAuth, discovery, probe, and basic readings;
-- `0.5.x beta`: ledger, core entities, Energy Dashboard, and diagnostics;
+- `0.5.x beta`: ledger, runtime entities, Energy Dashboard, and diagnostics;
 - `0.8.x beta`: import/export, agreements, official cost, and billing; and
 - `1.0.0`: migrations, security, documentation, translations, and all quality
-  targets complete.
+  targets.
 
-No public functional release is made before OEJP confirms OAuth client and
-permission details.
+No functional public release occurs before OEJP confirms client and permission
+details.
 
-The release candidate is tested with a real account for initial OAuth,
-automatic refresh and rotation, restart recovery, multiple accounts and supply
-points, generic/legacy readings, import/export, delayed/corrected readings,
-partial permissions, diagnostic redaction, HACS lifecycle, and Energy Dashboard
-display.
+A release candidate is tested with a real account for OAuth setup/refresh,
+restart, multiple resources, generic/legacy directions, delayed/corrected data,
+partial permissions, redaction, HACS lifecycle, and Energy Dashboard display.

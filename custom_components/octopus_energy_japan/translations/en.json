@@ -32,7 +32,7 @@
         "title": "Reconnect Octopus Energy Japan"
       },
       "reconfigure": {
-        "description": "Active accounts and supply points are always enabled. Select any ended resources whose devices and future entities should remain enabled.",
+        "description": "Active accounts and supply points are always enabled. Selecting an ended account enables all of its supply points; ended supply points under an active account can be selected individually.",
         "title": "Manage historical OEJP resources",
         "data": {
           "enabled_historical_resources": "Enabled historical resources"
@@ -42,6 +42,74 @@
   },
   "application_credentials": {
     "description": "Enter the public OAuth client ID issued by Octopus Energy Japan. Do not enter or distribute a confidential client secret."
+  },
+  "entity": {
+    "binary_sensor": {
+      "export_data_available": {
+        "name": "Export data available"
+      },
+      "import_data_available": {
+        "name": "Import data available"
+      }
+    },
+    "sensor": {
+      "export_data_delay": {
+        "name": "Export data delay"
+      },
+      "export_last_month": {
+        "name": "Export energy last month"
+      },
+      "export_latest_interval": {
+        "name": "Export latest reported interval energy"
+      },
+      "export_latest_reading": {
+        "name": "Export latest reading timestamp"
+      },
+      "export_this_month": {
+        "name": "Export energy this month"
+      },
+      "export_this_week": {
+        "name": "Export energy this week"
+      },
+      "export_today": {
+        "name": "Export energy today"
+      },
+      "export_yesterday": {
+        "name": "Export energy yesterday"
+      },
+      "import_data_delay": {
+        "name": "Import data delay"
+      },
+      "import_last_month": {
+        "name": "Import consumption last month"
+      },
+      "import_latest_interval": {
+        "name": "Import latest reported interval consumption"
+      },
+      "import_latest_reading": {
+        "name": "Import latest reading timestamp"
+      },
+      "import_this_month": {
+        "name": "Import consumption this month"
+      },
+      "import_this_week": {
+        "name": "Import consumption this week"
+      },
+      "import_today": {
+        "name": "Import consumption today"
+      },
+      "import_yesterday": {
+        "name": "Import consumption yesterday"
+      },
+      "supply_point_status": {
+        "name": "Status",
+        "state": {
+          "active": "Active",
+          "historical": "Historical",
+          "unknown": "Unknown"
+        }
+      }
+    }
   },
   "title": "Octopus Energy Japan"
 }

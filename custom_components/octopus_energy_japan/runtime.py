@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -17,10 +18,13 @@ from .api import (
     ResourceLifecycle,
 )
 from .const import CONF_ENABLED_HISTORICAL_RESOURCES, DOMAIN
-from .identity import stable_account_identity, stable_resource_identity
+from .identity import stable_account_identity, stable_supply_point_identity
+
+if TYPE_CHECKING:
+    from .coordinator import OejpDataUpdateCoordinator
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class OejpRuntimeData:
     """Runtime data owned by one OAuth login-scoped config entry."""
 
@@ -28,6 +32,7 @@ class OejpRuntimeData:
     accounts: tuple[OejpAccount, ...]
     capabilities: CapabilitySnapshot
     identity_secret: str
+    coordinator: OejpDataUpdateCoordinator | None = None
 
     def historical_resource_options(self) -> dict[str, str]:
         """Return safe labels keyed by installation-local resource identities."""
@@ -40,13 +45,14 @@ class OejpRuntimeData:
                 options[stable_account_identity(self.identity_secret, account.number)] = (
                     f"Historical account {historical_account_number}"
                 )
+                continue
             for supply_point in _iter_supply_points(account):
                 if supply_point.lifecycle is ResourceLifecycle.HISTORICAL:
                     historical_supply_point_number += 1
                     options[
-                        stable_resource_identity(
+                        stable_supply_point_identity(
                             self.identity_secret,
-                            "supply-point",
+                            account.number,
                             supply_point.id,
                         )
                     ] = f"Historical supply point {historical_supply_point_number}"
@@ -61,6 +67,35 @@ def selected_historical_resources(entry: ConfigEntry) -> frozenset[str]:
     return frozenset(value for value in selected if isinstance(value, str) and value)
 
 
+def normalize_historical_selection(
+    accounts: Iterable[OejpAccount],
+    identity_secret: str,
+    requested: Iterable[str],
+) -> tuple[str, ...]:
+    """Validate history selection and reject stale or redundant child choices."""
+    requested_set = frozenset(requested)
+    enabled: set[str] = set()
+    for account in accounts:
+        account_identity = stable_account_identity(identity_secret, account.number)
+        if account.lifecycle is ResourceLifecycle.HISTORICAL:
+            if account_identity in requested_set:
+                enabled.add(account_identity)
+            # A historical account owns selection of every child. Child-only
+            # choices under an unselected account are stale and ignored.
+            continue
+        for supply_point in _iter_supply_points(account):
+            if supply_point.lifecycle is not ResourceLifecycle.HISTORICAL:
+                continue
+            supply_point_identity = stable_supply_point_identity(
+                identity_secret,
+                account.number,
+                supply_point.id,
+            )
+            if supply_point_identity in requested_set:
+                enabled.add(supply_point_identity)
+    return tuple(sorted(enabled))
+
+
 def async_project_discovered_devices(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -69,16 +104,25 @@ def async_project_discovered_devices(
     """Create/update account and supply-point devices without exposing provider IDs."""
     registry = dr.async_get(hass)
     selected = selected_historical_resources(entry)
-    integration_disabler = _integration_device_disabler()
+    integration_disabler = dr.DeviceEntryDisabler.INTEGRATION
+    discovered_identities: set[str] = set()
     for account_number, account in enumerate(runtime.accounts, start=1):
         account_identity = stable_account_identity(runtime.identity_secret, account.number)
+        discovered_identities.add(account_identity)
+        account_selected = account_identity in selected
         account_disabled = (
-            account.lifecycle is ResourceLifecycle.HISTORICAL and account_identity not in selected
+            account.lifecycle is ResourceLifecycle.HISTORICAL and not account_selected
         )
+        account_identifiers = {(DOMAIN, account_identity)}
+        existing_account = registry.async_get_device(identifiers=account_identifiers)
         account_device = registry.async_get_or_create(
             config_entry_id=entry.entry_id,
-            disabled_by=(integration_disabler if account_disabled else None),
-            identifiers={(DOMAIN, account_identity)},
+            disabled_by=(
+                existing_account.disabled_by
+                if existing_account is not None
+                else (integration_disabler if account_disabled else None)
+            ),
+            identifiers=account_identifiers,
             manufacturer="Octopus Energy Japan",
             model="Electricity account",
             name=f"OEJP account {account_number}",
@@ -94,19 +138,27 @@ def async_project_discovered_devices(
             _iter_supply_points(account),
             start=1,
         ):
-            supply_point_identity = stable_resource_identity(
+            supply_point_identity = stable_supply_point_identity(
                 runtime.identity_secret,
-                "supply-point",
+                account.number,
                 supply_point.id,
             )
+            discovered_identities.add(supply_point_identity)
             supply_point_disabled = account_disabled or (
                 supply_point.lifecycle is ResourceLifecycle.HISTORICAL
+                and not account_selected
                 and supply_point_identity not in selected
             )
+            supply_point_identifiers = {(DOMAIN, supply_point_identity)}
+            existing_supply_point = registry.async_get_device(identifiers=supply_point_identifiers)
             supply_point_device = registry.async_get_or_create(
                 config_entry_id=entry.entry_id,
-                disabled_by=(integration_disabler if supply_point_disabled else None),
-                identifiers={(DOMAIN, supply_point_identity)},
+                disabled_by=(
+                    existing_supply_point.disabled_by
+                    if existing_supply_point is not None
+                    else (integration_disabler if supply_point_disabled else None)
+                ),
+                identifiers=supply_point_identifiers,
                 manufacturer="Octopus Energy Japan",
                 model="Electricity supply point",
                 name=f"OEJP supply point {account_number}-{supply_point_number}",
@@ -119,6 +171,16 @@ def async_project_discovered_devices(
                 integration_disabler=integration_disabler,
             )
 
+    for device in dr.async_entries_for_config_entry(registry, entry.entry_id):
+        identities = {identifier for domain, identifier in device.identifiers if domain == DOMAIN}
+        if identities and identities.isdisjoint(discovered_identities):
+            _sync_device_disabled(
+                registry,
+                device,
+                disabled=True,
+                integration_disabler=integration_disabler,
+            )
+
 
 def _iter_supply_points(account: OejpAccount) -> tuple[OejpSupplyPoint, ...]:
     return tuple(
@@ -126,20 +188,12 @@ def _iter_supply_points(account: OejpAccount) -> tuple[OejpSupplyPoint, ...]:
     )
 
 
-def _integration_device_disabler() -> Any:
-    """Bridge the Home Assistant 2026.8 device disabler enum rename."""
-    disabler_type = getattr(dr, "DeviceEntryDisabler", None)
-    if disabler_type is None:
-        disabler_type = dr.__dict__["RegistryEntryDisabler"]
-    return disabler_type.INTEGRATION
-
-
 def _sync_device_disabled(
-    registry: Any,
-    device: Any,
+    registry: dr.DeviceRegistry,
+    device: dr.DeviceEntry,
     *,
     disabled: bool,
-    integration_disabler: Any,
+    integration_disabler: dr.DeviceEntryDisabler,
 ) -> None:
     """Only change integration-owned disabling; preserve a user's choice."""
     if disabled and device.disabled_by is None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from typing import Any, Protocol
 
@@ -28,6 +29,7 @@ class AuthenticatedGraphQLClient:
     def __init__(self, client: OejpGraphQLClient, auth: AuthSession) -> None:
         self._client = client
         self._auth = auth
+        self._operation_gate = asyncio.Lock()
 
     async def execute(
         self,
@@ -35,20 +37,21 @@ class AuthenticatedGraphQLClient:
         variables: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Execute a strict operation and retry once after authentication expiry."""
-        header = await self._auth.async_get_authorization_header()
-        try:
-            return await self._client.execute(
-                query,
-                variables,
-                authorization_header=header,
-            )
-        except OejpAuthenticationError:
-            await self._auth.async_refresh()
-            return await self._client.execute(
-                query,
-                variables,
-                authorization_header=await self._auth.async_get_authorization_header(),
-            )
+        async with self._operation_gate:
+            header = await self._auth.async_get_authorization_header()
+            try:
+                return await self._client.execute(
+                    query,
+                    variables,
+                    authorization_header=header,
+                )
+            except OejpAuthenticationError:
+                await self._auth.async_refresh()
+                return await self._client.execute(
+                    query,
+                    variables,
+                    authorization_header=await self._auth.async_get_authorization_header(),
+                )
 
     async def execute_optional(
         self,
@@ -56,20 +59,28 @@ class AuthenticatedGraphQLClient:
         variables: Mapping[str, Any] | None = None,
     ) -> GraphQLResult:
         """Execute an optional operation without treating permission errors as reauth."""
-        header = await self._auth.async_get_authorization_header()
-        result = await self._client.execute_optional(
-            query,
-            variables,
-            authorization_header=header,
-        )
-        if not result.errors or not isinstance(
-            classify_graphql_error_details(result.errors),
-            OejpAuthenticationError,
-        ):
-            return result
-        await self._auth.async_refresh()
-        return await self._client.execute_optional(
-            query,
-            variables,
-            authorization_header=await self._auth.async_get_authorization_header(),
-        )
+        async with self._operation_gate:
+            header = await self._auth.async_get_authorization_header()
+            result = await self._client.execute_optional(
+                query,
+                variables,
+                authorization_header=header,
+            )
+            has_authentication_error = any(
+                isinstance(
+                    classify_graphql_error_details(
+                        (detail,),
+                        retry_after=result.retry_after,
+                    ),
+                    OejpAuthenticationError,
+                )
+                for detail in result.errors
+            )
+            if not has_authentication_error:
+                return result
+            await self._auth.async_refresh()
+            return await self._client.execute_optional(
+                query,
+                variables,
+                authorization_header=await self._auth.async_get_authorization_header(),
+            )

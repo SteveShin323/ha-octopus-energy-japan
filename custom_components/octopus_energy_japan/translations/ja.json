@@ -35,10 +35,78 @@
         "title": "Octopus Energy Japan に再接続"
       },
       "reconfigure": {
-        "description": "有効なアカウントと供給地点は常に有効です。デバイスと今後のエンティティを有効なまま保持する終了済みリソースを選択してください。",
+        "description": "有効なアカウントと供給地点は常に有効です。終了済みアカウントを選択すると、そのすべての供給地点が有効になります。有効なアカウント配下の終了済み供給地点は個別に選択できます。",
         "title": "過去の OEJP リソースを管理",
         "data": {
           "enabled_historical_resources": "有効にする過去のリソース"
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "export_data_available": {
+        "name": "売電データ利用可能"
+      },
+      "import_data_available": {
+        "name": "買電データ利用可能"
+      }
+    },
+    "sensor": {
+      "export_data_delay": {
+        "name": "売電データ遅延"
+      },
+      "export_last_month": {
+        "name": "先月の売電量"
+      },
+      "export_latest_interval": {
+        "name": "最新報告区間の売電量"
+      },
+      "export_latest_reading": {
+        "name": "最新売電データ日時"
+      },
+      "export_this_month": {
+        "name": "今月の売電量"
+      },
+      "export_this_week": {
+        "name": "今週の売電量"
+      },
+      "export_today": {
+        "name": "今日の売電量"
+      },
+      "export_yesterday": {
+        "name": "昨日の売電量"
+      },
+      "import_data_delay": {
+        "name": "買電データ遅延"
+      },
+      "import_last_month": {
+        "name": "先月の使用量"
+      },
+      "import_latest_interval": {
+        "name": "最新報告区間の使用量"
+      },
+      "import_latest_reading": {
+        "name": "最新使用量データ日時"
+      },
+      "import_this_month": {
+        "name": "今月の使用量"
+      },
+      "import_this_week": {
+        "name": "今週の使用量"
+      },
+      "import_today": {
+        "name": "今日の使用量"
+      },
+      "import_yesterday": {
+        "name": "昨日の使用量"
+      },
+      "supply_point_status": {
+        "name": "状態",
+        "state": {
+          "active": "有効",
+          "historical": "終了済み",
+          "unknown": "不明"
         }
       }
     }

@@ -10,6 +10,7 @@ from custom_components.octopus_energy_japan.aggregation import (
     TOKYO,
     aggregate_calendar,
     aggregate_intervals,
+    apply_calendar_coverage,
 )
 from custom_components.octopus_energy_japan.api import (
     EnergyReading,
@@ -314,6 +315,64 @@ def test_empty_and_future_only_snapshots_are_safe() -> None:
         ),
     ]
     assert aggregate_calendar(conflicting_future, now).supply_points == ()
+
+
+def test_empty_authoritative_series_projects_zero_only_after_complete_coverage() -> None:
+    now = _jst(2026, 7, 8, 1)
+    key = ("account-1", "supply-1", ReadingDirection.EXPORT)
+    snapshot = aggregate_calendar([], now, series=(key,))
+    aggregate = snapshot.supply_points[0]
+
+    assert aggregate.latest is None
+    assert aggregate.today.energy_kwh == 0
+    assert not aggregate.today.complete
+
+    covered = apply_calendar_coverage(
+        snapshot,
+        {
+            key: (
+                (
+                    _jst(2026, 6, 1, 0),
+                    _jst(2026, 7, 1, 0),
+                ),
+                (
+                    _jst(2026, 7, 1, 0),
+                    now,
+                ),
+            )
+        },
+    ).supply_points[0]
+
+    assert covered.today.complete
+    assert covered.yesterday.complete
+    assert covered.this_week.complete
+    assert covered.this_month.complete
+    assert covered.last_month.complete
+    assert covered.today.energy_kwh == 0
+
+
+def test_calendar_coverage_rejects_gaps_and_marks_only_spanned_periods() -> None:
+    now = _jst(2026, 7, 8, 1)
+    key = ("account-1", "supply-1", ReadingDirection.IMPORT)
+    snapshot = aggregate_calendar(
+        [_record(_jst(2026, 7, 8, 0))],
+        now,
+    )
+    aggregate = apply_calendar_coverage(
+        snapshot,
+        {
+            key: (
+                (_jst(2026, 7, 5, 1), _jst(2026, 7, 7, 0)),
+                (_jst(2026, 7, 7, 0, 30), now),
+            )
+        },
+    ).supply_points[0]
+
+    assert aggregate.today.complete
+    assert not aggregate.yesterday.complete
+    assert not aggregate.this_week.complete
+    assert not aggregate.this_month.complete
+    assert not aggregate.last_month.complete
 
 
 def test_calendar_rejects_naive_generation_time() -> None:
