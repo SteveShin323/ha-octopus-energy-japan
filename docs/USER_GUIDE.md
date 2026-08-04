@@ -216,12 +216,15 @@ charge at all. Showing it as your cost would carry provider authority for a figu
 no line of your bill supports. The evidence is in
 [`CONTRACT_AND_BILLING.md`](CONTRACT_AND_BILLING.md).
 
-**No tariff unit prices.** An account cannot read them. Asking for `product.rates`
-returns an authorisation error, and because that error propagates upward it also nulls
-the product it belongs to — so the integration deliberately does not request rates, and
-your current plan name appears as a result. Even if they were readable, they are keyed
-by an untyped provider payload with no reliable way to tell which one applies to your
-supply point.
+**No tariff unit prices yet, though they are readable.** `product.rates` on your
+agreement is refused for an account, and asking for it also nulls the product it belongs
+to, which is why the integration does not request it. A separate catalogue query does
+work and returns the full stepped tariff — the three price steps with their kWh
+boundaries, tax included, and a standing charge for each contract amperage. Two pieces
+are still missing before that could become a cost you could trust: which amperage you
+contracted, and the monthly fuel-cost adjustment and annual renewable levy, neither of
+which an account can read. Progress is in
+[`API_CONTRACTS.md`](API_CONTRACTS.md).
 
 **No `kWh × unit price` estimate.** A Japanese electricity bill combines tiered
 energy pricing, a fixed daily charge, a monthly fuel-cost adjustment, a renewable
