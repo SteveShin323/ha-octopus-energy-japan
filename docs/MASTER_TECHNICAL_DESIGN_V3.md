@@ -61,7 +61,9 @@ Current implementation status:
 | PR 10: diagnostics and Repairs | Planned |
 | PR 11: release documentation and packaging | Planned |
 | Provider-issued cost and tariff rate projection | Awaiting provider metadata or probe |
-| Production OAuth metadata and real-account release matrix | Awaiting OEJP |
+| OAuth endpoints, issuer, scopes, and header scheme | Confirmed from the provider |
+| OAuth client ID and public-client approval | Awaiting OEJP |
+| Real-account release matrix | Awaiting a client ID |
 
 ## 2. Authentication
 

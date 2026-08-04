@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from unittest.mock import AsyncMock
 
 import pytest
@@ -495,3 +496,26 @@ async def test_paginator_enforces_positive_page_limit_and_bound() -> None:
             AsyncMock(return_value=ConnectionPage((), True, "next")),
             max_pages=1,
         )
+
+
+def test_page_sizes_respect_the_published_pagination_limit() -> None:
+    """The official guide requires `first` to be less than 100."""
+    from custom_components.octopus_energy_japan.api import (
+        ACCOUNT_AGREEMENTS_QUERY,
+        ACCOUNT_BILLING_QUERY,
+    )
+    from custom_components.octopus_energy_japan.api.readings import GENERIC_PAGE_SIZE
+
+    published_limit = 100
+    assert published_limit > GENERIC_PAGE_SIZE
+
+    for document in (ACCOUNT_AGREEMENTS_QUERY, ACCOUNT_BILLING_QUERY, GENERIC_DEVICES_QUERY):
+        for requested in re.findall(r"first:\s*(\d+)", document):
+            assert int(requested) < published_limit, document
+
+
+def test_rate_limit_codes_cover_every_published_limit() -> None:
+    """Complexity, node, and request-rate limits must all back off."""
+    from custom_components.octopus_energy_japan.api.errors import _RATE_LIMIT_CODES
+
+    assert {"KT-CT-1188", "KT-CT-1189", "KT-CT-1199"} <= _RATE_LIMIT_CODES

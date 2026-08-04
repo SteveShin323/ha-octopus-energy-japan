@@ -44,10 +44,31 @@ async def test_application_credentials_create_pkce_public_client(
     assert implementation.metadata is METADATA
 
 
+async def test_application_credentials_use_published_metadata_by_default(
+    hass: HomeAssistant,
+) -> None:
+    """The provider publishes its endpoints, so only a client ID is still needed."""
+    implementation = await async_get_auth_implementation(
+        hass,
+        "local",
+        ClientCredential("public-client", ""),
+    )
+
+    assert implementation.metadata.token_url == "https://auth.oejp-kraken.energy/token/"
+    assert "openid" in implementation.extra_authorize_data["scope"]
+    assert implementation.extra_authorize_data["code_challenge_method"] == "S256"
+
+
 async def test_application_credentials_fail_closed_without_confirmed_metadata(
     hass: HomeAssistant,
 ) -> None:
-    with pytest.raises(ImplementationUnavailableError):
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.oauth_metadata.PRODUCTION_OAUTH_METADATA",
+            None,
+        ),
+        pytest.raises(ImplementationUnavailableError),
+    ):
         await async_get_auth_implementation(
             hass,
             "local",

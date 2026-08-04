@@ -4,7 +4,11 @@ rules:
     status: exempt
     comment: The integration is read-only and exposes no actions.
   appropriate-polling: done
-  brands: todo
+  brands:
+    status: todo
+    comment: >-
+      Icon and logo exist under brand/. They must be submitted to
+      home-assistant/brands, which cannot be done before the domain is public.
   common-modules: done
   config-flow: done
   config-flow-test-coverage: done
@@ -68,7 +72,14 @@ rules:
   icon-translations: todo
   reconfiguration-flow: done
   repair-issues: todo
-  stale-devices: todo
+  stale-devices:
+    status: done
+    comment: >-
+      A supply point or account that stops being discovered is disabled through
+      DeviceEntryDisabler.INTEGRATION rather than removed, and is re-enabled if it
+      reappears. Removal is deliberately avoided so ledger history and external
+      statistics stay continuous, as Design v3 section 3 requires. A user can still
+      delete a disabled device manually.
 
   # Platinum
   async-dependency: done
