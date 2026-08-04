@@ -44,6 +44,14 @@ email and password login works today and is selectable at setup.
 
 ### Fixed
 
+- the agreements query asked for `product.rates`, which an account user may not read.
+  The resulting authorisation error propagated to the nearest nullable parent, so the
+  whole product came back null and the **current plan name was lost** — to fetch a field
+  the integration never publishes. Removing it resolves the plan name and clears the
+  error, moving the agreements capability from partial to available;
+- Energy Dashboard statistics are skipped with one warning when the recorder is not
+  enabled, instead of raising `KeyError: recorder_instance`. `after_dependencies` orders
+  the recorder but does not require it;
 - `devices` and `registers` were queried without the `first` argument the
   provider's GraphQL guide requires on every paginated field. A conformance test
   now scans every shipped query, so a connection added later cannot omit it;
