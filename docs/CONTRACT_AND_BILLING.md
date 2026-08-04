@@ -172,11 +172,14 @@ open. The comparison covered one complete billing period with no interval gaps.
 Energy reconciles. Summed interval values came within 0.6 percent of the invoiced
 kWh, which validates the reading pipeline end to end against a provider invoice.
 
-Cost does not. Summed `costEstimate` came out 13 percent below the invoice total,
-and it matches no invoice component sum: it is 9 percent above the energy plus
-fuel-adjustment subtotal and 5 percent below the subtotal that adds the renewable
-levy. Its per-kWh rate also rises through the period, so it applies the tariff's
-cumulative tiering, but not in a way that reproduces any billed figure.
+Cost does not. Summed `costEstimate`, scaled to the invoiced kWh, came out about
+4 percent below the closest invoice figure and matched none exactly. The two
+closest candidates are the total excluding consumption tax and the tax-inclusive
+total minus the fixed standing charge, and a single invoice cannot separate them
+because those two figures coincide for this tariff. Its per-kWh rate rises through
+the period, so it applies cumulative tiering, but no basis reproduces a billed
+figure. The comparison is recorded in
+[`API_CONTRACTS.md`](API_CONTRACTS.md).
 
 `costEstimate` is therefore a provider estimate whose composition is undocumented
 and does not reconcile to the invoice. Publishing it as cost would present a

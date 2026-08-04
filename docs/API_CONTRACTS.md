@@ -243,11 +243,21 @@ such as `balance`, `overdueBalance`, and `grossTotal` are whole yen for the same
 reason: JPY has no circulating sub-unit.
 
 `costEstimate` is **not** the billed amount. Summed over one complete billing
-period with no interval gaps it came out 13 percent below the invoice total, and it
-matched no invoice component sum: above the energy plus fuel-adjustment subtotal
-and below the subtotal that adds the renewable levy. Its per-kWh rate rises through
-the period, so it does apply the tariff's cumulative tiering, but not in a way that
-reproduces a billed figure.
+period with no interval gaps, and scaled to the invoiced kWh, it landed about 4
+percent below the closest invoice figure and matched none exactly:
+
+| Invoice basis | Difference |
+|---|---|
+| total excluding consumption tax | about 4 percent below |
+| total including tax, minus the standing charge | about 4 percent below |
+| energy plus fuel adjustment, including tax | about 10 percent above |
+| total including tax | about 13 percent below |
+
+The first two candidates cannot be told apart from a single invoice: for this
+tariff the consumption tax on the total happens to fall within a fraction of a
+percent of the standing charge, so the two figures coincide. Its per-kWh rate does
+rise through the period, so it applies the tariff's cumulative tiering, but no
+basis reproduces a billed figure.
 
 Summed interval **values**, by contrast, came within 0.6 percent of the invoiced
 kWh over the same period, so the reading contract itself reconciles against a
