@@ -46,10 +46,10 @@ rules:
   config-entry-unloading: done
   docs-configuration-parameters:
     status: done
-    comment: docs/USER_GUIDE.md#configuration-parameters. Nothing is typed during setup.
+    comment: docs/USER_GUIDE.md#configuration-parameters, including which method needs which field.
   docs-installation-parameters:
     status: done
-    comment: docs/USER_GUIDE.md#configuration-parameters. Only the Application Credentials client ID.
+    comment: docs/USER_GUIDE.md#configuration-parameters. An Application Credentials client ID for the OAuth methods, or an email and password.
   entity-unavailable: done
   integration-owner: done
   log-when-unavailable: done

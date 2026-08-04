@@ -2,6 +2,8 @@
 
 Status: accepted, pending OEJP application approval
 Date: 2026-07-29
+Amended by: [ADR 0008](0008-password-authentication.md), on the single point of
+whether the email and password login may be offered to users
 
 ## Context
 
@@ -21,6 +23,11 @@ The client ID is committed only if OEJP authorizes a shared public client.
 Otherwise, use Home Assistant Application Credentials. The legacy Kraken token
 operation is isolated to a local read-only probe and removed from public setup
 and runtime before alpha.
+
+> [!NOTE]
+> That last sentence no longer holds. [ADR 0008](0008-password-authentication.md)
+> amends it, because no OAuth application arrived and the legacy login became the only
+> way for anyone to connect. The rest of this decision stands unchanged.
 
 ## Consequences
 
