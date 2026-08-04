@@ -172,23 +172,23 @@ open. The comparison covered one complete billing period with no interval gaps.
 Energy reconciles. Summed interval values came within 0.6 percent of the invoiced
 kWh, which validates the reading pipeline end to end against a provider invoice.
 
-Cost does not. Summed `costEstimate`, scaled to the invoiced kWh, came out about
-4 percent below the closest invoice figure and matched none exactly. The two
-closest candidates are the total excluding consumption tax and the tax-inclusive
-total minus the fixed standing charge, and a single invoice cannot separate them
-because those two figures coincide for this tariff. Its per-kWh rate rises through
-the period, so it applies cumulative tiering, but no basis reproduces a billed
-figure. The comparison is recorded in
-[`API_CONTRACTS.md`](API_CONTRACTS.md).
+Cost does not, and the reason is structural rather than a rounding gap.
+Reconstructing `costEstimate` over the same period showed a per-kWh schedule with a
+single cumulative-usage boundary at 300 kWh, switching mid-day on the day
+cumulative usage crosses it. Two flat rates reproduce the summed value to within
+0.04 percent, so that model is complete.
 
-`costEstimate` is therefore a provider estimate whose composition is undocumented
-and does not reconcile to the invoice. Publishing it as cost would present a
-figure carrying provider authority that no line of the customer's bill supports.
+The invoice uses three tiers with boundaries at 120 and 300 kWh, plus a fixed daily
+standing charge, a monthly fuel adjustment, a levy, and consumption tax.
+`costEstimate` shows no step at 120 kWh and its single step is more than twice the
+size of the invoice's, so it is not the billed tariff computed per interval. The
+full comparison is recorded in [`API_CONTRACTS.md`](API_CONTRACTS.md).
 
-Publishing it as the Energy Dashboard cost would therefore present a figure that
-does not match the customer's bill while carrying provider authority. If it is
-published later it must be named and documented as a provider estimate of the
-energy charge, never as the bill.
+`costEstimate` is therefore a provider estimate computed from its own simplified
+rate model, not the customer's tariff applied per interval. Publishing it as the
+Energy Dashboard cost would present a figure carrying provider authority that no
+line of the bill supports. If it is published later it must be named and
+documented as a provider estimate, never as the bill.
 
 A second obstacle appeared with it. The generic reading API carries no cost field,
 so provider cost is only available from the legacy operations, which the fallback

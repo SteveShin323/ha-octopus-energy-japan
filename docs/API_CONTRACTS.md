@@ -242,34 +242,29 @@ denomination is **whole yen with two decimal places**. Integer monetary fields
 such as `balance`, `overdueBalance`, and `grossTotal` are whole yen for the same
 reason: JPY has no circulating sub-unit.
 
-`costEstimate` is **not** the billed amount. Summed over one complete billing
-period with no interval gaps, and scaled to the invoiced kWh, it landed about 4
-percent below the closest invoice figure and matched none exactly:
+`costEstimate` is **not** the billed amount, and it does not reproduce the billed
+tariff. Reconstructing it over one gap-free billing period showed a per-kWh
+schedule with a **single** cumulative-usage boundary:
 
-| Invoice basis | Difference |
-|---|---|
-| total excluding consumption tax | about 4 percent below |
-| total including tax, minus the standing charge | about 4 percent below |
-| energy plus fuel adjustment, including tax | about 10 percent above |
-| total including tax | about 13 percent below |
+- one flat rate up to 300 kWh of cumulative period usage; and
+- a higher flat rate above it.
 
-The first two candidates cannot be told apart from a single invoice: for this
-tariff the consumption tax on the total happens to fall within a fraction of a
-percent of the standing charge, so the two figures coincide. Its per-kWh rate does
-rise through the period, so it applies the tariff's cumulative tiering, but no
-basis reproduces a billed figure.
+The switch happens mid-day, on the day cumulative usage crosses 300 kWh, so the
+boundary is cumulative usage rather than a date or a tariff revision. Those two
+rates reproduce the summed `costEstimate` to within 0.04 percent, so the model is
+complete.
 
-Summed interval **values**, by contrast, came within 0.6 percent of the invoiced
-kWh over the same period, so the reading contract itself reconciles against a
-provider invoice.
+The invoice for the same period uses a **three**-tier schedule with boundaries at
+120 and 300 kWh, plus a fixed daily standing charge, a monthly fuel-cost
+adjustment, a renewable-energy levy, and consumption tax. `costEstimate` shows no
+step at 120 kWh at all, and its step at 300 kWh is more than twice the size of the
+invoice's. Summed and scaled to the invoiced kWh it lands about 4 percent below the
+closest invoice figure and matches none exactly.
 
-The invoice combines a fixed daily standing charge, three-tier energy pricing, a
-monthly fuel-cost adjustment, a renewable-energy levy, and consumption tax. A
-per-interval value cannot express the daily standing charge at all.
-
-That tariff structure is also why Design v3 excludes `kWh x user-entered unit
-price` estimation: no single unit price can reproduce tiering, a daily standing
-charge, and a monthly adjustment.
+`costEstimate` is therefore a provider estimate computed from its own simplified
+rate model, not a projection of the customer's tariff. Summed interval **values**,
+by contrast, came within 0.6 percent of the invoiced kWh over the same period, so
+the reading contract itself reconciles against a provider invoice.
 
 ## Optional commercial operations
 
