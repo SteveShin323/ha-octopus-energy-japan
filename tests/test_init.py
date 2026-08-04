@@ -17,8 +17,13 @@ from custom_components.octopus_energy_japan.api import (
     CapabilityAvailability,
     CapabilitySnapshot,
     CapabilityStatus,
+    GraphQLErrorDetail,
     OejpAccount,
+    OejpAuthorizationError,
+    OejpGraphQLError,
     OejpProperty,
+    OejpQueryValidationError,
+    OejpRateLimitError,
     OejpSupplyPoint,
 )
 from custom_components.octopus_energy_japan.const import DOMAIN
@@ -209,6 +214,124 @@ async def test_discovery_queries_generic_topology_sequentially() -> None:
         "PRIVATE-SPIN-A",
         "PRIVATE-SPIN-B",
     ]
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_reason"),
+    [
+        (
+            OejpAuthorizationError((GraphQLErrorDetail("safe", error_type="AUTHORIZATION"),)),
+            "generic_device_discovery_forbidden",
+        ),
+        (
+            OejpQueryValidationError((GraphQLErrorDetail("safe", error_code="KT-CT-1113"),)),
+            "generic_device_schema_mismatch",
+        ),
+        (
+            OejpGraphQLError((GraphQLErrorDetail("safe", error_code="KT-CT-7899"),)),
+            "generic_device_discovery_unavailable",
+        ),
+    ],
+)
+async def test_generic_device_refusal_degrades_capability_instead_of_failing_setup(
+    error: Exception,
+    expected_reason: str,
+) -> None:
+    """A supply point without generic devices must still set up. KT-CT-7899."""
+    capabilities = CapabilitySnapshot().replace(
+        (Capability.DEVICES, Capability.REGISTERS),
+        CapabilityAvailability.SUPPORTED,
+        "introspected",
+    )
+    accounts = (
+        OejpAccount(
+            number="PRIVATE-ACCOUNT",
+            properties=(
+                OejpProperty(
+                    id="PRIVATE-PROPERTY",
+                    supply_points=(
+                        OejpSupplyPoint(
+                            id="PRIVATE-POINT",
+                            spin="PRIVATE-SPIN",
+                            account_number="PRIVATE-ACCOUNT",
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.api.async_discover_resources",
+            AsyncMock(return_value=accounts),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_detect_capabilities",
+            AsyncMock(return_value=capabilities),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_discover_generic_devices",
+            AsyncMock(side_effect=error),
+        ),
+    ):
+        discovered, observed = await _async_discover_state(AsyncMock())
+
+    assert discovered == accounts
+    for capability in (Capability.DEVICES, Capability.REGISTERS):
+        assert observed.availability(capability) in {
+            CapabilityAvailability.UNSUPPORTED,
+            CapabilityAvailability.FORBIDDEN,
+        }
+        status = next(s for s in observed.statuses if s.capability is capability)
+        assert status.reason == expected_reason
+
+
+async def test_generic_device_rate_limit_lets_setup_retry() -> None:
+    """A temporary refusal must not be recorded as an absent capability."""
+    capabilities = CapabilitySnapshot().replace(
+        (Capability.DEVICES, Capability.REGISTERS),
+        CapabilityAvailability.SUPPORTED,
+        "introspected",
+    )
+    accounts = (
+        OejpAccount(
+            number="PRIVATE-ACCOUNT",
+            properties=(
+                OejpProperty(
+                    id="PRIVATE-PROPERTY",
+                    supply_points=(
+                        OejpSupplyPoint(
+                            id="PRIVATE-POINT",
+                            spin="PRIVATE-SPIN",
+                            account_number="PRIVATE-ACCOUNT",
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.api.async_discover_resources",
+            AsyncMock(return_value=accounts),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_detect_capabilities",
+            AsyncMock(return_value=capabilities),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_discover_generic_devices",
+            AsyncMock(
+                side_effect=OejpRateLimitError(
+                    (GraphQLErrorDetail("safe", error_code="KT-CT-1199"),)
+                )
+            ),
+        ),
+        pytest.raises(OejpRateLimitError),
+    ):
+        await _async_discover_state(AsyncMock())
 
 
 async def test_setup_entry_retries_when_oauth_implementation_is_unavailable(
