@@ -390,7 +390,46 @@ balances. `AccountCommercialAgreements` reads `marketSupplyAgreements` with its
 product and rate connection and follows `endCursor` pagination.
 `AccountCommercialBilling` reads the single newest `bills` node, using inline
 fragments for `StatementType`, `PeriodBasedDocumentType`, and `InvoiceType`, plus
-the single newest `transactions` node.
+the single newest transaction **from each of the account's ledgers**.
+
+**The payment due date is on the ledger's statement, not on the bill.** On a real
+account the newest `bills` node resolves as `PeriodBasedDocumentType` while
+reporting `billType: STATEMENT`, so every field behind `... on StatementType` —
+`paymentDueDate` and `status` among them — resolves to nothing. The
+`latest_bill_due` sensor was therefore permanently empty, in the same way and for
+the same kind of reason as the transaction sensor. `LedgerType.statements` returns
+the same document as `StatementBillingDocumentType`, which does carry `dueDate`.
+The two share an id, so they are matched on it rather than by assuming the newest
+node of each connection corresponds; the bill's id is an `ID` and the statement's
+an `Int`, so the comparison is textual. `statements` is ordered
+`FINALIZED_AT_DESC`, because the connection's first node is otherwise not the
+newest.
+
+`status` is deliberately left absent for these documents. Nothing recovers it:
+`documentDebtPosition` is null and `StatementBillingDocumentType.isFinal` is null,
+both measured on 2026-08-04. A guessed settled/outstanding value would be worse
+than none.
+
+The bill *amount* needed no change, and the check that established this is worth
+recording because an earlier comparison suggested otherwise. `PeriodBasedDocumentType`
+and `StatementBillingDocumentType` report identical `totalCharges` — net, tax and
+gross — on the same document, and the customer's cleared payment settles exactly
+that gross. The earlier "the totals differ" reading came from comparing against
+`totalCharges` on a fragment that had not been requested for the type that was
+returned, so the field was simply absent.
+
+**Transactions live on the ledger, not on the account.** `Account.transactions`
+exists, is readable, and returns an empty connection. `LedgerType.transactions`
+returns the customer's actual activity. Measured on 2026-08-04 against a real
+account: `account.transactions` gave zero edges while the single ledger gave three
+— a payment, a charge and a credit, each with a posted date. The integration read
+the account-level field until then, so the latest-transaction sensor was
+permanently empty. `tests/test_api_commercial.py` pins this so the more
+direct-looking field is not restored. An account may hold several ledgers, so each
+is asked for its own newest node and the newest overall is published; a nulled
+`ledgers` is reported as no transaction rather than as an error, because that is
+the shape of a partial response and refusing it would discard the bill that
+arrived with it.
 
 These documents were validated by schema introspection against a real account on
 2026-08-04, which corrected three mistakes in the originally documented shape.
@@ -544,3 +583,61 @@ or diagnostics.
 Run the fixed local probes described in
 [`FIXTURE_REDACTION.md`](FIXTURE_REDACTION.md) before changing any GraphQL
 contract.
+
+## What is readable and deliberately not surfaced
+
+A field-by-field probe of every reachable type against a real account on
+2026-08-04 found far more readable data than this integration publishes. Coverage
+was scoped on purpose, and the reasons are recorded here so the decision can be
+checked and overruled field by field rather than taken on trust.
+
+**About the person, not the supply.** `AccountUser` and `Account` expose
+`isDeceased`, `isInHardship`, `hasFamilyIssues`, `specialCircumstances`,
+`pronouns`, `preferredName`, `landline`, `mobile`, `email`, `consents`,
+`paymentMethods`, and `directDebitInstructions`, among others. An entity state
+lands in the recorder database, appears in cloud backups, is exposed to voice
+assistants, and is visible to anyone with dashboard access. No reading of "all
+obtainable data" for an *energy* integration requires publishing these, so none
+of them is read.
+
+**An affordance for a mutation this integration does not perform.**
+`canApplyAmperageChange`, `canUpdateMoveInDate`, `canUpdateMoveOutDate`,
+`canRequestRefund`, `canBeWithdrawn`, `acceptsPayments`, `newAmperageOptions`,
+and `earliestAmperageChangeDate` describe actions available in the provider's own
+app. This integration is read-only, so surfacing them would only prompt the
+question of how to act on them. (`newAmperageOptions` is still read once, by the
+probe, because a set difference over it independently identified the contracted
+amperage — see the standing-charge discussion above.)
+
+**Already published, under another name.** `account.payments` returns the same
+event as the ledger transaction that is published: measured on the same account,
+the same date and the same amount, differing only in `uuid` versus `id`. Its
+extra fields, `transactionType` and `surchargeAmount`, describe a payment
+instrument rather than energy.
+
+**Measured to be unmaintained.** `ElectricitySupplyPoint.nextReadingDate` and
+`nextNextReadingDate` are readable and populated, and on 2026-08-04 both were in
+the past — one 47 days earlier, the pair exactly a month apart, and inconsistent
+with `readingDateDayOfMonth` on the same supply point. They look like a snapshot
+computed once and never refreshed. A sensor named "next meter reading" showing a
+date weeks gone would be reported as a bug, so only `readingDateDayOfMonth` is
+published, as a diagnostic. If the provider begins maintaining the two dates,
+they become worth publishing and this paragraph is the record of why they were
+not.
+
+**Undecidable on the account available.** `LedgerType.balance`,
+`LedgerType.amountOwedByCustomer`, `Account.balance`, and
+`Account.overdueBalance` all returned the same value, and that value was zero, so
+the agreement between them proves nothing. The structural fact that does decide
+it is `affectsAccountBalance: true` on the account's only ledger: the ledger
+balance is a component of the account balance already published. Two further
+sensors are therefore not added. Should a multi-ledger account appear, the
+per-ledger balance would become a distinct fact and this reasoning would need
+revisiting.
+
+**Not worth an entity's cost.** `StatementBillingDocumentType.pdfUrl` is a signed
+URL to the bill document. It would very likely exceed the 255-character limit on
+a Home Assistant state, and it would be written to the recorder and to backups.
+`scheduledPaymentDate` equalled `dueDate` on every statement measured, and
+`isFinal` and `documentDebtPosition` were both null. `totalCredits` was zero.
+None of these is refused; each is simply unproven or redundant today.

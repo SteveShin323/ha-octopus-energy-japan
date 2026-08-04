@@ -172,12 +172,51 @@ class OejpCoordinatorData:
         supply_point_id: str,
     ) -> ResourceLifecycle | None:
         """Return the latest discovered lifecycle for one supply point."""
+        point = self._supply_point(account_id, supply_point_id)
+        return point.lifecycle if point is not None else None
+
+    def supply_point_reading_day(
+        self,
+        account_id: str,
+        supply_point_id: str,
+    ) -> int | None:
+        """Return the day of the month one supply point's meter is read on."""
+        point = self._supply_point(account_id, supply_point_id)
+        return point.reading_day_of_month if point is not None else None
+
+    def supply_point_address(
+        self,
+        account_id: str,
+        supply_point_id: str,
+    ) -> str | None:
+        """Return the provider's address for the property a supply point belongs to.
+
+        The postcode is appended when the address does not already contain it, because the
+        provider returns them separately and either alone is ambiguous for a customer with
+        more than one property.
+        """
+        for account in self.accounts:
+            if account.number != account_id:
+                continue
+            for property_ in account.properties:
+                if all(point.id != supply_point_id for point in property_.supply_points):
+                    continue
+                address = property_.address
+                postcode = property_.postcode
+                if address is None:
+                    return postcode
+                if postcode is None or postcode in address:
+                    return address
+                return f"{postcode} {address}"
+        return None
+
+    def _supply_point(self, account_id: str, supply_point_id: str) -> OejpSupplyPoint | None:
         for account in self.accounts:
             if account.number != account_id:
                 continue
             for point in iter_supply_points(account):
                 if point.id == supply_point_id:
-                    return point.lifecycle
+                    return point
         return None
 
     def direction_status(

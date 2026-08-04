@@ -65,7 +65,14 @@ question the ordinal names cannot answer. It is a single field on a page you ope
 yourself, it is never part of an entity ID or a state, and it is **not** in the
 diagnostics download.
 
-Addresses are not shown anywhere, because the integration never asks OEJP for them.
+**Your address, only if you turn it on.** The integration does now ask OEJP for the
+address of each property, because with more than one property nothing else tells you
+which supply point is which. It becomes an **Address** sensor that is **disabled by
+default**. Nothing publishes it unless you enable that entity yourself, and enabling it
+is a real choice: an entity's state is written to the recorder database, is included in
+cloud backups, and is readable by voice assistants and by anyone with dashboard access.
+The address is not used for any device or entity name, and it is **not** in the
+diagnostics download — a test asserts that, so a future change cannot quietly add it.
 
 Devices and statistics are addressed by an HMAC derived from an
 installation-local secret plus the provider identifier. The result is stable inside

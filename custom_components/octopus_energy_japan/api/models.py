@@ -125,10 +125,18 @@ class OejpMeter:
 
 @dataclass(frozen=True, slots=True)
 class OejpProperty:
-    """Property container without address or customer display data."""
+    """Property container, including the address the provider holds for it.
+
+    The address and postcode were previously left out on purpose. They are carried now
+    because a customer with more than one property cannot otherwise tell which device is
+    which, and the provider returns both. Nothing publishes them unless the user enables
+    the entity that does, and `probe.py` still redacts them from captures.
+    """
 
     id: str
     supply_points: tuple[OejpSupplyPoint, ...] = ()
+    address: str | None = None
+    postcode: str | None = None
 
 
 class ReadingDirection(StrEnum):
@@ -190,6 +198,11 @@ class OejpSupplyPoint:
     lifecycle: ResourceLifecycle = ResourceLifecycle.UNKNOWN
     property_id: str | None = None
     spin: str | None = None
+    # The day of the month the meter is read on. `nextReadingDate` and
+    # `nextNextReadingDate` are deliberately not carried: measured on a real account they
+    # were a stale snapshot, both dates in the past, so a sensor called "next reading" would
+    # have shown a date weeks gone. This one is the stable schedule and agrees with them.
+    reading_day_of_month: int | None = None
     meters: tuple[OejpMeter, ...] = ()
     devices: tuple[OejpDevice, ...] = ()
 
