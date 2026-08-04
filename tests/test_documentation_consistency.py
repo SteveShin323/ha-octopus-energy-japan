@@ -64,7 +64,11 @@ def test_the_device_flow_progress_message_carries_both_placeholders(name: str) -
 
 
 def test_oauth_methods_are_the_ones_that_use_an_oauth_session() -> None:
-    """`__init__.py` routes anything that is not the password method to OAuth."""
+    """`OAUTH_AUTH_METHODS` is what `__init__.py` routes and revokes with.
+
+    Setup rejects a method in neither group, and removal revokes only for a method in
+    this one, so the two constants have to stay complementary.
+    """
     assert set(OAUTH_AUTH_METHODS) == set(AUTH_METHODS) - {AUTH_METHOD_PASSWORD}
     assert AUTH_METHOD_OAUTH in OAUTH_AUTH_METHODS
     assert AUTH_METHOD_DEVICE in OAUTH_AUTH_METHODS

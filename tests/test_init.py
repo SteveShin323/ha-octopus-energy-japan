@@ -21,6 +21,7 @@ from custom_components.octopus_energy_japan.api import (
     CapabilityStatus,
     GraphQLErrorDetail,
     OejpAccount,
+    OejpAuthenticationError,
     OejpAuthorizationError,
     OejpGraphQLError,
     OejpProperty,
@@ -826,3 +827,194 @@ async def test_removing_a_password_entry_makes_no_provider_request(
         Mock(side_effect=AssertionError("removal must not build a session")),
     ):
         await async_remove_entry(hass, entry)
+
+
+async def test_setup_entry_refuses_an_authentication_method_it_does_not_implement(
+    hass: HomeAssistant,
+) -> None:
+    """A downgrade must not be silently treated as OAuth.
+
+    Falling through to the OAuth branch would try the wrong credentials and report a
+    confusing failure. Failing on the method itself says what is actually wrong.
+    """
+    entry = _password_entry(auth_method="something_newer")
+
+    with pytest.raises(ConfigEntryAuthFailed, match="Unsupported"):
+        await async_setup_entry(hass, entry)
+
+
+async def test_setup_entry_treats_a_device_entry_as_an_oauth_entry(
+    hass: HomeAssistant,
+) -> None:
+    """Device-grant tokens come from the same endpoint, so they take the same path."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "auth_method": "device",
+            "auth_implementation": "test",
+            "token": {"access_token": "access", "refresh_token": "refresh", "expires_at": 1e10},
+        },
+    )
+    auth = AsyncMock()
+    auth.async_get_authorization_header.side_effect = OejpOAuthError("invalid")
+    with (
+        patch(
+            "homeassistant.helpers.config_entry_oauth2_flow.async_get_config_entry_implementation",
+            AsyncMock(return_value=AsyncMock()),
+        ) as implementation,
+        patch(
+            "custom_components.octopus_energy_japan.oauth_metadata.require_oauth_metadata",
+            return_value=METADATA,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.oauth.OejpPkceAuthSession",
+            return_value=auth,
+        ),
+        pytest.raises(ConfigEntryAuthFailed),
+    ):
+        await async_setup_entry(hass, entry)
+
+    # Reaching the OAuth session at all is the assertion: a device entry must not be
+    # routed to the password branch, which would look for a credential it never had.
+    implementation.assert_awaited_once()
+
+
+async def test_removing_a_device_entry_revokes_like_an_oauth_entry(
+    hass: HomeAssistant,
+) -> None:
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "auth_method": "device",
+            "auth_implementation": "test",
+            "token": {"access_token": "access", "refresh_token": "refresh"},
+        },
+    )
+    auth = AsyncMock()
+    with (
+        patch(
+            "homeassistant.helpers.config_entry_oauth2_flow.async_get_config_entry_implementation",
+            AsyncMock(return_value=AsyncMock()),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.oauth_metadata.require_oauth_metadata",
+            return_value=METADATA,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.oauth.OejpPkceAuthSession",
+            return_value=auth,
+        ),
+    ):
+        await async_remove_entry(hass, entry)
+
+    auth.async_revoke.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        ("reauth", ConfigEntryAuthFailed),
+        ("transient", ConfigEntryNotReady),
+        ("request", ConfigEntryNotReady),
+    ],
+)
+async def test_setup_entry_maps_each_oauth_token_request_failure(
+    hass: HomeAssistant,
+    error: str,
+    expected: type[Exception],
+) -> None:
+    """Only an expired or revoked authorization may ask the user to reconnect.
+
+    A transient token-endpoint failure that surfaced as reauthentication would prompt
+    every user during a provider outage.
+    """
+    from aiohttp import RequestInfo
+    from homeassistant.exceptions import (
+        OAuth2TokenRequestError,
+        OAuth2TokenRequestReauthError,
+        OAuth2TokenRequestTransientError,
+    )
+    from multidict import CIMultiDict, CIMultiDictProxy
+    from yarl import URL
+
+    # These subclass `aiohttp.ClientResponseError`, so they need request info as well
+    # as the domain they generate their translated message from.
+    request_info = RequestInfo(
+        url=URL("https://auth.example.test/token"),
+        method="POST",
+        headers=CIMultiDictProxy(CIMultiDict()),
+        real_url=URL("https://auth.example.test/token"),
+    )
+    failures = {
+        "reauth": OAuth2TokenRequestReauthError(request_info=request_info, domain=DOMAIN),
+        "transient": OAuth2TokenRequestTransientError(request_info=request_info, domain=DOMAIN),
+        "request": OAuth2TokenRequestError(request_info=request_info, domain=DOMAIN),
+    }
+    entry = _entry()
+    auth = AsyncMock()
+    auth.async_get_authorization_header.side_effect = failures[error]
+    with (
+        patch(
+            "homeassistant.helpers.config_entry_oauth2_flow.async_get_config_entry_implementation",
+            AsyncMock(return_value=AsyncMock()),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.oauth_metadata.require_oauth_metadata",
+            return_value=METADATA,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.oauth.OejpPkceAuthSession",
+            return_value=auth,
+        ),
+        pytest.raises(expected),
+    ):
+        await async_setup_entry(hass, entry)
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (
+            OejpAuthenticationError(
+                (GraphQLErrorDetail(message="expired", error_code="KT-CT-1120"),)
+            ),
+            ConfigEntryAuthFailed,
+        ),
+        (
+            OejpRateLimitError(
+                (GraphQLErrorDetail(message="rate limited", error_code="KT-CT-1199"),)
+            ),
+            ConfigEntryNotReady,
+        ),
+        (OejpQueryValidationError((GraphQLErrorDetail(message="bad"),)), ConfigEntryNotReady),
+    ],
+)
+async def test_setup_entry_maps_each_discovery_failure(
+    hass: HomeAssistant,
+    error: Exception,
+    expected: type[Exception],
+) -> None:
+    """Discovery can fail after authentication succeeded, and it must not over-report."""
+    entry = _entry()
+    auth = AsyncMock()
+    auth.async_get_authorization_header.return_value = "Bearer access"
+    with (
+        patch(
+            "homeassistant.helpers.config_entry_oauth2_flow.async_get_config_entry_implementation",
+            AsyncMock(return_value=AsyncMock()),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.oauth_metadata.require_oauth_metadata",
+            return_value=METADATA,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.oauth.OejpPkceAuthSession",
+            return_value=auth,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_discover_resources",
+            AsyncMock(side_effect=error),
+        ),
+        pytest.raises(expected),
+    ):
+        await async_setup_entry(hass, entry)

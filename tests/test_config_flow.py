@@ -1225,3 +1225,51 @@ async def test_device_flow_uses_the_credential_the_user_selected(hass: HomeAssis
     # The selected credential's client ID is the one sent to the provider.
     assert client.async_start.await_args is not None
     assert client.async_start.await_args.args[0] == "public-client-second"
+
+
+async def test_abandoning_the_device_flow_stops_the_polling(hass: HomeAssistant) -> None:
+    """An abandoned flow must not keep POSTing to the token endpoint.
+
+    An account user has 50,000 complexity points per hour and a device code lives for
+    ten minutes, so a flow the user closes must not keep polling. Home Assistant takes
+    ownership of the task returned by `async_show_progress` and cancels it when the
+    flow is removed; this observes the cancellation from inside the poll rather than
+    trusting that.
+    """
+    import asyncio
+
+    await _register_credential(hass)
+    polling = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def never_finishes(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        polling.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+        raise AssertionError("unreachable")
+
+    client = AsyncMock()
+    client.async_start = AsyncMock(return_value=DEVICE_AUTHORIZATION)
+    client.async_wait_for_token = AsyncMock(side_effect=never_finishes)
+    with patch(
+        "custom_components.octopus_energy_japan.config_flow.OejpDeviceAuthorizationClient",
+        return_value=client,
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_USER},
+        )
+        result = await _choose_method(hass, result, "device")
+        assert result["type"] is FlowResultType.SHOW_PROGRESS
+        # Home Assistant removes the task from the result because it now owns it.
+        assert "progress_task" not in result
+        await polling.wait()
+
+        hass.config_entries.flow.async_abort(result["flow_id"])
+        async with asyncio.timeout(5):
+            await cancelled.wait()
+
+    assert not hass.config_entries.flow.async_progress_by_handler(DOMAIN)

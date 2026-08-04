@@ -33,6 +33,7 @@ from .const import (
     AUTH_METHOD_DEVICE,
     AUTH_METHOD_OAUTH,
     AUTH_METHOD_PASSWORD,
+    AUTH_METHODS,
     CONF_ACCESS_TOKEN,
     CONF_AUTH_METHOD,
     CONF_ENABLED_HISTORICAL_RESOURCES,
@@ -102,10 +103,8 @@ class OctopusEnergyJapanConfigFlow(
         offered because it is the only method that works before a client ID exists,
         and because OEJP has not yet withdrawn it.
         """
-        return self.async_show_menu(
-            step_id="user",
-            menu_options=[AUTH_METHOD_OAUTH, AUTH_METHOD_DEVICE, AUTH_METHOD_PASSWORD],
-        )
+        # Generated from the constant so adding a method cannot leave the menu behind.
+        return self.async_show_menu(step_id="user", menu_options=list(AUTH_METHODS))
 
     async def async_step_device(
         self,
