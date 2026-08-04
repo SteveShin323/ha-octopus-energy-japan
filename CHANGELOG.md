@@ -44,6 +44,12 @@ email and password login works today and is selectable at setup.
 
 ### Fixed
 
+- the latest-reported-interval sensor declared `state_class: measurement` with the
+  energy device class, which Home Assistant rejects. It logged "state class
+  'measurement' which is impossible considering device class ('energy')" on every setup
+  and pointed the user at this repository's issue tracker. It now carries no state
+  class, because a 30-minute total replaced by the next one is not a running sum;
+  long-term history comes from the published external statistics;
 - the agreements query asked for `product.rates`, which an account user may not read.
   The resulting authorisation error propagated to the nearest nullable parent, so the
   whole product came back null and the **current plan name was lost** — to fetch a field
