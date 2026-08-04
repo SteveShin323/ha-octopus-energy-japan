@@ -94,6 +94,13 @@ and reuse across installations. If user-specific client IDs are required, use
 Home Assistant Application Credentials. If a client secret is mandatory, do not
 ship it and renegotiate public-client terms.
 
+One public client serves every installation, so it can register only one redirect
+URI: `https://my.home-assistant.io/redirect/oauth`, which Home Assistant provides
+for this purpose and which forwards the authorization response to whichever local
+instance began the flow. Home Assistant selects it only when the `my` integration
+is loaded, so the config flow aborts with a translated message when it is not,
+rather than sending a redirect URI OEJP has not registered.
+
 Tokens remain in the Home Assistant config entry and never appear in logs,
 states, diagnostics, fixtures, issue templates, or telemetry. Authorization
 scheme and scopes are implemented only after official confirmation or an
