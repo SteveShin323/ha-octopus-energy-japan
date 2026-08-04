@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any, Final
 
 FIXTURE_SCHEMA_VERSION: Final = 1
-SANITIZER_VERSION: Final = 1
+SANITIZER_VERSION: Final = 2
 
 _PLACEHOLDER_PATTERN = re.compile(r"^<synthetic:[a-z_]+:[1-9][0-9]*>$")
 _EMAIL_PATTERN = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
@@ -29,8 +29,15 @@ _SENSITIVE_KEYS: Final[dict[str, str]] = {
     "accesstoken": "token",
     "accountnumber": "account",
     "address": "address",
+    # Customer money. Contract fixtures only need to prove the field exists, so
+    # balances and charges are replaced rather than preserved.
+    "amount": "amount",
+    "balance": "amount",
     "billingname": "name",
     "clientsecret": "token",
+    "grossamount": "amount",
+    "grosstotal": "amount",
+    "overduebalance": "amount",
     "deviceid": "device",
     "deviceidentifier": "device",
     "email": "email",
