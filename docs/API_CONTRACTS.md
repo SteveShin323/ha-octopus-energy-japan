@@ -149,6 +149,18 @@ intervals), and the source families replaced by that successful batch. This
 metadata lets the ledger delete stale topology and provider-transition rows
 without guessing authority from a non-empty response.
 
+## Credential rejection is reported as a validation error
+
+Confirmed against a real account on 2026-08-04: `obtainKrakenToken` with an
+incorrect password returns `errorType: VALIDATION` with
+`errorCode: KT-CT-1138`, and the same document with the correct password returns
+a token. OEJP therefore does not use `AUTHENTICATION` for a rejected credential.
+
+Classification keys on the code before the type for exactly this reason. Without
+that ordering the integration would treat an expired or revoked authorization as
+an unsupported schema and mark the capability permanently unavailable instead of
+requesting reauthentication.
+
 ## Optional commercial operations
 
 Account status, agreements, and billing are three separate optional documents,
