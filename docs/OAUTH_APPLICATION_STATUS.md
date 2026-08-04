@@ -1,7 +1,8 @@
 # OEJP OAuth application status
 
-Status: endpoints and scopes confirmed from the provider's published discovery
-document; a client ID and written public-client approval are still pending
+Status: endpoints confirmed and all fourteen scopes advertised in the provider's
+published discovery document; a client ID, the scopes actually granted to this
+application, and written public-client approval are still pending
 Last updated: 2026-08-04
 
 ## Implementation status
