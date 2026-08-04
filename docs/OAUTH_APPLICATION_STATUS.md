@@ -214,8 +214,10 @@ What to check when a reply arrives, in order:
    remove the My Home Assistant requirement entirely and make it the better setup
    path of the two.
 
-Until 1 and 3 are settled, the integration ships the published endpoints and
-requests PKCE, but a user still cannot connect because no client ID exists.
+Until 1 and 3 are settled, the integration ships the published endpoints and requests
+PKCE, but neither OAuth method can be completed because no client ID exists. Users
+connect with email and password in the meantime, as
+[ADR 0008](adr/0008-password-authentication.md) records.
 
 ## Decision rules
 
