@@ -242,13 +242,20 @@ denomination is **whole yen with two decimal places**. Integer monetary fields
 such as `balance`, `overdueBalance`, and `grossTotal` are whole yen for the same
 reason: JPY has no circulating sub-unit.
 
-`costEstimate` is **not** the billed amount. The invoice combines a fixed daily
-standing charge, three-tier energy pricing, a monthly fuel-cost adjustment, a
-renewable-energy levy, and consumption tax. A per-interval value cannot carry the
-fixed daily charge at all, which alone was 8.5 percent of that invoice. Summing
-`costEstimate` therefore under-reports the bill, and its exact composition is not
-determinable from this API because the provider horizon is shorter than one
-billing period plus the current one.
+`costEstimate` is **not** the billed amount. Summed over one complete billing
+period with no interval gaps it came out 13 percent below the invoice total, and it
+matched no invoice component sum: above the energy plus fuel-adjustment subtotal
+and below the subtotal that adds the renewable levy. Its per-kWh rate rises through
+the period, so it does apply the tariff's cumulative tiering, but not in a way that
+reproduces a billed figure.
+
+Summed interval **values**, by contrast, came within 0.6 percent of the invoiced
+kWh over the same period, so the reading contract itself reconciles against a
+provider invoice.
+
+The invoice combines a fixed daily standing charge, three-tier energy pricing, a
+monthly fuel-cost adjustment, a renewable-energy levy, and consumption tax. A
+per-interval value cannot express the daily standing charge at all.
 
 That tariff structure is also why Design v3 excludes `kWh x user-entered unit
 price` estimation: no single unit price can reproduce tiering, a daily standing

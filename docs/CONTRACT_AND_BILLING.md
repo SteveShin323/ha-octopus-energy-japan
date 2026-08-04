@@ -166,12 +166,21 @@ daily charge, which was 8.5 percent of the invoice on its own, so summing
 from this API because the provider serves a shorter history than one closed
 billing period plus the open one.
 
-Reconciling the readings against that invoice showed what `costEstimate` does
-cover. Retained intervals summed to 366.0 kWh of the invoice's 397.00 kWh, and
-their cost summed to a figure that extrapolates to roughly the invoice total minus
-the fixed daily standing charge. `costEstimate` therefore appears to be the bill
-without the standing charge, which is consistent with a per-interval value being
-structurally unable to carry a daily fixed amount.
+Reconciling the readings against that invoice settled two things and left one
+open. The comparison covered one complete billing period with no interval gaps.
+
+Energy reconciles. Summed interval values came within 0.6 percent of the invoiced
+kWh, which validates the reading pipeline end to end against a provider invoice.
+
+Cost does not. Summed `costEstimate` came out 13 percent below the invoice total,
+and it matches no invoice component sum: it is 9 percent above the energy plus
+fuel-adjustment subtotal and 5 percent below the subtotal that adds the renewable
+levy. Its per-kWh rate also rises through the period, so it applies the tariff's
+cumulative tiering, but not in a way that reproduces any billed figure.
+
+`costEstimate` is therefore a provider estimate whose composition is undocumented
+and does not reconcile to the invoice. Publishing it as cost would present a
+figure carrying provider authority that no line of the customer's bill supports.
 
 Publishing it as the Energy Dashboard cost would therefore present a figure that
 does not match the customer's bill while carrying provider authority. If it is
