@@ -16,6 +16,14 @@ python scripts/oejp_probe.py viewer_accounts /tmp/viewer_accounts.json
 unset OEJP_AUTHORIZATION_HEADER
 ```
 
+In `zsh`, which is the default macOS shell, `read` takes its prompt inside the
+variable name and `-p` means something else entirely, so use:
+
+```zsh
+read -rs 'OEJP_AUTHORIZATION_HEADER?OEJP authorization header: '
+export OEJP_AUTHORIZATION_HEADER
+```
+
 Until OAuth is available, a developer may use the deprecated Kraken login only
 inside this local probe:
 
@@ -25,6 +33,14 @@ read -rsp 'OEJP password: ' OEJP_PASSWORD
 export OEJP_EMAIL OEJP_PASSWORD
 python scripts/oejp_probe.py viewer_accounts /tmp/viewer_accounts.json
 unset OEJP_EMAIL OEJP_PASSWORD
+```
+
+The same command in `zsh`:
+
+```zsh
+read -r 'OEJP_EMAIL?OEJP email: '
+read -rs 'OEJP_PASSWORD?OEJP password: '
+export OEJP_EMAIL OEJP_PASSWORD
 ```
 
 Do not place credentials in shell history, command-line arguments, `.env`
@@ -54,6 +70,14 @@ exactly like credentials. Take the values from the sanitized
 ```bash
 read -rp 'OEJP account number: ' OEJP_PROBE_ACCOUNT_NUMBER
 read -rp 'OEJP supply-point SPIN: ' OEJP_PROBE_SUPPLY_POINT_SPIN
+export OEJP_PROBE_ACCOUNT_NUMBER OEJP_PROBE_SUPPLY_POINT_SPIN
+```
+
+The same command in `zsh`:
+
+```zsh
+read -r 'OEJP_PROBE_ACCOUNT_NUMBER?OEJP account number: '
+read -r 'OEJP_PROBE_SUPPLY_POINT_SPIN?OEJP supply-point SPIN: '
 export OEJP_PROBE_ACCOUNT_NUMBER OEJP_PROBE_SUPPLY_POINT_SPIN
 ```
 
