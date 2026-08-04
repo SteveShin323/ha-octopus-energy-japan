@@ -1,7 +1,7 @@
 {
   "_meta": {
     "schema_version": 1,
-    "sanitizer_version": 2,
+    "sanitizer_version": 3,
     "source": "synthetic-test-data",
     "operation": "legacy_interval_readings",
     "query_sha256": "638f91ed652422cc92b7e0a894715be61f5a0b0a3e421ce7474517d49554ef91",

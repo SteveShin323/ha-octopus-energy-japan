@@ -9,7 +9,7 @@ import json
 import os
 import sys
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Final
@@ -58,15 +58,17 @@ class ProbeContext:
     end_at: datetime
 
     def account(self) -> str:
-        """Return the requested account number or explain how to provide it."""
+        """Return the resolved account number or explain how to choose one."""
         if not self.account_number:
-            raise RuntimeError(f"Set {ACCOUNT_NUMBER_ENV} for this operation")
+            raise RuntimeError(f"No account was discovered; set {ACCOUNT_NUMBER_ENV} to choose one")
         return self.account_number
 
     def supply_point(self) -> str:
-        """Return the requested supply-point SPIN or explain how to provide it."""
+        """Return the resolved supply-point SPIN or explain how to choose one."""
         if not self.supply_point_spin:
-            raise RuntimeError(f"Set {SUPPLY_POINT_ENV} for this operation")
+            raise RuntimeError(
+                f"No supply point was discovered; set {SUPPLY_POINT_ENV} to choose one"
+            )
         return self.supply_point_spin
 
     def graphql_start(self) -> str:
@@ -193,6 +195,30 @@ def build_context(*, hours: int, now: datetime) -> ProbeContext:
     )
 
 
+def first_discovered_target(discovery: Mapping[str, Any]) -> tuple[str | None, str | None]:
+    """Return the first account number and supply-point SPIN from discovery data."""
+    accounts = ((discovery.get("viewer") or {}).get("accounts")) or []
+    for account in accounts:
+        number = account.get("number")
+        for prop in account.get("properties") or []:
+            for point in prop.get("electricitySupplyPoints") or []:
+                if spin := point.get("spin"):
+                    return number, spin
+        if number:
+            return number, None
+    return None, None
+
+
+def resolve_context(context: ProbeContext, discovery: Mapping[str, Any]) -> ProbeContext:
+    """Fill unset targets from discovery, keeping any explicit override."""
+    account_number, supply_point_spin = first_discovered_target(discovery)
+    return replace(
+        context,
+        account_number=context.account_number or account_number,
+        supply_point_spin=context.supply_point_spin or supply_point_spin,
+    )
+
+
 async def _authorization_header(session: ClientSession) -> str:
     if header := os.environ.get("OEJP_AUTHORIZATION_HEADER"):
         return header
@@ -212,13 +238,25 @@ async def _fetch(
     operation: ReadOnlyOperation,
     context: ProbeContext,
 ) -> dict[str, object]:
-    variables = operation.variables(context) if operation.variables is not None else None
     async with ClientSession() as session:
         client = OejpGraphQLClient(session)
+        header = await _authorization_header(session)
+        variables = None
+        if operation.variables is not None:
+            # The account number and SPIN are discoverable, so the operator never
+            # has to retype a customer identifier. An environment override still
+            # wins, which is how a second account or supply point is reached.
+            if context.account_number is None or context.supply_point_spin is None:
+                discovery = await client.execute(
+                    LEGACY_DISCOVERY_QUERY,
+                    authorization_header=header,
+                )
+                context = resolve_context(context, discovery)
+            variables = operation.variables(context)
         response = await client.execute(
             operation.query,
             variables,
-            authorization_header=await _authorization_header(session),
+            authorization_header=header,
         )
     return build_contract_fixture(
         operation.name,

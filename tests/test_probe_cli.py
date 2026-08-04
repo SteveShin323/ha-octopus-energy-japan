@@ -16,6 +16,8 @@ from scripts.oejp_probe import (
     _authorization_header,
     _write_fixture,
     build_context,
+    first_discovered_target,
+    resolve_context,
 )
 
 NOW = datetime(2026, 8, 4, 12, tzinfo=UTC)
@@ -73,6 +75,71 @@ def test_probe_explains_which_target_is_missing() -> None:
         context.account()
     with pytest.raises(RuntimeError, match=SUPPLY_POINT_ENV):
         context.supply_point()
+
+
+DISCOVERY = {
+    "viewer": {
+        "accounts": [
+            {
+                "number": "DISCOVERED-ACCOUNT",
+                "properties": [
+                    {"electricitySupplyPoints": [{"spin": "DISCOVERED-SPIN"}]},
+                ],
+            }
+        ]
+    }
+}
+
+
+def test_probe_targets_come_from_discovery_without_retyping_identifiers() -> None:
+    resolved = resolve_context(_context(), DISCOVERY)
+
+    assert resolved.account() == "DISCOVERED-ACCOUNT"
+    assert resolved.supply_point() == "DISCOVERED-SPIN"
+    assert resolved.start_at == _context().start_at
+
+
+def test_environment_override_wins_over_discovery() -> None:
+    resolved = resolve_context(
+        _context(**{ACCOUNT_NUMBER_ENV: "CHOSEN-ACCOUNT", SUPPLY_POINT_ENV: "CHOSEN-SPIN"}),
+        DISCOVERY,
+    )
+
+    assert resolved.account() == "CHOSEN-ACCOUNT"
+    assert resolved.supply_point() == "CHOSEN-SPIN"
+
+
+@pytest.mark.parametrize(
+    ("discovery", "expected"),
+    [
+        ({}, (None, None)),
+        ({"viewer": {"accounts": []}}, (None, None)),
+        ({"viewer": {"accounts": [{"number": "A"}]}}, ("A", None)),
+        (
+            {"viewer": {"accounts": [{"number": "A", "properties": [{}]}]}},
+            ("A", None),
+        ),
+        (
+            {
+                "viewer": {
+                    "accounts": [
+                        {"number": "A", "properties": [{"electricitySupplyPoints": [{}]}]},
+                        {
+                            "number": "B",
+                            "properties": [{"electricitySupplyPoints": [{"spin": "S"}]}],
+                        },
+                    ]
+                }
+            },
+            ("A", None),
+        ),
+    ],
+)
+def test_discovery_target_extraction_is_defensive(
+    discovery: dict[str, object],
+    expected: tuple[str | None, str | None],
+) -> None:
+    assert first_discovered_target(discovery) == expected
 
 
 @pytest.mark.parametrize(
