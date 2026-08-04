@@ -185,6 +185,66 @@ permanently, which is why consumption still worked while import/export
 separation, device and register scopes, and reading quality metadata never did.
 `ELECTRICITY_MARKET_NAME` in `api/models.py` is now the single definition.
 
+## Legacy readings truncate history silently
+
+Confirmed against a real account on 2026-08-04. A `halfHourlyReadings` request for
+a 1160-hour window returned 1476 intervals spanning **30.7 days**, beginning well
+after the requested start. There was no error, no warning, and no pagination
+marker: the provider simply narrowed the window.
+
+The returned block had no duplicate intervals and no gaps, so the truncation is a
+history horizon rather than a page limit.
+
+This has a direct consequence for ledger authority. `_legacy_authoritative_series`
+derives the authoritative series from capabilities alone, so a request that
+returns nothing is still authoritative for its window, and
+`merge_authoritative_snapshot` deletes every stored interval inside a requested
+window that the response did not contain. A reconciliation window reaching past
+the provider horizon therefore deletes valid local history. This is recorded as a
+release blocker in [`LEDGER_AND_AGGREGATION.md`](LEDGER_AND_AGGREGATION.md); it is
+not fixed by the contract corrections in this document.
+
+The horizon of the generic `SupplyPointType.readings` API has not been measured.
+
+## Reading version marks the billing lifecycle
+
+The same probe returned two `version` values, and the boundary is exact:
+
+| Version | Observed window (JST) |
+|---|---|
+| `MONTHLY` | up to and including the final interval of the closed billing period |
+| `DAILY` | from the first interval of the open billing period onward |
+
+The customer's bill for that period ended on the same JST day boundary where
+`MONTHLY` stopped and `DAILY` began. `version` therefore distinguishes a
+provisional daily estimate from a figure finalized when the period is billed, so
+an interval's value and cost can be reissued after the fact. That is the
+correction the interval ledger exists to absorb, now observed rather than
+assumed.
+
+## Provider cost is denominated in yen and excludes fixed charges
+
+`costEstimate` was reconciled against a real invoice for the same supply point.
+
+The implied unit price landed at 31.14 JPY per kWh for the closed period, inside
+the 24.4 to 34.7 JPY per kWh band the invoice itself spans. A sub-yen minor unit
+would have implied roughly 0.31, and a hundred-yen unit roughly 3114, so the
+denomination is **whole yen with two decimal places**. Integer monetary fields
+such as `balance`, `overdueBalance`, and `grossTotal` are whole yen for the same
+reason: JPY has no circulating sub-unit.
+
+`costEstimate` is **not** the billed amount. The invoice combines a fixed daily
+standing charge, three-tier energy pricing, a monthly fuel-cost adjustment, a
+renewable-energy levy, and consumption tax. A per-interval value cannot carry the
+fixed daily charge at all, which alone was 8.5 percent of that invoice. Summing
+`costEstimate` therefore under-reports the bill, and its exact composition is not
+determinable from this API because the provider horizon is shorter than one
+billing period plus the current one.
+
+That tariff structure is also why Design v3 excludes `kWh x user-entered unit
+price` estimation: no single unit price can reproduce tiering, a daily standing
+charge, and a monthly adjustment.
+
 ## Optional commercial operations
 
 Account status, agreements, and billing are three separate optional documents,

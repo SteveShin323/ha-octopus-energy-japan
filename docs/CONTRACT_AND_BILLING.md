@@ -148,20 +148,30 @@ required evidence is:
 |---|---|---|
 | Account permission for cost fields | **met** | a real-account probe on 2026-08-04 returned `costEstimate` on `halfHourlyReadings` for every interval |
 | Interval coverage | **met** | the same probe showed a `costEstimate` and a `version` on every returned interval |
-| Currency and denomination | unmet | `ApplicableRateType.currency` and `unit` exist and must be read; a rate response must also be reconciled against a known bill total |
-| Correction semantics | unmet | two probes over an overlapping window, comparing `costEstimate` and `version` |
+| Currency and denomination | **met** | reconciled against a real invoice: the implied unit price fell inside the invoice's own per-kWh band, so values are whole yen |
+| Correction semantics | **partly met** | `version` was observed switching from `DAILY` to `MONTHLY` exactly at the billing-period boundary, so intervals are reissued when a period closes; a before-and-after comparison of one interval is still outstanding |
 | OAuth permission for cost fields | unmet | OEJP scope confirmation; the probe result above was obtained with the legacy login, not OAuth |
 
-Two items are now closed. Reading-level provider cost is present and complete for
-this account under the legacy login.
+Three items are now closed and one is partly closed. Reading-level provider cost
+is present, complete, and denominated in yen for this account under the legacy
+login.
 
-Two remain. Denomination is the blocking one: the probe redacts monetary values
-before they reach disk, so the digit count has to be reconciled against a bill
-the operator reads from the OEJP web account. `ApplicableRateType` now gives a
-typed `currency` and `unit`, which is a stronger signal than the earlier
-whole-yen assumption, but it has not been observed yet. The OAuth item cannot
-close until OEJP issues the application, because account-user OAuth permission
-may differ from the legacy login's.
+A new finding replaces denomination as the reason to stay disabled:
+**`costEstimate` is not the billed amount.** The invoice combines a fixed daily
+standing charge, three-tier energy pricing, a monthly fuel-cost adjustment, a
+renewable levy, and consumption tax. A per-interval value cannot carry the fixed
+daily charge, which was 8.5 percent of the invoice on its own, so summing
+`costEstimate` under-reports the bill. Its exact composition cannot be determined
+from this API because the provider serves a shorter history than one closed
+billing period plus the open one.
+
+Publishing it as the Energy Dashboard cost would therefore present a figure that
+does not match the customer's bill while carrying provider authority. If it is
+published later it must be named and documented as a provider estimate of the
+energy charge, never as the bill.
+
+The OAuth item also cannot close until OEJP issues the application, because
+account-user OAuth permission may differ from the legacy login's.
 
 Provider-cost projection therefore stays disabled, with one gate and three
 consequences:
