@@ -457,18 +457,66 @@ Both arguments are derivable from data the integration already holds:
   against a real supply point: its SPIN prefix, passed as `gridOperatorCode`, returned
   the tariff whose bands carried that same prefix.
 
-What is still **not** reachable for an account user:
+### The contracted amperage is derivable, without asking the customer
 
-- the **contracted amperage**, so which standing-charge row applies is unknown.
-  `meters { capacity }` returned nothing on the account tested;
-- the monthly **fuel-cost adjustment**. `FuelCostAdjustmentRate` exists as a type with
-  no root field, and `productEligibleStatus` only describes switching to a fixed-FCA
-  product; and
-- the annual **renewable-energy levy**. `RenewableEnergyLevyRate` is likewise a type
-  with no reachable field.
+Every direct path to it is refused, checked field by field:
 
-So an energy charge can be computed exactly from provider data, a standing charge needs
-one number from the customer, and two per-kWh adjustments remain unavailable.
+| Field | Result |
+|---|---|
+| `ElectricitySupplyPoint.contractedCapacity` | `AUTHORIZATION/KT-CT-4501` |
+| `ElectricitySupplyPoint.contractedCapacityOld` | `AUTHORIZATION/KT-CT-4501` |
+| `ElectricitySupplyPoint.supplyDetails` | permitted, returned `null` |
+| `ElectricitySupplyPoint.meters { capacity }` | permitted, empty list |
+| `charges(...) { lineItems { contractedCapacityValue } }` | `AUTHORIZATION/KT-CT-3824` |
+
+But `ElectricitySupplyPoint.newAmperageOptions` **is** readable, and it lists the
+amperages the supply point could change *to*, which excludes the one it already has. Set
+against the amperages `tariffSummary` prices, exactly one is missing, and that is the
+contracted value. Measured 2026-08-04:
+
+```
+tariff amperages   : [10, 15, 20, 30, 40, 50, 60]
+newAmperageOptions : [10, 15, 20, 30,     50, 60]
+difference         : [40]                      ← the contracted amperage
+```
+
+This is an inference, not a stated value, so an implementation must treat an ambiguous
+difference — zero or several missing — as unknown rather than guessing.
+
+### The fuel-cost adjustment and the levy are genuinely unreachable
+
+`FuelCostAdjustmentRate` and `RenewableEnergyLevyRate` exist as types, and
+`ProductInterface`, `ElectricitySteppedProduct`, and `ElectricitySingleStepProduct`
+declare them. **No field anywhere in the schema returns any of those three types** —
+checked across all 2230 types. The product an agreement carries is `SupplyProductType`,
+a different type with no such field, whose `params` holds only flags (`is_fixed_fca`,
+`product_type`, `version`, …) and no rates.
+
+The other candidate was the bill itself: `charges(accountNumber:,
+billingDocumentIdentifier:)` returns `ChargeType.lineItems`, whose `LineItemType` carries
+`numberOfUnits`, `netAmount`, and `grossAmount` per line. It is refused with
+`AUTHORIZATION/KT-CT-3824`.
+
+So an energy charge and a standing charge can both be computed entirely from readable
+provider data, while the two per-kWh adjustments cannot be read at all. Bill *totals*
+are readable, so reconciling a closed bill against a computed energy-plus-standing charge
+would yield their combined per-kWh value without asking the customer for anything. That
+reconciliation has not been demonstrated end to end — see the note below.
+
+### `halfHourlyReadings` became unauthorized mid-session
+
+Recorded because it bears on any cost work that depends on the legacy operations. On
+2026-08-04 the legacy `halfHourlyReadings` field answered normally for many windows, and
+later the same day began returning `AUTHORIZATION/KT-CT-4501` for **every** window,
+including one that had just succeeded. At that moment
+`rateLimitInfo.pointsAllowanceRateLimit` reported 750 of 50,000 points used and
+`isBlocked: false`, and `fieldSpecificRateLimits` reported no entries at all, so it is
+not the documented points allowance and not a field-specific limit.
+
+The runtime is unaffected: the generic `SupplyPointType.readings` provider is preferred
+and was the source of every stored reading. But it means the legacy operations cannot be
+assumed available, which removes `costEstimate` — legacy-only — as a dependable cost
+source independently of whether it reproduces the bill.
 
 **Bill fragments.** `bills` returns `BillConnectionTypeConnection` over
 `BillInterface`, implemented by `StatementType`, `PreKrakenBillType`,
