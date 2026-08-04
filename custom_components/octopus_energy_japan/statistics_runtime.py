@@ -15,6 +15,7 @@ from homeassistant.components.recorder.models import (
 from homeassistant.components.recorder.statistics import async_add_external_statistics
 from homeassistant.const import UnitOfEnergy
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.recorder import get_instance
 from homeassistant.util.unit_conversion import EnergyConverter
 
@@ -135,7 +136,7 @@ class HomeAssistantStatisticsProjector:
             if statistics:
                 self._publisher(
                     self._hass,
-                    _metadata(identity, series),
+                    _metadata(self._hass, identity, series),
                     statistics,
                 )
 
@@ -186,18 +187,40 @@ class HomeAssistantStatisticsProjector:
         return False
 
 
+def _statistic_name(
+    hass: HomeAssistant,
+    supply_point_identity: str,
+    series: StatisticsSeriesProjection,
+    what: str,
+) -> str:
+    """Name a statistic after the device it belongs to.
+
+    The Energy dashboard picker shows this name and nothing else, so an identity digest
+    there is unreadable: a household with two supply points cannot tell which is which.
+    The supply-point device is already named with a per-account ordinal, so reusing it
+    keeps one human label instead of two schemes that can drift apart. It still contains
+    no account number, supply-point number, or address.
+    """
+    direction = series.key.direction.value.title()
+    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, supply_point_identity)})
+    label = device.name if device is not None and device.name else None
+    if label is None:
+        # Only before the device registry has caught up, which self-corrects on the
+        # next refresh. Never a provider identifier.
+        label = f"OEJP {supply_point_identity.rsplit('-', maxsplit=1)[-1][:8]}"
+    return f"{label} {direction} {what}"
+
+
 def _metadata(
+    hass: HomeAssistant,
     supply_point_identity: str,
     series: StatisticsSeriesProjection,
 ) -> StatisticMetaData:
-    digest = supply_point_identity.rsplit("-", maxsplit=1)[-1]
-    direction = series.key.direction.value.title()
-    safe_suffix = digest[:8]
     if series.key.kind is StatisticKind.ENERGY:
         return StatisticMetaData(
             mean_type=StatisticMeanType.NONE,
             has_sum=True,
-            name=f"OEJP {direction} energy {safe_suffix}",
+            name=_statistic_name(hass, supply_point_identity, series, "energy"),
             source=DOMAIN,
             statistic_id=_statistic_id(
                 supply_point_identity,
@@ -210,7 +233,7 @@ def _metadata(
     return StatisticMetaData(
         mean_type=StatisticMeanType.NONE,
         has_sum=True,
-        name=f"OEJP {direction} official cost {safe_suffix}",
+        name=_statistic_name(hass, supply_point_identity, series, "official cost"),
         source=DOMAIN,
         statistic_id=_statistic_id(
             supply_point_identity,

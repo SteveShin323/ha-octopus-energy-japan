@@ -24,6 +24,7 @@ from homeassistant.components.recorder.statistics import (
     statistics_during_period,
 )
 from homeassistant.core import HomeAssistant
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.components.recorder.common import (
     async_recorder_block_till_done,
 )
@@ -51,12 +52,17 @@ class _Ledger:
         return self.records
 
 
-def _record(*, value: str = "0.5", cost: str | None = None) -> LedgerRecord:
+def _record(
+    *,
+    value: str = "0.5",
+    cost: str | None = None,
+    direction: ReadingDirection = ReadingDirection.IMPORT,
+) -> LedgerRecord:
     return LedgerRecord(
         EnergyReading(
             account_id="A-1",
             supply_point_id="SP-1",
-            direction=ReadingDirection.IMPORT,
+            direction=direction,
             start_at=datetime(2026, 8, 3, 0, tzinfo=UTC),
             end_at=datetime(2026, 8, 3, 0, 30, tzinfo=UTC),
             value=Decimal(value),
@@ -338,3 +344,148 @@ async def test_projection_is_skipped_without_the_recorder(
         dirty_from=None,
     )
     assert "recorder is not enabled" not in caplog.text
+
+
+@pytest.mark.recorder_harness
+async def test_the_energy_dashboard_accepts_the_published_statistics(
+    recorder_mock: Recorder,
+    hass: HomeAssistant,
+) -> None:
+    """The Energy dashboard must accept these as grid consumption and return.
+
+    Metadata that merely looks right is not enough: Home Assistant's own energy
+    validator decides, and it rejects a statistic that lacks a sum, uses a unit it
+    cannot convert, or does not exist. This asserts it accepts both directions with no
+    errors and no warnings, which is what "connect it in the Energy menu" depends on.
+    """
+    from homeassistant.components.energy import data as energy_data
+    from homeassistant.components.energy import validate as energy_validate
+    from homeassistant.setup import async_setup_component
+
+    projector = HomeAssistantStatisticsProjector(hass, SECRET)
+    for direction in (ReadingDirection.IMPORT, ReadingDirection.EXPORT):
+        await projector.async_project_supply_point(
+            _Ledger((_record(direction=direction),)),  # type: ignore[arg-type]
+            "A-1",
+            "SP-1",
+            NOW,
+            dirty_from=None,
+        )
+    await async_recorder_block_till_done(hass)
+
+    published = await hass.async_add_executor_job(
+        partial(get_metadata, hass, statistic_source="octopus_energy_japan")
+    )
+    assert len(published) == 2
+    consumption = next(key for key in published if key.endswith("_import_energy"))
+    ret = next(key for key in published if key.endswith("_export_energy"))
+
+    assert await async_setup_component(hass, "energy", {})
+    manager = await energy_data.async_get_manager(hass)
+    await manager.async_update(
+        {
+            "energy_sources": [
+                {
+                    "type": "grid",
+                    "stat_energy_from": consumption,
+                    "stat_energy_to": ret,
+                    "stat_cost": None,
+                    "entity_energy_price": None,
+                    "number_energy_price": None,
+                    "stat_compensation": None,
+                    "entity_energy_price_export": None,
+                    "number_energy_price_export": None,
+                    "cost_adjustment_day": 0.0,
+                }
+            ]
+        }
+    )
+
+    result = await energy_validate.async_validate(hass)
+
+    assert len(result.energy_sources) == 1
+    # Empty issues means the validator accepted both statistics as they are.
+    assert result.energy_sources[0].issues == {}, result.energy_sources[0].issues
+    assert result.device_consumption == [], result.device_consumption
+
+    # And the metadata is what makes that possible, so pin the parts it checks.
+    for statistic_id in (consumption, ret):
+        _, metadata = published[statistic_id]
+        assert metadata["has_sum"] is True
+        assert metadata["unit_of_measurement"] == "kWh"
+        assert metadata["source"] == "octopus_energy_japan"
+        assert statistic_id.startswith("octopus_energy_japan:")
+
+
+@pytest.mark.recorder_harness
+async def test_the_statistic_name_is_the_one_shown_in_the_energy_picker(
+    recorder_mock: Recorder,
+    hass: HomeAssistant,
+) -> None:
+    """The Energy dashboard shows this name and nothing else.
+
+    An identity digest there is unreadable — a household with two supply points cannot
+    tell which is which — so the name follows the supply-point device, which is already
+    labelled with a per-account ordinal and carries no provider identifier.
+    """
+    from custom_components.octopus_energy_japan.const import DOMAIN
+    from custom_components.octopus_energy_japan.identity import (
+        stable_supply_point_identity,
+    )
+    from homeassistant.helpers import device_registry as dr
+
+    entry = MockConfigEntry(domain=DOMAIN)
+    entry.add_to_hass(hass)
+    identity = stable_supply_point_identity(SECRET, "A-1", "SP-1")
+    dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, identity)},
+        name="OEJP supply point 1-1",
+    )
+
+    await HomeAssistantStatisticsProjector(hass, SECRET).async_project_supply_point(
+        _Ledger((_record(),)),  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+    await async_recorder_block_till_done(hass)
+
+    published = await hass.async_add_executor_job(
+        partial(get_metadata, hass, statistic_source=DOMAIN)
+    )
+    name = next(iter(published.values()))[1]["name"]
+
+    assert name == "OEJP supply point 1-1 Import energy"
+    # The digest must not appear: it is what made the old name unreadable.
+    assert identity.rsplit("-", maxsplit=1)[-1][:8] not in name
+    assert "A-1" not in name
+    assert "SP-1" not in name
+
+
+@pytest.mark.recorder_harness
+async def test_a_statistic_published_before_its_device_still_avoids_identifiers(
+    recorder_mock: Recorder,
+    hass: HomeAssistant,
+) -> None:
+    """Setup creates devices first, but a race must not leak a provider identifier."""
+    from custom_components.octopus_energy_japan.const import DOMAIN
+
+    await HomeAssistantStatisticsProjector(hass, SECRET).async_project_supply_point(
+        _Ledger((_record(),)),  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+    await async_recorder_block_till_done(hass)
+
+    published = await hass.async_add_executor_job(
+        partial(get_metadata, hass, statistic_source=DOMAIN)
+    )
+    name = next(iter(published.values()))[1]["name"]
+
+    assert name.startswith("OEJP ")
+    assert "A-1" not in name
+    assert "SP-1" not in name
