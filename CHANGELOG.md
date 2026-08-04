@@ -44,6 +44,13 @@ email and password login works today and is selectable at setup.
 
 ### Fixed
 
+- removing the integration left its stored readings, synchronisation checkpoints, and
+  installation secret in Home Assistant's storage directory. Those files hold the
+  account number, the supply-point number, and every collected interval, and both the
+  privacy statement and the user guide said they were deleted. They now are, including
+  every ledger month, while another entry's data and unrelated Home Assistant storage
+  are untouched. The installation secret is shared between entries, so it goes only
+  with the last one;
 - the latest-reported-interval sensor declared `state_class: measurement` with the
   energy device class, which Home Assistant rejects. It logged "state class
   'measurement' which is impossible considering device class ('energy')" on every setup

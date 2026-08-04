@@ -254,6 +254,13 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     # Repair issues outlive a reload on purpose, so removal is what clears them.
     async_clear_issues(hass, entry.entry_id)
 
+    # Home Assistant deletes the entry's own data, but nothing else. The ledger, its
+    # partition files, and the sync checkpoints live in their own stores keyed by entry
+    # id, and they hold the account number, the supply-point number, and every stored
+    # reading. Removing the integration is the user asking for that to be gone, and the
+    # documentation has always said it is, so delete it here.
+    await _async_purge_stored_data(hass, entry)
+
     if entry.data.get(CONF_AUTH_METHOD, AUTH_METHOD_OAUTH) not in OAUTH_AUTH_METHODS:
         # Only an OAuth grant can be revoked. For the password method there is nothing
         # to revoke: `invalidateRefreshToken` is rejected for an account user with
@@ -282,6 +289,52 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         ValueError,
     ):
         _LOGGER.warning("Unable to revoke OEJP OAuth authorization during entry removal")
+
+
+async def _async_purge_stored_data(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Delete every store this entry owns, and the shared secret when it is the last.
+
+    Store keys are not enumerable through the helper, so the storage directory is
+    scanned for this entry's prefixes. That catches every ledger partition, however
+    many months were collected, without needing the index to still be readable.
+
+    The installation secret is shared by all entries, because it is what makes device
+    and statistic identities stable across them. It is removed only when no entry
+    remains, so removing one of two does not rename the other's entities.
+    """
+    from pathlib import Path
+
+    from homeassistant.helpers.storage import STORAGE_DIR, Store
+
+    from .const import DOMAIN
+    from .identity import IDENTITY_STORAGE_KEY
+
+    prefixes = (
+        f"{DOMAIN}.ledger.{entry.entry_id}.",
+        f"{DOMAIN}.sync.{entry.entry_id}.",
+    )
+    directory = Path(hass.config.path(STORAGE_DIR))
+
+    def _matching_keys() -> list[str]:
+        if not directory.is_dir():
+            return []
+        return sorted(
+            path.name
+            for path in directory.iterdir()
+            if path.is_file() and path.name.startswith(prefixes)
+        )
+
+    keys = await hass.async_add_executor_job(_matching_keys)
+    if not hass.config_entries.async_entries(DOMAIN):
+        # `async_remove_entry` runs after the entry is gone from the registry, so an
+        # empty list here means this was the last one.
+        keys.append(IDENTITY_STORAGE_KEY)
+
+    for key in keys:
+        try:
+            await Store[dict[str, object]](hass, 1, key).async_remove()
+        except OSError:
+            _LOGGER.warning("Unable to delete stored OEJP data for %s during removal", key)
 
 
 async def _async_discover_state(

@@ -12,7 +12,9 @@ from homeassistant.helpers.storage import Store
 
 from .const import DOMAIN
 
-_STORAGE_KEY = f"{DOMAIN}.identity"
+# Exported so entry removal can delete it: it is shared by every entry, so it goes
+# only when the last one is removed.
+IDENTITY_STORAGE_KEY = f"{DOMAIN}.identity"
 _STORAGE_VERSION = 1
 _SECRET_BYTES = 32
 _SECRET_LOCK = asyncio.Lock()
@@ -23,7 +25,7 @@ async def async_get_identity_secret(hass: HomeAssistant) -> str:
     store = Store[dict[str, str]](
         hass,
         _STORAGE_VERSION,
-        _STORAGE_KEY,
+        IDENTITY_STORAGE_KEY,
         private=True,
     )
     async with _SECRET_LOCK:
