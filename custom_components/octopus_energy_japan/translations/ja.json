@@ -164,6 +164,12 @@
       "overdue_balance": {
         "name": "延滞残高"
       },
+      "reading_day_of_month": {
+        "name": "検針日"
+      },
+      "supply_point_address": {
+        "name": "住所"
+      },
       "supply_point_status": {
         "name": "状態",
         "state": {

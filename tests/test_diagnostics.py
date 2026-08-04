@@ -55,7 +55,8 @@ SPIN = "03-0011-1000-1274-4432-3211"
 SUPPLY_POINT_ID = "PRIVATE-SUPPLY-POINT"
 EMAIL = "private@example.jp"
 ACCESS_TOKEN = "private-access-token-value"
-SECRETS = (ACCOUNT_NUMBER, SPIN, SUPPLY_POINT_ID, EMAIL, ACCESS_TOKEN, SECRET)
+ADDRESS = "000-0000 PRIVATE-ADDRESS"
+SECRETS = (ACCOUNT_NUMBER, SPIN, SUPPLY_POINT_ID, EMAIL, ACCESS_TOKEN, SECRET, ADDRESS)
 
 
 def _accounts() -> tuple[OejpAccount, ...]:
@@ -66,6 +67,8 @@ def _accounts() -> tuple[OejpAccount, ...]:
             properties=(
                 OejpProperty(
                     id="PRIVATE-PROPERTY",
+                    address=ADDRESS,
+                    postcode="000-0000",
                     supply_points=(
                         OejpSupplyPoint(
                             id=SUPPLY_POINT_ID,

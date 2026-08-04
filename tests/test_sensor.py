@@ -52,10 +52,13 @@ from custom_components.octopus_energy_japan.sensor import (
     ENERGY_DESCRIPTIONS,
     OejpAccountCommercialSensor,
     OejpConsumptionSensor,
+    OejpSupplyPointAddressSensor,
+    OejpSupplyPointReadingDaySensor,
     OejpSupplyPointStatusSensor,
     async_setup_entry,
 )
 from homeassistant.components.sensor import SensorDeviceClass
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import PlatformNotReady
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -64,12 +67,18 @@ NOW = datetime(2026, 7, 29, 12, tzinfo=UTC)
 SECRET = "01" * 32
 ACCOUNT_ID = "PRIVATE-ACCOUNT"
 SUPPLY_POINT_ID = "PRIVATE-SUPPLY-POINT"
+# Status, meter reading day, and address describe the supply point itself, so they are
+# created once per supply point however many directions it reports.
+SUPPLY_POINT_DESCRIBING_SENSORS = 3
 
 
 def _account(
     *,
     point_id: str = SUPPLY_POINT_ID,
     lifecycle: ResourceLifecycle = ResourceLifecycle.ACTIVE,
+    reading_day: int | None = 19,
+    address: str | None = "PRIVATE-ADDRESS",
+    postcode: str | None = "000-0000",
 ) -> OejpAccount:
     return OejpAccount(
         number=ACCOUNT_ID,
@@ -83,8 +92,11 @@ def _account(
                         account_number=ACCOUNT_ID,
                         direction=ReadingDirection.IMPORT,
                         lifecycle=lifecycle,
+                        reading_day_of_month=reading_day,
                     ),
                 ),
+                address=address,
+                postcode=postcode,
             ),
         ),
     )
@@ -522,7 +534,7 @@ async def test_sensor_platform_adds_each_entity_once(
     await async_setup_entry(hass, entry, add_entities)
 
     first_entities = add_entities.call_args.args[0]
-    assert len(first_entities) == len(ENERGY_DESCRIPTIONS) + 1
+    assert len(first_entities) == len(ENERGY_DESCRIPTIONS) + SUPPLY_POINT_DESCRIBING_SENSORS
     listener = cast("Mock", coordinator.async_add_listener).call_args.args[0]
     listener()
     assert add_entities.call_count == 1
@@ -600,8 +612,13 @@ async def test_capability_or_topology_alone_creates_only_status_sensor(
 
     await async_setup_entry(hass, entry, add_entities)
 
-    assert len(add_entities.call_args.args[0]) == 1
-    assert isinstance(add_entities.call_args.args[0][0], OejpSupplyPointStatusSensor)
+    entities = add_entities.call_args.args[0]
+    assert len(entities) == SUPPLY_POINT_DESCRIBING_SENSORS
+    assert [type(entity) for entity in entities] == [
+        OejpSupplyPointStatusSensor,
+        OejpSupplyPointReadingDaySensor,
+        OejpSupplyPointAddressSensor,
+    ]
 
 
 async def test_direction_entities_are_added_dynamically_exactly_once(
@@ -671,3 +688,92 @@ def test_energy_state_classes_are_ones_home_assistant_accepts() -> None:
 
     latest = next(d for d in ENERGY_DESCRIPTIONS if d.key == "latest_interval")
     assert latest.state_class is None
+
+
+def _describing_sensors(
+    coordinator: OejpDataUpdateCoordinator,
+) -> tuple[OejpSupplyPointReadingDaySensor, OejpSupplyPointAddressSensor]:
+    return (
+        OejpSupplyPointReadingDaySensor(coordinator, SECRET, ACCOUNT_ID, SUPPLY_POINT_ID),
+        OejpSupplyPointAddressSensor(coordinator, SECRET, ACCOUNT_ID, SUPPLY_POINT_ID),
+    )
+
+
+def test_the_reading_day_and_address_are_reported_for_the_supply_point() -> None:
+    reading_day, address = _describing_sensors(_coordinator())
+
+    assert reading_day.native_value == 19
+    # The provider returns the postcode separately, and either alone is ambiguous for a
+    # customer with more than one property.
+    assert address.native_value == "000-0000 PRIVATE-ADDRESS"
+
+
+def test_both_describing_sensors_are_diagnostics_and_only_the_address_is_off_by_default() -> None:
+    """A reading day is harmless; an address is recorded and backed up once enabled."""
+    reading_day, address = _describing_sensors(_coordinator())
+
+    assert reading_day.entity_category is EntityCategory.DIAGNOSTIC
+    assert address.entity_category is EntityCategory.DIAGNOSTIC
+    assert reading_day.entity_registry_enabled_default is True
+    assert address.entity_registry_enabled_default is False
+
+
+@pytest.mark.parametrize(
+    ("address", "postcode", "expected"),
+    [
+        ("PRIVATE-ADDRESS", "000-0000", "000-0000 PRIVATE-ADDRESS"),
+        ("000-0000 PRIVATE-ADDRESS", "000-0000", "000-0000 PRIVATE-ADDRESS"),
+        ("PRIVATE-ADDRESS", None, "PRIVATE-ADDRESS"),
+        (None, "000-0000", "000-0000"),
+        (None, None, None),
+    ],
+    ids=["joined", "already-contains-postcode", "address-only", "postcode-only", "neither"],
+)
+def test_the_postcode_is_joined_without_being_repeated(
+    address: str | None,
+    postcode: str | None,
+    expected: str | None,
+) -> None:
+    coordinator = _coordinator(accounts=(_account(address=address, postcode=postcode),))
+
+    _, sensor = _describing_sensors(coordinator)
+
+    assert sensor.native_value == expected
+
+
+def test_an_address_longer_than_a_state_is_truncated_rather_than_rejected() -> None:
+    """Home Assistant rejects a state over 255 characters, making the entity unavailable."""
+    coordinator = _coordinator(accounts=(_account(address="x" * 300, postcode=None),))
+
+    _, sensor = _describing_sensors(coordinator)
+
+    value = sensor.native_value
+    assert value is not None
+    assert len(value) == 255
+
+
+def test_an_absent_reading_day_is_reported_as_unknown() -> None:
+    coordinator = _coordinator(accounts=(_account(reading_day=None),))
+
+    reading_day, _ = _describing_sensors(coordinator)
+
+    assert reading_day.native_value is None
+
+
+def test_neither_describing_sensor_invents_a_value_for_an_unknown_supply_point() -> None:
+    coordinator = _coordinator(accounts=(_account(point_id="OTHER-SUPPLY-POINT"),))
+
+    reading_day, address = _describing_sensors(coordinator)
+
+    assert reading_day.native_value is None
+    assert address.native_value is None
+
+
+def test_neither_describing_sensor_reads_another_account() -> None:
+    coordinator = _coordinator()
+
+    for sensor in (
+        OejpSupplyPointReadingDaySensor(coordinator, SECRET, "OTHER-ACCOUNT", SUPPLY_POINT_ID),
+        OejpSupplyPointAddressSensor(coordinator, SECRET, "OTHER-ACCOUNT", SUPPLY_POINT_ID),
+    ):
+        assert sensor.native_value is None

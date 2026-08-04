@@ -49,11 +49,14 @@ def _discovery_payload() -> dict[str, object]:
                         },
                         {
                             "id": "property-1",
+                            "address": "PRIVATE-ADDRESS",
+                            "postcode": "000-0000",
                             "electricitySupplyPoints": [
                                 {
                                     "id": "supply-2",
                                     "spin": "spin-2",
                                     "status": "OFF_SUPPLY",
+                                    "readingDateDayOfMonth": 19,
                                     "meters": [],
                                 },
                                 {
@@ -519,3 +522,64 @@ def test_rate_limit_codes_cover_every_published_limit() -> None:
     from custom_components.octopus_energy_japan.api.errors import _RATE_LIMIT_CODES
 
     assert {"KT-CT-1188", "KT-CT-1189", "KT-CT-1199"} <= _RATE_LIMIT_CODES
+
+
+def test_the_property_address_and_the_reading_day_are_carried_through() -> None:
+    accounts = parse_legacy_discovery(_discovery_payload())
+
+    property_ = next(p for a in accounts for p in a.properties if p.id == "property-1")
+    assert property_.address == "PRIVATE-ADDRESS"
+    assert property_.postcode == "000-0000"
+    point = next(point for point in property_.supply_points if point.id == "supply-2")
+    assert point.reading_day_of_month == 19
+
+
+def test_a_property_without_an_address_is_still_parsed() -> None:
+    """The fields are additions; an account that omits them must not fail discovery."""
+    payload = _discovery_payload()
+    property_ = payload["viewer"]["accounts"][1]["properties"][1]  # type: ignore[index]
+    property_.pop("address")
+    property_.pop("postcode")
+
+    accounts = parse_legacy_discovery(payload)
+
+    parsed = next(p for a in accounts for p in a.properties if p.id == "property-1")
+    assert parsed.address is None
+    assert parsed.postcode is None
+
+
+@pytest.mark.parametrize("value", [0, 32, -1, True, "19", 19.0, None])
+def test_a_reading_day_that_is_not_a_day_of_the_month_is_dropped(value: object) -> None:
+    """A reading day of 0 or 40 is worse than none: an automation would act on it."""
+    payload = _discovery_payload()
+    point = payload["viewer"]["accounts"][1]["properties"][1]["electricitySupplyPoints"][0]  # type: ignore[index]
+    point["readingDateDayOfMonth"] = value
+
+    accounts = parse_legacy_discovery(payload)
+
+    parsed = next(
+        p
+        for a in accounts
+        for prop in a.properties
+        for p in prop.supply_points
+        if p.id == "supply-2"
+    )
+    assert parsed.reading_day_of_month is None
+
+
+@pytest.mark.parametrize("value", [1, 19, 31])
+def test_every_real_day_of_the_month_is_accepted(value: int) -> None:
+    payload = _discovery_payload()
+    point = payload["viewer"]["accounts"][1]["properties"][1]["electricitySupplyPoints"][0]  # type: ignore[index]
+    point["readingDateDayOfMonth"] = value
+
+    accounts = parse_legacy_discovery(payload)
+
+    parsed = next(
+        p
+        for a in accounts
+        for prop in a.properties
+        for p in prop.supply_points
+        if p.id == "supply-2"
+    )
+    assert parsed.reading_day_of_month == value

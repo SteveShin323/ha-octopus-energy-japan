@@ -14,7 +14,12 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EntityCategory, UnitOfEnergy, UnitOfTime
+from homeassistant.const import (
+    MAX_LENGTH_STATE_STATE,
+    EntityCategory,
+    UnitOfEnergy,
+    UnitOfTime,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import PlatformNotReady
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -241,10 +246,25 @@ async def async_setup_entry(
                     account.number,
                     point.id,
                 )
-                status_unique_id = _required_unique_id(status)
-                if status_unique_id not in created:
-                    created.add(status_unique_id)
-                    entities.append(status)
+                for describing in (
+                    status,
+                    OejpSupplyPointReadingDaySensor(
+                        coordinator,
+                        runtime.identity_secret,
+                        account.number,
+                        point.id,
+                    ),
+                    OejpSupplyPointAddressSensor(
+                        coordinator,
+                        runtime.identity_secret,
+                        account.number,
+                        point.id,
+                    ),
+                ):
+                    describing_unique_id = _required_unique_id(describing)
+                    if describing_unique_id not in created:
+                        created.add(describing_unique_id)
+                        entities.append(describing)
                 for direction in entity_directions(
                     coordinator.data,
                     runtime.identity_secret,
@@ -370,6 +390,83 @@ class OejpSupplyPointStatusSensor(OejpSupplyPointEntity, SensorEntity):
             self._supply_point_id,
         )
         return lifecycle.value if lifecycle is not None else None
+
+
+class OejpSupplyPointReadingDaySensor(OejpSupplyPointEntity, SensorEntity):
+    """The day of the month the provider reads this meter on.
+
+    This is the schedule, not a date. `nextReadingDate` and `nextNextReadingDate` exist and
+    are readable, and are deliberately not published: measured against a real account both
+    were in the past, so a sensor called "next reading" would have shown a date weeks gone.
+    """
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_translation_key = "reading_day_of_month"
+
+    def __init__(
+        self,
+        coordinator: OejpDataUpdateCoordinator,
+        identity_secret: str,
+        account_id: str,
+        supply_point_id: str,
+    ) -> None:
+        super().__init__(
+            coordinator,
+            identity_secret,
+            account_id,
+            supply_point_id,
+            "reading_day_of_month",
+        )
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the reading day, or None when the provider did not give a usable one."""
+        return self.coordinator.data.supply_point_reading_day(
+            self._account_id,
+            self._supply_point_id,
+        )
+
+
+class OejpSupplyPointAddressSensor(OejpSupplyPointEntity, SensorEntity):
+    """The provider's address for this supply point's property.
+
+    Disabled by default. An address is the one thing that tells a customer with more than
+    one property which device is which, and it is theirs to see on their own instance — but
+    an enabled entity is recorded, backed up and exposed to voice assistants, so enabling it
+    is their decision rather than this integration's.
+    """
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+    _attr_translation_key = "supply_point_address"
+
+    def __init__(
+        self,
+        coordinator: OejpDataUpdateCoordinator,
+        identity_secret: str,
+        account_id: str,
+        supply_point_id: str,
+    ) -> None:
+        super().__init__(
+            coordinator,
+            identity_secret,
+            account_id,
+            supply_point_id,
+            "address",
+        )
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the address, truncated to what a Home Assistant state can hold."""
+        address = self.coordinator.data.supply_point_address(
+            self._account_id,
+            self._supply_point_id,
+        )
+        if address is None:
+            return None
+        # A state longer than 255 characters is rejected outright, which would make the
+        # entity unavailable rather than merely abbreviated.
+        return address[:MAX_LENGTH_STATE_STATE]
 
 
 class OejpAccountCommercialSensor(OejpAccountEntity, SensorEntity):
