@@ -18,6 +18,9 @@ class StatisticKind(StrEnum):
 
     ENERGY = "energy"
     OFFICIAL_COST = "official_cost"
+    # Cost computed from the tariff the provider reports, not from its per-interval
+    # estimate. See `tariff_cost.py` for why the two differ.
+    TARIFF_COST = "tariff_cost"
 
 
 @dataclass(frozen=True, slots=True)

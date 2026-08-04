@@ -417,91 +417,76 @@ query without `rates` returns no error at all, resolves the product, and moves t
 `agreements` capability from `partial` to `available`. `ACCOUNT_AGREEMENTS_QUERY`
 therefore omits it, and a test asserts it stays omitted.
 
-**But the tariff itself is readable, through a different query.** Three paths to rate
-data exist and they do not share permissions. Measured 2026-08-04 with an
-email/password account-user token:
+**The whole tariff is on the agreement, and every earlier claim to the contrary was
+wrong.** Two of them, made on 2026-08-04 and corrected the same day, came from searching
+for fields whose *declared* type was `ProductInterface`, `ElectricitySteppedProduct`, or
+`ElectricitySingleStepProduct` and finding none. The declared type is neither: it is the
+union `Product`, and those are its members. Searching by member name could not find it.
 
-| Path | Result |
-|---|---|
-| `marketSupplyAgreements → product.rates` | `AUTHORIZATION/KT-CT-1111` |
-| `agreementRates(agreementId:)` | `AUTHORIZATION/KT-CT-1111` |
-| `availableProducts(marketName:)` | `AUTHORIZATION/KT-CT-1111` |
-| **`tariffSummary(gridOperatorCode:, productCode:)`** | **permitted** |
+`ElectricitySupplyPoint.agreements[].product` resolves to that union. Inside
+`... on ElectricitySteppedProduct` everything a Japanese bill needs is present and
+readable by an account user. Measured 2026-08-04:
 
-`tariffSummary` is a catalogue query rather than an account-scoped one, which is
-apparently why it is allowed. It returns the complete stepped tariff:
+| Field | Meaning | Observed |
+|---|---|---|
+| `consumptionCharges[]` | stepped energy price | three steps, `stepStart`/`stepEnd` at 120 and 300 kWh, `pricePerUnit` and `pricePerUnitIncTax` |
+| `standingChargePricePerDay` | the standing charge **that applies** | one value; no amperage lookup needed |
+| `standingChargeUnitType` | its unit | `YEN_AMPERE_DAY` |
+| `fuelCostAdjustment` | monthly 燃料費調整 | `pricePerUnit`, `pricePerUnitIncTax`, and a `validFrom`/`validTo` covering one month |
+| `renewableEnergyLevy` | annual 再エネ賦課金 | same shape, validity covering one year |
+| `consumptionCharges[].validFrom` | when the price took effect | present on every rate |
+
+`standingChargePricePerDay` matched the amperage that the `newAmperageOptions` set
+difference identified, independently confirming both. The amperage inference is therefore
+unnecessary: the agreement states the charge directly.
+
+The fuel adjustment and levy together matched, to two decimal places, the constant that a
+real invoice had earlier shown `costEstimate` to embed. Those two are what
+`costEstimate` collapses into a single adder, and they are exactly what it cannot express
+separately.
+
+So a bill is reproducible from provider data alone, with no customer input:
 
 ```
-TariffSummary
-  productParams: GenericScalar   # product_type, version, is_green, amperage_min/max, …
-  tiers: [TariffTier]
-    contractCapacityPattern: NON_TIERED | TIERED_LOW | TIERED_HIGH | OEPC
-    consumptionRates: [ConsumptionChargeRate]
-      pricePerUnitIncTax, stepStart, stepEnd, band
-    standingRates: StandingChargeValues
-      amperage: [StandingChargeRate]   # pricePerUnitIncTax, label, unitType
-      kva:      [StandingChargeRate]
+hourly cost = kWh × price of the step the month's cumulative kWh falls in
+            + kWh × (fuelCostAdjustment + renewableEnergyLevy)
+            + standingChargePricePerDay ÷ 24
 ```
 
-On a real account this returned three consumption steps with boundaries at 120 and
-300 kWh, tax-inclusive prices per kWh, and a standing charge in `YEN_DAY` for each of
-the seven contract amperages from 10 A to 60 A. `productParams.product_type` was
-`stepped_rates_product` and `version` matched the published tariff document.
+### Two catalogue queries also work, and are not needed
 
-Both arguments are derivable from data the integration already holds:
+`tariffSummary(gridOperatorCode:, productCode:)` returns the same stepped rates plus a
+standing charge for every contract amperage, and is permitted where
+`marketSupplyAgreements → product.rates`, `agreementRates`, and `availableProducts` are
+all refused with `AUTHORIZATION/KT-CT-1111`. `gridOperatorCode` is the first two digits of
+the SPIN; `productCode` comes from the agreement. It is recorded because it is a working
+path, but the agreement is the better source: it states the charge that applies rather
+than a table to choose from.
 
-- `productCode` comes from the active agreement's `product.code`; and
-- `gridOperatorCode` is **the first two digits of the SPIN**. A Japanese
-  供給地点特定番号 is 22 digits and opens with the utility code, and the returned
-  `band` values embed the same code — `CONSUMPTION_STEPPED_<operator>_<step>`. Verified
-  against a real supply point: its SPIN prefix, passed as `gridOperatorCode`, returned
-  the tariff whose bands carried that same prefix.
+### What an account user cannot read
 
-### The contracted amperage is derivable, without asking the customer
-
-Every direct path to it is refused, checked field by field:
+Confirmed by calling every field of each type individually — 165 calls in the first pass
+and 200 in the second — rather than inferring from the schema:
 
 | Field | Result |
 |---|---|
-| `ElectricitySupplyPoint.contractedCapacity` | `AUTHORIZATION/KT-CT-4501` |
-| `ElectricitySupplyPoint.contractedCapacityOld` | `AUTHORIZATION/KT-CT-4501` |
-| `ElectricitySupplyPoint.supplyDetails` | permitted, returned `null` |
-| `ElectricitySupplyPoint.meters { capacity }` | permitted, empty list |
-| `charges(...) { lineItems { contractedCapacityValue } }` | `AUTHORIZATION/KT-CT-3824` |
+| `ElectricitySupplyPoint.halfHourlyReadings` | `KT-CT-4501` |
+| `ElectricitySupplyPoint.intervalReadings` | `KT-CT-4501` |
+| `ElectricitySupplyPoint.contractedCapacity`, `contractedCapacityOld` | `KT-CT-4501` |
+| `ElectricitySupplyPoint.supplyPeriods` and the six move/change process fields | `KT-CT-4501` |
+| `SupplyPointType.devices` | `KT-CT-7899` |
+| `charges(accountNumber:, billingDocumentIdentifier:)` | `KT-CT-3824` |
+| `Account.bill`, `paginatedPaymentForecast` | `KT-CT-4148`, `KT-CT-3949` |
+| `Account.notes`, `canModifyPayments`, `debtCollectionProceedings` | `KT-CT-1111` |
+| `PropertyType.parent`, `ancestors`, `descendants` | `KT-CT-1111` |
 
-But `ElectricitySupplyPoint.newAmperageOptions` **is** readable, and it lists the
-amperages the supply point could change *to*, which excludes the one it already has. Set
-against the amperages `tariffSummary` prices, exactly one is missing, and that is the
-contracted value. Measured 2026-08-04:
+### `KT-CT-1201` means a missing `first`, not a refusal
 
-```
-tariff amperages   : [10, 15, 20, 30, 40, 50, 60]
-newAmperageOptions : [10, 15, 20, 30,     50, 60]
-difference         : [40]                      ← the contracted amperage
-```
-
-This is an inference, not a stated value, so an implementation must treat an ambiguous
-difference — zero or several missing — as unknown rather than guessing.
-
-### The fuel-cost adjustment and the levy are genuinely unreachable
-
-`FuelCostAdjustmentRate` and `RenewableEnergyLevyRate` exist as types, and
-`ProductInterface`, `ElectricitySteppedProduct`, and `ElectricitySingleStepProduct`
-declare them. **No field anywhere in the schema returns any of those three types** —
-checked across all 2230 types. The product an agreement carries is `SupplyProductType`,
-a different type with no such field, whose `params` holds only flags (`is_fixed_fca`,
-`product_type`, `version`, …) and no rates.
-
-The other candidate was the bill itself: `charges(accountNumber:,
-billingDocumentIdentifier:)` returns `ChargeType.lineItems`, whose `LineItemType` carries
-`numberOfUnits`, `netAmount`, and `grossAmount` per line. It is refused with
-`AUTHORIZATION/KT-CT-3824`.
-
-So an energy charge and a standing charge can both be computed entirely from readable
-provider data, while the two per-kWh adjustments cannot be read at all. Bill *totals*
-are readable, so reconciling a closed bill against a computed energy-plus-standing charge
-would yield their combined per-kWh value without asking the customer for anything. That
-reconciliation has not been demonstrated end to end — see the note below.
+The first coverage pass reported `KT-CT-1201` for `bills`, `transactions`,
+`marketSupplyAgreements`, `payments`, and eighteen other connections, and reading that as
+"unauthorized" would have been wrong. Supplying `first: 1` makes all of them answer
+normally. The provider requires the pagination argument its guide documents, and reports
+its absence with this code.
 
 ### `halfHourlyReadings` became unauthorized mid-session
 

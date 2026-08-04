@@ -36,15 +36,47 @@ both directions. What it checks, and what this integration therefore guarantees:
 | An energy unit it can convert | `kWh`, with the energy unit class |
 | External statistic id | `octopus_energy_japan:sp_<digest>_<direction>_energy` |
 
-**Cost cannot be configured from the Energy dashboard for these series.** Home
-Assistant builds a cost sensor only when the energy source is a valid entity id — see
-`homeassistant/components/energy/sensor.py`, which returns early otherwise — and an
-external statistic id such as `octopus_energy_japan:sp_…_import_energy` is not one. A
-price entered there is ignored, not applied.
+### Cost
 
-That leaves `stat_cost`, a cost statistic published by this integration, as the only
-route. There is none today, for the reasons in
-[`CONTRACT_AND_BILLING.md`](CONTRACT_AND_BILLING.md).
+Set **cost** to the supply point's `… Import cost` statistic. Leave the price fields
+alone: Home Assistant builds a cost sensor only when the energy source is a valid entity
+id — see `homeassistant/components/energy/sensor.py`, which returns early otherwise — and
+an external statistic id is not one, so a price typed there is ignored rather than
+applied. A published cost statistic is the only route, and there is one.
+
+It is computed from the tariff the provider reports for the agreement in force:
+
+```
+hour cost = kWh × the step the Tokyo month's cumulative kWh has reached
+          + kWh × (fuel-cost adjustment + renewable levy), where each is in force
+          + the daily standing charge ÷ 24
+```
+
+Every input comes from the API. Nothing is entered by the user, and no unit price is
+assumed. The pieces, and how they are reached, are in
+[`API_CONTRACTS.md`](API_CONTRACTS.md).
+
+Three properties are worth knowing before trusting a number:
+
+- **Steps advance on the Asia/Tokyo month.** The provider's own rate validity windows are
+  JST calendar months, which is the evidence for that boundary. A **billing period** ends
+  at a meter read a few hours after midnight on a day of the month that varies, so the two
+  do not coincide, and a bill can span parts of two months.
+- **The fuel-cost adjustment applies only inside the month it is issued for.** The API
+  exposes the current one and no history, so hours from an earlier month are priced
+  without it. Cost for the current month is complete; older cost is short by whatever that
+  month's adjustment was, in whichever direction fuel costs moved.
+- **The standing charge accrues per published hour.** A day with six hours of readings has
+  accrued a quarter of its daily charge, and the rest arrives with the readings.
+
+Measured against one real closed bill on 2026-08-04, computing over the bill's own period
+with 816 of its 840 hours published, the total came to **104.3 percent** of the billed
+gross. The gap is consistent with that period's fuel-cost adjustment having been negative
+and unavailable to apply — the two effects the list above describes. The figure is recorded
+so the next person can tell a modelling change from a regression.
+
+This is therefore a good estimate, not a reproduction of the bill, and the user guide says
+so.
 
 There is no `total_increasing` meter sensor to select instead, by design. OEJP publishes
 30-minute totals several hours late and revises them when a billing period closes. A

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -149,6 +149,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     ]:
         return await _async_discover_state(authenticated_client)
 
+    commercial_coordinator = OejpCommercialCoordinator(
+        hass,
+        entry,
+        authenticated_client,
+        accounts,
+    )
+
+    def tariff_for(account_id: str, supply_point_id: str) -> Any:
+        """Look up the tariff the commercial coordinator last read.
+
+        Indirection rather than a value, because the tariff arrives on a twelve-hour
+        cadence while statistics are projected every thirty minutes. A cost series simply
+        does not appear until the first commercial refresh has run.
+        """
+        data = commercial_coordinator.data
+        return data.tariff(account_id, supply_point_id) if data is not None else None
+
     coordinator = OejpDataUpdateCoordinator(
         hass,
         entry,
@@ -160,13 +177,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         statistics_projector=HomeAssistantStatisticsProjector(
             hass,
             identity_secret,
+            tariff_lookup=tariff_for,
         ),
-    )
-    commercial_coordinator = OejpCommercialCoordinator(
-        hass,
-        entry,
-        authenticated_client,
-        accounts,
     )
     runtime.coordinator = coordinator
     runtime.commercial_coordinator = commercial_coordinator

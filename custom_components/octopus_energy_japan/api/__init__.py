@@ -115,6 +115,13 @@ from .readings import (
     parse_legacy_half_hourly_readings,
     parse_legacy_interval_readings,
 )
+from .tariff import (
+    SupplyPointTariff,
+    TariffAdder,
+    TariffStep,
+    async_fetch_supply_point_tariffs,
+    parse_supply_point_tariffs,
+)
 
 __all__ = [
     "ACCOUNT_AGREEMENTS_QUERY",
@@ -195,12 +202,16 @@ __all__ = [
     "ReadingSeriesKey",
     "ReadingSource",
     "ResourceLifecycle",
+    "SupplyPointTariff",
+    "TariffAdder",
+    "TariffStep",
     "TransactionSummary",
     "async_detect_capabilities",
     "async_discover_accounts",
     "async_discover_generic_devices",
     "async_discover_resources",
     "async_fetch_account_commercial_snapshot",
+    "async_fetch_supply_point_tariffs",
     "async_get_viewer_identity",
     "async_obtain_token",
     "async_paginate",
@@ -221,4 +232,5 @@ __all__ = [
     "parse_legacy_discovery",
     "parse_legacy_half_hourly_readings",
     "parse_legacy_interval_readings",
+    "parse_supply_point_tariffs",
 ]
