@@ -168,6 +168,64 @@ def test_future_sensitive_key_shapes_are_redacted() -> None:
     )
 
 
+def test_collection_key_does_not_redact_the_readings_underneath_it() -> None:
+    """`electricitySupplyPoints` must not force its own category on the subtree."""
+    fixture = build_contract_fixture(
+        "legacy_half_hourly_readings",
+        "query LegacyHalfHourlyReadings { account { number } }",
+        {
+            "account": {
+                "number": "PRIVATE-ACCOUNT",
+                "properties": [
+                    {
+                        "electricitySupplyPoints": [
+                            {
+                                "id": "PRIVATE-POINT",
+                                "spin": "PRIVATE-SPIN",
+                                "halfHourlyReadings": [
+                                    {
+                                        "startAt": "2026-07-01T00:00:00Z",
+                                        "endAt": "2026-07-01T00:30:00Z",
+                                        "value": "0.25",
+                                        "costEstimate": "8.75",
+                                        "version": "LATEST",
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                ],
+            }
+        },
+        source="authorized-local-read-only-probe",
+    )
+
+    point = fixture["response"]["account"]["properties"][0]["electricitySupplyPoints"][0]
+    reading = point["halfHourlyReadings"][0]
+    assert point["spin"].startswith("<synthetic:supply_point:")
+    assert point["id"].startswith("<synthetic:identifier:")
+    assert reading == {
+        "startAt": "2026-07-01T00:00:00Z",
+        "endAt": "2026-07-01T00:30:00Z",
+        "value": "0.25",
+        "costEstimate": "8.75",
+        "version": "LATEST",
+    }
+
+
+def test_nested_sensitive_object_is_still_redacted_as_a_whole() -> None:
+    sanitizer = SyntheticFixtureSanitizer()
+
+    sanitized = sanitizer.sanitize(
+        {"postalAddress": {"line1": "Private line", "postcode": "100-0001"}}
+    )
+
+    assert all(
+        isinstance(value, str) and value.startswith("<synthetic:address:")
+        for value in sanitized["postalAddress"].values()
+    )
+
+
 def test_customer_money_is_redacted_from_commercial_probe_output() -> None:
     fixture = build_contract_fixture(
         "account_billing",

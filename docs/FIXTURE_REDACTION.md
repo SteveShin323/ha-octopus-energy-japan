@@ -62,28 +62,19 @@ to `sys.path` itself, so no editable install or `PYTHONPATH` is required.
 
 ## Parameterized operations
 
-Reading and commercial operations need a target. Both targets are customer
-identifiers, so they are read from the environment rather than the command line,
-exactly like credentials. Take the values from the sanitized
-`resource_discovery` output, or from the OEJP web account:
+Reading and commercial operations need an account number or a supply-point SPIN.
+The probe **discovers both itself** and keeps them in memory, so no customer
+identifier is ever typed, pasted, or placed on a command line.
+
+Set an override only to reach a second account or supply point:
 
 ```bash
-read -rp 'OEJP account number: ' OEJP_PROBE_ACCOUNT_NUMBER
-read -rp 'OEJP supply-point SPIN: ' OEJP_PROBE_SUPPLY_POINT_SPIN
-export OEJP_PROBE_ACCOUNT_NUMBER OEJP_PROBE_SUPPLY_POINT_SPIN
-```
-
-The same command in `zsh`:
-
-```zsh
-read -r 'OEJP_PROBE_ACCOUNT_NUMBER?OEJP account number: '
-read -r 'OEJP_PROBE_SUPPLY_POINT_SPIN?OEJP supply-point SPIN: '
-export OEJP_PROBE_ACCOUNT_NUMBER OEJP_PROBE_SUPPLY_POINT_SPIN
+export OEJP_PROBE_ACCOUNT_NUMBER=... OEJP_PROBE_SUPPLY_POINT_SPIN=...
 ```
 
 `--hours` sets a reading window ending now; it defaults to 48.
 
-| Operation | Requires | Window |
+| Operation | Target | Window |
 |---|---|---|
 | `generic_devices` | SPIN | no |
 | `generic_import_readings` | SPIN | yes |
