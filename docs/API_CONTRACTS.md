@@ -224,12 +224,14 @@ The same probe returned two `version` values, and the boundary is exact:
 | `MONTHLY` | up to and including the final interval of the closed billing period |
 | `DAILY` | from the first interval of the open billing period onward |
 
-The customer's bill for that period ended on the same JST day boundary where
-`MONTHLY` stopped and `DAILY` began. `version` therefore distinguishes a
-provisional daily estimate from a figure finalized when the period is billed, so
-an interval's value and cost can be reissued after the fact. That is the
-correction the interval ledger exists to absorb, now observed rather than
-assumed.
+`MONTHLY` covered the closed billing period and stopped at JST midnight after its
+last day; `DAILY` began there. `version` therefore distinguishes a provisional
+daily estimate from a figure finalized when the period is billed, so an interval's
+value and cost can be reissued after the fact. That is the correction the interval
+ledger exists to absorb, now observed rather than assumed.
+
+The version boundary sits at JST midnight, while the invoiced period runs a few
+hours further to the meter read, so the two are close but not identical.
 
 ## Provider cost is denominated in yen and excludes fixed charges
 
@@ -242,29 +244,46 @@ denomination is **whole yen with two decimal places**. Integer monetary fields
 such as `balance`, `overdueBalance`, and `grossTotal` are whole yen for the same
 reason: JPY has no circulating sub-unit.
 
-`costEstimate` is **not** the billed amount, and it does not reproduce the billed
-tariff. Reconstructing it over one gap-free billing period showed a per-kWh
-schedule with a **single** cumulative-usage boundary:
+`costEstimate` is **not** the billed amount, and its formula does not reproduce
+the billed tariff. Reconstructing it over one gap-free billing period, against the
+published tariff definition for the customer's menu, gives:
 
-- one flat rate up to 300 kWh of cumulative period usage; and
-- a higher flat rate above it.
+```text
+costEstimate per kWh = marginal energy rate + a constant of about 8.47 JPY
+```
 
-The switch happens mid-day, on the day cumulative usage crosses 300 kWh, so the
-boundary is cumulative usage rather than a date or a tariff revision. Those two
-rates reproduce the summed `costEstimate` to within 0.04 percent, so the model is
-complete.
+where the marginal energy rate steps from the tariff's **first**-tier price to its
+**second**-tier price at 300 kWh of cumulative period usage. Two independent checks
+confirm the reading:
 
-The invoice for the same period uses a **three**-tier schedule with boundaries at
-120 and 300 kWh, plus a fixed daily standing charge, a monthly fuel-cost
-adjustment, a renewable-energy levy, and consumption tax. `costEstimate` shows no
-step at 120 kWh at all, and its step at 300 kWh is more than twice the size of the
-invoice's. Summed and scaled to the invoiced kWh it lands about 4 percent below the
-closest invoice figure and matches none exactly.
+- the observed step is within 0.5 percent of the tariff's 120 kWh step and nothing
+  like its 300 kWh step; and
+- solving for the constant on that tier pair gives the same value from both bands,
+  while the second and third tiers give inconsistent values.
+
+So the provider applies the tariff's first tier progression at the wrong threshold,
+skips the 120 kWh boundary entirely, and never reaches the third tier. The constant
+also exceeds the tariff's fuel-cost adjustment plus renewable levy by about 1.10
+JPY per kWh, and the fixed daily standing charge cannot appear in a per-interval
+value at all.
+
+Summed interval **values**, by contrast, reconcile: they reach the invoiced kWh once
+the window is extended past JST midnight to the meter-read time, which is where the
+billing period actually ends.
 
 `costEstimate` is therefore a provider estimate computed from its own simplified
-rate model, not a projection of the customer's tariff. Summed interval **values**,
-by contrast, came within 0.6 percent of the invoiced kWh over the same period, so
-the reading contract itself reconciles against a provider invoice.
+rate model. It must never be presented as the customer's cost.
+
+## Billing periods end at the meter read, not at midnight
+
+The invoiced period boundary is a meter-read instant a few hours after JST
+midnight, as the tariff definition states. Summed intervals match the invoiced kWh
+only when the window is extended to it.
+
+Calendar projections deliberately use Asia/Tokyo day, week, and month boundaries
+instead, so a monthly total will never equal an invoiced period. That is a
+presentation choice, not a defect, and it is another reason period sensors are not
+Energy Dashboard authority.
 
 ## Optional commercial operations
 

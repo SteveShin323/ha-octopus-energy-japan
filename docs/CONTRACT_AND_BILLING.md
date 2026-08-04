@@ -172,17 +172,17 @@ open. The comparison covered one complete billing period with no interval gaps.
 Energy reconciles. Summed interval values came within 0.6 percent of the invoiced
 kWh, which validates the reading pipeline end to end against a provider invoice.
 
-Cost does not, and the reason is structural rather than a rounding gap.
-Reconstructing `costEstimate` over the same period showed a per-kWh schedule with a
-single cumulative-usage boundary at 300 kWh, switching mid-day on the day
-cumulative usage crosses it. Two flat rates reproduce the summed value to within
-0.04 percent, so that model is complete.
+Cost does not, and the formula is now known. Against the published tariff
+definition for the customer's menu, `costEstimate` per kWh equals the marginal
+energy rate plus a constant of about 8.47 JPY, where the marginal rate steps from
+the tariff's **first**-tier price to its **second**-tier price at 300 kWh of
+cumulative period usage.
 
-The invoice uses three tiers with boundaries at 120 and 300 kWh, plus a fixed daily
-standing charge, a monthly fuel adjustment, a levy, and consumption tax.
-`costEstimate` shows no step at 120 kWh and its single step is more than twice the
-size of the invoice's, so it is not the billed tariff computed per interval. The
-full comparison is recorded in [`API_CONTRACTS.md`](API_CONTRACTS.md).
+The provider therefore applies the tariff's 120 kWh tier step at the 300 kWh
+threshold, skips the 120 kWh boundary, and never reaches the third tier. Its
+constant also exceeds the tariff's fuel adjustment plus renewable levy, and no
+per-interval value can carry the fixed daily standing charge. The derivation is
+recorded in [`API_CONTRACTS.md`](API_CONTRACTS.md).
 
 `costEstimate` is therefore a provider estimate computed from its own simplified
 rate model, not the customer's tariff applied per interval. Publishing it as the
