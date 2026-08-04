@@ -12,8 +12,9 @@ keep a distributed client secret confidential.
 ## Decision
 
 Use Authorization Code with PKCE S256 as the primary authentication method.
-Support Device Authorization Grant through the same `AuthSession` boundary when
-OEJP enables it. Never request or store the customer's OEJP password in the
+Support Device Authorization Grant as a selectable setup method through the same
+`AuthSession` boundary: it uses the same client ID and the same token endpoint, so its
+tokens refresh identically, and it needs no redirect URI at all. Never request or store the customer's OEJP password in the
 public integration. Never distribute a client secret.
 
 The client ID is committed only if OEJP authorizes a shared public client.

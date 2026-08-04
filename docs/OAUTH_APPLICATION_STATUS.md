@@ -20,16 +20,15 @@ constructs a PKCE public client without waiting for a reply. Nothing is substitu
 from another Kraken territory, and the module still fails closed if that metadata
 is ever removed.
 
-Device authorization remains implemented only at the transport and session
-boundary, and is not exposed in the setup UI. The reason is no longer that the
-endpoint is missing: the provider documents `/device-authorization/` and the live
-endpoint answers, so the URL is now recorded in `oauth_metadata.py`. It is not
-exposed because no client ID exists for any grant, and because the setup path
-should be chosen once, on evidence, rather than offering two unusable options.
+Device authorization is now a selectable setup method, not just transport. It shows
+the user code, polls the token endpoint at the provider's interval, and stores the
+result as an ordinary OAuth token, because that is what it is: the same `/token/`
+endpoint issues it and the same refresh request renews it.
 
-Device authorization is the better path for this integration once a client ID
-exists: it needs no redirect URI at all, which removes the My Home Assistant
-requirement described below.
+It needs the same client ID as browser sign-in, so it cannot be completed yet either.
+Once one exists it is the better of the two OAuth methods for most installations,
+because it uses no redirect URI and therefore lifts the My Home Assistant requirement
+described below.
 
 ## Submitted application request
 

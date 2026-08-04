@@ -85,11 +85,19 @@ Add integration
   -> Home Assistant reauthentication after revoke or terminal refresh failure
 ```
 
-Authorization Code with PKCE is primary. Device Authorization Grant is an optional
-fallback if OEJP enables it on the application; its endpoint is documented by the
-provider and answers live. The provider's email and password login is offered as a
-third, selectable method, because it is the only one that works without a client ID.
-A client secret is never embedded or distributed.
+Three methods are selectable at setup, and one OEJP login owns one config entry
+whichever is used:
+
+| Method | Needs a client ID | Needs a redirect URI | Holds the password |
+|---|---|---|---|
+| Authorization Code + PKCE | yes | yes, so My Home Assistant is required | no |
+| Device Authorization Grant | yes | no | no |
+| Email and password | no | no | yes |
+
+Authorization Code with PKCE is primary and device authorization is preferred once a
+client ID exists, since it removes the redirect requirement. The email and password
+login is the only method that works without a client ID and is expected to be
+withdrawn by OEJP. A client secret is never embedded or distributed.
 
 A shared public client ID may be committed only after OEJP confirms publication
 and reuse across installations. If user-specific client IDs are required, use
