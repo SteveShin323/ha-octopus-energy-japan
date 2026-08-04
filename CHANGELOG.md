@@ -18,8 +18,10 @@ email and password login works today and is selectable at setup.
   days and renewing does not extend it. **Octopus Energy Japan account** is the
   recommended method and never sees the password. One OEJP login owns one config entry
   under either method, so an entry can be promoted to OAuth in place — keeping its
-  readings and statistics, and deleting the stored password. See
-  [ADR 0008](docs/adr/0008-password-authentication.md);
+  readings and statistics, and deleting the stored password. Removing such an entry
+  deletes the local credential but cannot revoke the token at OEJP, which does not
+  permit an account user to invalidate a refresh token; it expires there within seven
+  days. See [ADR 0008](docs/adr/0008-password-authentication.md);
 - read-only OEJP integration: OAuth with PKCE, account and supply-point discovery,
   generic and legacy reading providers with an explicit fallback policy;
 - a persistent correction-aware interval ledger and Asia/Tokyo calendar aggregation;

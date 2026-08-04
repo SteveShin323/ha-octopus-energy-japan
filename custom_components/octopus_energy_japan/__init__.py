@@ -230,11 +230,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Best-effort revoke the authorization this entry holds, when it is removed."""
-    from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
     from homeassistant.helpers import config_entry_oauth2_flow
-    from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-    from .api import OejpError, OejpGraphQLClient
     from .const import AUTH_METHOD_OAUTH, AUTH_METHOD_PASSWORD, CONF_AUTH_METHOD
     from .issues import async_clear_issues
     from .oauth import OejpOAuthRevocationError, OejpPkceAuthSession
@@ -242,28 +239,16 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         OAuthMetadataUnavailableError,
         require_oauth_metadata,
     )
-    from .password_auth import OejpPasswordAuthSession
 
     # Repair issues outlive a reload on purpose, so removal is what clears them.
     async_clear_issues(hass, entry.entry_id)
 
     if entry.data.get(CONF_AUTH_METHOD, AUTH_METHOD_OAUTH) == AUTH_METHOD_PASSWORD:
-        email = entry.data.get(CONF_EMAIL)
-        password = entry.data.get(CONF_PASSWORD)
-        if not isinstance(email, str) or not isinstance(password, str):
-            return
-        try:
-            session = OejpPasswordAuthSession(
-                hass,
-                entry,
-                OejpGraphQLClient(async_get_clientsession(hass)),
-                email=email,
-                password=password,
-                scheme=require_oauth_metadata().authorization_scheme.value,
-            )
-            await session.async_revoke()
-        except OAuthMetadataUnavailableError, OejpError:
-            _LOGGER.warning("Unable to invalidate the OEJP refresh token during entry removal")
+        # There is nothing to revoke. `invalidateRefreshToken` is rejected for an
+        # account user with `AUTHORIZATION/KT-CT-1111`, confirmed live 2026-08-04.
+        # Home Assistant deletes the entry data, taking the local copy of the
+        # credential and tokens with it, and the refresh token expires at the provider
+        # within seven days of the sign-in that issued it.
         return
 
     try:

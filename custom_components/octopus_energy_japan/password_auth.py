@@ -16,6 +16,11 @@ Token lifetimes, measured against a real account on 2026-08-04:
 So renewal buys at most seven days from the original sign-in, and after that only
 the credential itself can produce a new token. That is why the credential is stored,
 and it is the whole reason this method differs from the OAuth ones in privacy terms.
+
+A rejected credential and an expired access token both arrive as
+`OejpAuthenticationError`, because OEJP reports a wrong password as
+`VALIDATION/KT-CT-1138`. They must not be confused: one is recoverable by renewing,
+the other is not recoverable at all.
 """
 
 from __future__ import annotations
@@ -23,7 +28,7 @@ from __future__ import annotations
 import asyncio
 from contextvars import ContextVar
 from datetime import UTC, datetime
-from typing import Any, Final
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -33,7 +38,6 @@ from .api import (
     OejpAuthenticationError,
     OejpGraphQLClient,
     OejpToken,
-    async_invalidate_refresh_token,
     async_obtain_token,
     async_renew_token,
 )
@@ -42,12 +46,6 @@ from .const import (
     CONF_REFRESH_EXPIRES_AT,
     CONF_REFRESH_TOKEN,
 )
-
-# The provider reports a rejected credential as VALIDATION/KT-CT-1138, which
-# `classify_graphql_error_details` maps to `OejpAuthenticationError`. An expired
-# access token arrives as the same class. The two must not be confused: one is
-# recoverable by renewing, the other is not recoverable at all.
-_TOKEN_TYPE: Final = "legacy_password"
 
 
 class OejpPasswordAuthError(RuntimeError):
@@ -117,19 +115,20 @@ class OejpPasswordAuthSession(AuthSession):
             await self._async_sign_in()
 
     async def async_revoke(self) -> None:
-        """Invalidate the refresh token this entry holds, if it still has one.
+        """Do nothing, because the provider does not allow it for this method.
 
-        Renewal does not rotate the refresh token, so the account may hold other
-        valid ones. This revokes only the token stored here.
+        `invalidateRefreshToken` exists in the schema, and calling it as the signed-in
+        account user was rejected with `AUTHORIZATION/KT-CT-1111` on 2026-08-04. The
+        provider's own documentation lists `KT-CT-1111` and `KT-CT-1130` Unauthorized
+        for that mutation, so it is reserved for callers this method cannot be.
+
+        Removal therefore deletes the local copy of the token and the credential, and
+        the refresh token expires on the provider's side within seven days of the
+        sign-in that issued it. `PRIVACY.md` states this rather than implying that
+        removal revokes anything. An OAuth entry does revoke, at the OAuth revocation
+        endpoint, which is a different mechanism entirely.
         """
-        refresh_token = self._usable_refresh_token()
-        if refresh_token is None:
-            return
-        try:
-            await async_invalidate_refresh_token(self._client, refresh_token)
-        except OejpAuthenticationError:
-            # Already invalid, which is the state revocation was asking for.
-            return
+        return
 
     async def _async_sign_in(self) -> str:
         try:

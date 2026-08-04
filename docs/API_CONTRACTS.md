@@ -236,6 +236,41 @@ User-facing documentation stated for a while that OEJP serves "roughly the last 
 days". That was this cap mistaken for a retention limit, and it is false: the 31-day
 figure is how much fits in one response, not how much exists.
 
+## The legacy login: lifetimes, renewal, and what a customer may not do
+
+Measured on a real account 2026-08-04, running the shipped operations:
+
+| Property | Value |
+|---|---|
+| Access-token lifetime | 1 hour |
+| Refresh-token lifetime | 7 days |
+| Refresh token rotated on renewal | no; the previous one stays valid |
+| Refresh-token expiry extended on renewal | no, `+0s` |
+| Renewal needs the password | no, `{refreshToken: ...}` alone is accepted |
+| Renewed token resolves the same `viewer.id` | yes |
+
+Renewal therefore buys at most seven days from one sign-in, which is why the password
+method has to store the credential. See
+[ADR 0008](adr/0008-password-authentication.md).
+
+`ObtainJSONWebTokenInput`'s introspected fields are `APIKey`, `organizationSecretKey`,
+`preSignedKey`, `refreshToken`, and `captchaResponse`. **`email` and `password` are
+absent yet still honoured.** A hidden-but-honoured field can be withdrawn without a
+changelog entry, and none appeared between 2026-05-18 and 2026-08-04.
+
+`obtainLongLivedRefreshToken` is documented by the provider as "limited to authorized
+third-party organizations only. Account users can only generate short-lived refresh
+tokens", so there is no long-lived option for a customer.
+
+`invalidateRefreshToken` exists but returned `AUTHORIZATION/KT-CT-1111` when called as
+the signed-in account user, with the provider documenting `KT-CT-1111` and
+`KT-CT-1130` Unauthorized for it. **A customer cannot revoke their own refresh token**,
+so the integration does not try; the token expires on its own.
+
+Its payload field `token` is a `RefreshToken` object exposing `expiryDt`, `key`, and
+`isValid`, not a scalar. Selecting it without a selection set is rejected with HTTP 400
+before the request reaches the schema.
+
 ## Documented API limits
 
 From the provider's GraphQL guide, read 2026-08-04:

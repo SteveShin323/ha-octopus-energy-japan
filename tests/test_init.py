@@ -811,54 +811,18 @@ async def test_setup_entry_retries_a_password_sign_in_that_failed_transiently(
         await async_setup_entry(hass, entry)
 
 
-async def test_removing_a_password_entry_invalidates_its_refresh_token(
+async def test_removing_a_password_entry_makes_no_provider_request(
     hass: HomeAssistant,
 ) -> None:
+    """Nothing can be revoked, so nothing is attempted.
+
+    `invalidateRefreshToken` is rejected for an account user with
+    `AUTHORIZATION/KT-CT-1111`. Home Assistant deletes the entry data, so the local
+    copy of the credential goes with it and the refresh token expires at the provider.
+    """
     entry = _password_entry()
-    session = AsyncMock()
-    with (
-        patch(
-            "custom_components.octopus_energy_japan.oauth_metadata.require_oauth_metadata",
-            return_value=METADATA,
-        ),
-        patch(
-            "custom_components.octopus_energy_japan.password_auth.OejpPasswordAuthSession",
-            return_value=session,
-        ),
-    ):
-        await async_remove_entry(hass, entry)
-
-    session.async_revoke.assert_awaited_once()
-
-
-async def test_removing_a_password_entry_without_a_credential_revokes_nothing(
-    hass: HomeAssistant,
-) -> None:
-    entry = _password_entry(password=None)
     with patch(
         "custom_components.octopus_energy_japan.password_auth.OejpPasswordAuthSession",
-        Mock(side_effect=AssertionError("nothing to revoke with")),
-    ):
-        await async_remove_entry(hass, entry)
-
-
-async def test_removing_a_password_entry_tolerates_a_failed_invalidation(
-    hass: HomeAssistant,
-) -> None:
-    """Removal must complete even if the provider refuses, or the entry is stuck."""
-    entry = _password_entry()
-    session = AsyncMock()
-    session.async_revoke.side_effect = OejpQueryValidationError(
-        (GraphQLErrorDetail(message="refused", error_code="KT-CT-1113"),)
-    )
-    with (
-        patch(
-            "custom_components.octopus_energy_japan.oauth_metadata.require_oauth_metadata",
-            return_value=METADATA,
-        ),
-        patch(
-            "custom_components.octopus_energy_japan.password_auth.OejpPasswordAuthSession",
-            return_value=session,
-        ),
+        Mock(side_effect=AssertionError("removal must not build a session")),
     ):
         await async_remove_entry(hass, entry)

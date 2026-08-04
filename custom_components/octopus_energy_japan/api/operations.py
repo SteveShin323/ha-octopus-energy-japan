@@ -33,14 +33,6 @@ mutation ObtainToken($input: ObtainJSONWebTokenInput!) {
 }
 """
 
-INVALIDATE_REFRESH_TOKEN_MUTATION = """
-mutation InvalidateRefreshToken($input: InvalidateRefreshTokenInput!) {
-  invalidateRefreshToken(input: $input) {
-    token
-  }
-}
-"""
-
 VIEWER_ACCOUNTS_QUERY = """
 query ViewerAccounts {
   viewer {
@@ -86,25 +78,6 @@ async def async_renew_token(
     if not refresh_token.strip():
         raise ValueError("A refresh token is required")
     return await _async_obtain_token(client, {"refreshToken": refresh_token})
-
-
-async def async_invalidate_refresh_token(
-    client: OejpGraphQLClient,
-    refresh_token: str,
-) -> None:
-    """Invalidate one refresh token.
-
-    This revokes only the token supplied. A renewal does not rotate the refresh
-    token, so an account can hold several valid ones at once, and invalidating this
-    one leaves the others alive. Invalidating every token for the user is a
-    different, broader operation that this integration never performs.
-    """
-    if not refresh_token.strip():
-        raise ValueError("A refresh token is required")
-    await client.execute(
-        INVALIDATE_REFRESH_TOKEN_MUTATION,
-        {"input": {"refreshToken": refresh_token}},
-    )
 
 
 async def _async_obtain_token(

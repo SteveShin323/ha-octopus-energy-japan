@@ -265,58 +265,41 @@ async def test_a_concurrent_refresh_is_not_repeated(hass: HomeAssistant) -> None
     assert entry.data[CONF_ACCESS_TOKEN] == "access-5"
 
 
-async def test_revoke_invalidates_only_the_token_this_entry_holds(hass: HomeAssistant) -> None:
-    session, _ = _session(
-        hass,
-        {
-            CONF_ACCESS_TOKEN: "old",
-            CONF_REFRESH_TOKEN: "refresh-1",
-            CONF_REFRESH_EXPIRES_AT: (NOW + timedelta(days=3)).isoformat(),
-        },
-    )
-    with patch(
-        "custom_components.octopus_energy_japan.password_auth.async_invalidate_refresh_token",
-        AsyncMock(),
-    ) as invalidate:
-        await session.async_revoke()
-
-    invalidate.assert_awaited_once()
-    assert invalidate.await_args is not None
-    assert invalidate.await_args.args[1] == "refresh-1"
-
-
-@pytest.mark.parametrize(
-    "data",
-    [{}, {CONF_REFRESH_TOKEN: "refresh-1", CONF_REFRESH_EXPIRES_AT: "2026-08-04T11:59:59+00:00"}],
-    ids=["no token", "expired"],
-)
-async def test_revoke_does_nothing_without_a_usable_refresh_token(
+async def test_revoke_makes_no_request_because_the_provider_forbids_it(
     hass: HomeAssistant,
-    data: dict[str, Any],
 ) -> None:
-    session, _ = _session(hass, data)
-    with patch(
-        "custom_components.octopus_energy_japan.password_auth.async_invalidate_refresh_token",
-        AsyncMock(),
-    ) as invalidate:
-        await session.async_revoke()
+    """`invalidateRefreshToken` is not available to an account user.
 
-    invalidate.assert_not_awaited()
-
-
-async def test_revoke_tolerates_an_already_invalid_token(hass: HomeAssistant) -> None:
-    session, _ = _session(
-        hass,
-        {
+    Called as the signed-in user it returned `AUTHORIZATION/KT-CT-1111` on 2026-08-04,
+    and the provider documents `KT-CT-1111` and `KT-CT-1130` Unauthorized for that
+    mutation. Attempting it on every removal would be a request that can never
+    succeed, so revocation is a documented no-op and the token expires on its own.
+    """
+    client = AsyncMock()
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_ACCESS_TOKEN: "access-1",
             CONF_REFRESH_TOKEN: "refresh-1",
             CONF_REFRESH_EXPIRES_AT: (NOW + timedelta(days=3)).isoformat(),
         },
     )
-    with patch(
-        "custom_components.octopus_energy_japan.password_auth.async_invalidate_refresh_token",
-        AsyncMock(side_effect=REJECTED),
-    ):
-        await session.async_revoke()
+    entry.add_to_hass(hass)
+    session = OejpPasswordAuthSession(
+        hass,
+        entry,
+        client,
+        email=EMAIL,
+        password=PASSWORD,
+        scheme="Bearer",
+        now=lambda: NOW,
+    )
+
+    await session.async_revoke()
+
+    client.execute.assert_not_awaited()
+    # The stored token is left untouched; Home Assistant deletes the entry data.
+    assert entry.data[CONF_REFRESH_TOKEN] == "refresh-1"
 
 
 async def test_a_token_response_without_a_refresh_token_is_stored_as_such(
@@ -377,3 +360,22 @@ async def test_two_concurrent_first_requests_sign_in_once(hass: HomeAssistant) -
     assert headers == ["Bearer shared", "Bearer shared"]
     assert obtain.await_count == 1
     assert entry.data[CONF_ACCESS_TOKEN] == "shared"
+
+
+async def test_an_empty_stored_refresh_token_is_treated_as_absent(hass: HomeAssistant) -> None:
+    """A blank value must not reach the provider as if it were a token."""
+    session, _ = _session(hass, {CONF_ACCESS_TOKEN: "old", CONF_REFRESH_TOKEN: ""})
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.password_auth.async_renew_token",
+            AsyncMock(),
+        ) as renew,
+        patch(
+            "custom_components.octopus_energy_japan.password_auth.async_obtain_token",
+            AsyncMock(return_value=_token()),
+        ) as obtain,
+    ):
+        await session.async_refresh()
+
+    renew.assert_not_awaited()
+    obtain.assert_awaited_once()
