@@ -59,6 +59,23 @@ def test_expired_kraken_token_is_classified_as_authentication() -> None:
     assert isinstance(error, OejpAuthenticationError)
 
 
+def test_rejected_credential_is_classified_as_authentication_despite_validation_type() -> None:
+    """OEJP reports a wrong password as VALIDATION, not AUTHENTICATION."""
+    error = classify_graphql_errors(
+        [
+            {
+                "message": "Please make sure the credentials are correct",
+                "extensions": {
+                    "errorType": "VALIDATION",
+                    "errorCode": "KT-CT-1138",
+                },
+            }
+        ]
+    )
+    assert isinstance(error, OejpAuthenticationError)
+    assert not isinstance(error, OejpQueryValidationError)
+
+
 def test_authorization_is_not_misclassified_as_authentication() -> None:
     error = classify_graphql_errors(
         [{"message": "Not allowed", "extensions": {"errorType": "AUTHORIZATION"}}]

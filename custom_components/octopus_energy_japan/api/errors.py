@@ -11,7 +11,12 @@ _SAFE_ERROR_MESSAGE = "GraphQL operation failed"
 _SAFE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _AUTHENTICATION_TYPES = {"AUTHENTICATION", "UNAUTHENTICATED"}
 _AUTHORIZATION_TYPES = {"AUTHORIZATION", "FORBIDDEN", "PERMISSION"}
-_AUTHENTICATION_CODES = {"KT-CT-1120"}
+# OEJP reports a rejected credential as errorType VALIDATION rather than
+# AUTHENTICATION, so the code table has to win over the type. Observed on
+# 2026-08-04: obtainKrakenToken with a wrong password returned
+# VALIDATION/KT-CT-1138, and the same document with the correct password
+# returned a token.
+_AUTHENTICATION_CODES = {"KT-CT-1120", "KT-CT-1138"}
 _AUTHORIZATION_CODES = {"KT-CT-1112", "KT-CT-4177"}
 _RATE_LIMIT_CODES = {"KT-CT-1188", "KT-CT-1189", "KT-CT-1199"}
 
