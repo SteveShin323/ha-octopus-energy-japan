@@ -373,3 +373,35 @@ async def test_diagnostics_never_contain_a_stored_credential(hass: HomeAssistant
     serialised = json.dumps(report, default=str)
     for secret in (email, password, "legacy-access", "legacy-refresh"):
         assert secret not in serialised
+
+
+async def test_diagnostics_do_not_carry_the_device_serial_numbers(
+    hass: HomeAssistant,
+) -> None:
+    """The device page shows the account number and SPIN; the download must not.
+
+    Those two exist so a customer can identify their own supply point in their own
+    Home Assistant. The diagnostics file is meant to be attachable to a public issue
+    without reading it, so the same values must not travel in it.
+    """
+    from custom_components.octopus_energy_japan.runtime import (
+        async_project_discovered_devices,
+    )
+    from homeassistant.helpers import device_registry as dr
+
+    entry = _entry(hass)
+    runtime = entry.runtime_data
+    assert isinstance(runtime, OejpRuntimeData)
+    async_project_discovered_devices(hass, entry, runtime)
+
+    serials = {
+        device.serial_number
+        for device in dr.async_get(hass).devices.values()
+        if device.serial_number
+    }
+    assert serials, "the device page must carry an identifier for this test to mean anything"
+
+    report = json.dumps(await async_get_config_entry_diagnostics(hass, entry), default=str)
+
+    for serial in serials:
+        assert serial not in report

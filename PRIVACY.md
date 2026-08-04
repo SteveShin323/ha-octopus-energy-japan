@@ -53,9 +53,19 @@ it is stored, as described above.
 
 ## What never appears in the user interface
 
-Raw provider identifiers are used only in private storage and in API calls. They do
-not appear in entity names, entity IDs, unique IDs, device names, device
-identifiers, states, or attributes.
+Raw provider identifiers do not appear in entity names, entity IDs, unique IDs, device
+names, device identifiers, states, or attributes. Those are the places a value travels
+without you choosing to show it: a screenshot, an automation you paste into a forum, a
+state history export.
+
+**One deliberate exception.** Each device page shows a serial number — the account
+number on an account, and the supply-point number (供給地点特定番号) on a supply point.
+Without it you could not tell which of two supply points a device is, which is the
+question the ordinal names cannot answer. It is a single field on a page you open
+yourself, it is never part of an entity ID or a state, and it is **not** in the
+diagnostics download.
+
+Addresses are not shown anywhere, because the integration never asks OEJP for them.
 
 Devices and statistics are addressed by an HMAC derived from an
 installation-local secret plus the provider identifier. The result is stable inside
