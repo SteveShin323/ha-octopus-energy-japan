@@ -7,8 +7,8 @@ rules:
   brands:
     status: todo
     comment: >-
-      Icon and logo exist under brand/. They must be submitted to
-      home-assistant/brands, which cannot be done before the domain is public.
+      brand/ holds the six images home-assistant/brands requires, at the sizes it
+      accepts, pinned by a test. Submitting them needs the domain to be public first.
   common-modules: done
   config-flow: done
   config-flow-test-coverage: done

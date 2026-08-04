@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../brand/dark_logo.png">
+  <img src="../../brand/logo.png" alt="Octopus Energy Japan" height="72">
+</picture>
+
 # Octopus Energy Japan 連携（Home Assistant）
 
 Octopus Energy Japan の電気使用量を Home Assistant に取り込む、読み取り専用のカスタム

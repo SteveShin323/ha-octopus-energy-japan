@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="brand/dark_logo.png">
+  <img src="brand/logo.png" alt="Octopus Energy Japan" height="72">
+</picture>
+
 # Octopus Energy Japan for Home Assistant
 
 [![Validate](https://github.com/SteveShin323/ha-octopus-energy-japan/actions/workflows/validate.yml/badge.svg?branch=main&event=push)](https://github.com/SteveShin323/ha-octopus-energy-japan/actions/workflows/validate.yml)

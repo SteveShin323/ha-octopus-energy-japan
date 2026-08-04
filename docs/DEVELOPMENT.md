@@ -94,6 +94,11 @@ No release is tagged unless:
   calls something planned when it is implemented blocks the release; and
 - `CHANGELOG.md` has an entry for the version.
 
+The integration's icon and logo live in [`brand/`](../brand/), sized for
+`home-assistant/brands` and pinned by a test. Submitting them there is the one
+outstanding `quality_scale.yaml` rule and needs this repository to be public first; the
+directory's own README has the steps.
+
 Tag `vMAJOR.MINOR.PATCH` on `main` and publish a GitHub release whose notes are the
 changelog entry. HACS installs the `custom_components/octopus_energy_japan` directory
 from the tag, so the manifest version and the tag must match.
