@@ -128,15 +128,15 @@ text such as a transaction title is parsed away rather than exposed.
 Raw account numbers never appear in entity IDs, unique IDs, device identifiers,
 or state. The account device is addressed by installation-local HMAC identity.
 
-### Monetary unit assumption
+### Monetary unit
 
 Monetary values are surfaced exactly as OEJP reports them, with the unit `JPY`
-and no scaling. This assumes the provider denominates these fields in whole yen.
-Japanese yen has no smaller circulating unit, which makes the assumption
-plausible, but it is **not confirmed** by provider metadata or a probe. If OEJP
-reports a sub-yen minor unit, every monetary entity is wrong by a constant
-factor. The assumption is recorded in `const.py` beside the unit and must be
-verified before a public release.
+and no scaling. This was **confirmed** on 2026-08-04 by reconciling provider cost
+against a real invoice for the same supply point: the implied unit price fell
+inside the per-kWh band the invoice itself spans, while a sub-yen minor unit would
+have been two orders of magnitude smaller. Integer fields such as `balance` and
+`grossTotal` are whole yen for the same reason, since JPY has no circulating
+sub-unit.
 
 ## 6. Provider cost verification gate
 
