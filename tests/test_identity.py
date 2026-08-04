@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -145,3 +146,22 @@ def test_login_identity_requires_issuer_and_subject() -> None:
         except ValueError:
             continue
         raise AssertionError("Expected ValueError")
+
+
+def test_login_identity_is_documented_as_the_viewer_id_not_the_oidc_subject() -> None:
+    """ADR 0002: identity comes from `viewer { id }`, never from an ID token claim.
+
+    The distinction matters because it is why the integration is unaffected by the
+    provider's ID-token signing algorithm.
+    """
+    source = Path("custom_components/octopus_energy_japan/config_flow.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "async_get_viewer_identity" in source
+    # Nothing anywhere in the component may decode or verify a JWT for identity.
+    component = Path("custom_components/octopus_energy_japan")
+    for module in component.rglob("*.py"):
+        text = module.read_text(encoding="utf-8")
+        assert "id_token" not in text or module.name == "device_auth.py", module
+        assert "jwt.decode" not in text, module

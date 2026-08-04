@@ -21,10 +21,11 @@ Device authorization remains implemented only at the transport and session
 boundary. It is not exposed in the setup UI because the discovery document
 advertises no device-authorization endpoint.
 
-## Requested application
+## Submitted application request
 
-The project maintainer requested a read-only public OAuth application from
-Octopus Energy Japan for this repository.
+A read-only public OAuth application has been requested from Octopus Energy Japan
+for this repository. The request has been sent; what follows is what it contains,
+so that a reply can be checked against it.
 
 Requested primary grant:
 
@@ -40,7 +41,43 @@ Requested additional grant:
 The request describes 30-minute consumption polling, slower discovery,
 contract/tariff/billing cadences, daily reconciliation, exponential backoff,
 local-only tokens and statistics, no external telemetry, and redaction of
-customer identifiers.
+customer identifiers. It enumerates the read capabilities the integration needs
+in prose and asks OEJP to attach scopes and GraphQL permissions accordingly.
+
+It asks three questions explicitly:
+
+1. may the issued public client ID be published in this repository and shared
+   across many Home Assistant installations;
+2. are both an access token and a refresh token issued under Authorization Code
+   with PKCE, and what is the refresh token's lifetime and rotation behavior; and
+3. is `Bearer` the correct Authorization header scheme for an OAuth access token
+   on the GraphQL API.
+
+Question 3 is not redundant with the observation recorded below. That observation
+used a legacy email/password token; no OAuth access token has ever been sent to
+this API, because none exists yet.
+
+Question 1 also carries the public-client question without naming it. A client ID
+cannot be both publishable to everyone and paired with a mandatory secret, so a
+plain "yes" settles public-client support even if the reply never mentions
+`none`. A reply that grants publication *and* issues a secret is
+self-contradictory and must be treated as unanswered.
+
+### One redirect URI serves every installation
+
+Only the shared `https://my.home-assistant.io/redirect/oauth` was submitted. That
+address is operated by the Home Assistant project and forwards the authorization
+response to whichever local instance began the flow, which is how one public
+client can serve installations that have no public address of their own.
+
+This was not explained in the submitted request. If OEJP questions why a
+third-party domain is the redirect target, that is the explanation to send, not a
+change of approach: registering per-installation URLs is not possible for software
+distributed to arbitrary private networks.
+
+The integration now refuses to start sign-in when the `my` integration is not
+loaded, because Home Assistant would otherwise build this instance's own callback
+URL, which OEJP has not registered.
 
 ## Acknowledgement
 
@@ -81,15 +118,16 @@ below is inferred from another Kraken territory.
 | UserInfo endpoint | `https://auth.oejp-kraken.energy/userinfo/` | discovery document |
 | JWKS URI | `https://auth.oejp-kraken.energy/.well-known/jwks.json` | discovery document |
 | Authorization Code response type | supported (`code`) | discovery document |
-| Required OAuth scopes | all fourteen requested scopes are advertised | discovery document |
+| Required OAuth scopes advertised by the server | all fourteen appear in `scopes_supported` | discovery document |
 | Available claims | `sub` only | discovery document |
-| GraphQL Authorization header scheme | `Bearer` | live API: `Bearer`, `JWT`, and a bare token were all accepted; a missing header returned `KT-CT-1112` |
+| Required OAuth scopes granted to this application | Pending | advertised is not granted, see below |
+| GraphQL Authorization header scheme | `Bearer` accepted with a legacy token | live API: `Bearer`, `JWT`, and a bare token were all accepted; a missing header returned `KT-CT-1112`. Never tested with an OAuth access token |
 | Device authorization endpoint | **not advertised** | discovery document |
-| Shared public client ID may be published | Pending | requires a written reply |
-| Public client without a secret | **contradicted, see below** | discovery document |
-| PKCE enabled | **not advertised, see below** | discovery document |
-| Same or separate client ID per grant | Pending | requires a written reply |
-| Registered redirect URI | Pending | requires the issued application |
+| Shared public client ID may be published | Pending | asked; requires a written reply |
+| Public client without a secret | **not advertised, see below** | discovery document; implied by a "yes" to publication |
+| PKCE enabled | **not advertised, see below** | discovery document; requested as required specification |
+| Same or separate client ID per grant | Pending | asked; requires a written reply |
+| Registered redirect URI | Pending | requested as `https://my.home-assistant.io/redirect/oauth` |
 | Access-token lifetime | Pending | requires the issued application |
 | Refresh-token lifetime | Pending | requires the issued application |
 | Refresh-token rotation behavior | Pending | requires the issued application |
@@ -110,23 +148,39 @@ support that assumption yet:
    advertised. Many servers support PKCE without advertising it, so this is not
    proof of absence, but it is not confirmation either.
 
-`id_token_signing_alg_values_supported` also offers `HS256`, which a public client
-cannot verify because it has no shared secret. Only `RS256` is usable, and the
-JWKS URI exists, so that part is workable.
+`id_token_signing_alg_values_supported` offers `HS256`, which a public client could
+not verify because it holds no shared secret. That does **not** need to be asked:
+the integration never parses or verifies an ID token. Login identity comes from the
+API with `viewer { id }`, so the signing algorithm is irrelevant to it. See
+[ADR 0002](adr/0002-login-scoped-config-entry.md).
 
-These must be asked explicitly, because a mandatory client secret cannot be
-satisfied by a HACS integration:
+Both were submitted with the application request, as required specification rather
+than as questions in their own right: it asks for a public client with no secret in
+Home Assistant or the repository, and for PKCE S256. Neither still needs asking.
+Both still need **confirming in the reply**, because a mandatory client secret
+cannot be satisfied by a HACS integration, and because silence on PKCE is not
+agreement.
 
-- can the application be registered as a public client, so the token endpoint
-  accepts `none` for client authentication;
-- is PKCE `S256` accepted on the authorization and token endpoints even though it
-  is not advertised; and
-- is the Device Authorization Grant available at all, given no device endpoint is
-  advertised.
+What to check when a reply arrives, in order:
 
-Until the first two are answered in writing, the integration ships the published
-endpoints and requests PKCE, but a user still cannot connect because no client ID
-exists.
+1. **Is a client secret issued or required?** If yes, the reply contradicts
+   question 1 about publication and is not an answer; see the decision rules.
+2. **Do the granted scopes match `READ_ONLY_SCOPES` in `oauth_metadata.py`,
+   string for string?** The submitted request describes capabilities in prose,
+   while the integration sends fourteen exact scope strings in the authorize
+   request. An application provisioned with different names, a coarser grant, or
+   one scope omitted fails with `invalid_scope` before the user ever sees a
+   consent screen, and nothing in the repository would explain why. Reconcile the
+   granted set against that constant before the first connection attempt.
+3. **Is PKCE `S256` accepted** on the authorization and token endpoints, even
+   though it is unadvertised.
+4. **Is the Device Authorization Grant available**, given no device endpoint is
+   advertised. This one is optional: device authorization is implemented only at
+   the transport boundary and is not exposed in the setup UI, so a refusal costs
+   the project nothing.
+
+Until 1 and 3 are settled, the integration ships the published endpoints and
+requests PKCE, but a user still cannot connect because no client ID exists.
 
 ## Decision rules
 

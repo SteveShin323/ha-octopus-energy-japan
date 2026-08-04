@@ -23,7 +23,12 @@ Energy Japan issues an OAuth client ID; see
 - privacy-preserving diagnostics and four informational repair issues;
 - icons for every entity, and English and Japanese translations;
 - English and Japanese user documentation, a privacy statement, and a release
-  process.
+  process;
+- a setup refusal when My Home Assistant is not enabled, because sign-in returns
+  through `my.home-assistant.io`, the only redirect address submitted to OEJP for
+  registration. Without it Home Assistant builds the instance's own callback URL
+  and the user would meet the provider's unregistered-redirect error part-way
+  through sign-in, with nothing naming this integration as the cause.
 
 ### Provider behaviour confirmed against a real account
 
