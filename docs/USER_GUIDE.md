@@ -53,13 +53,13 @@ Setup opens by asking how you want to sign in.
 
 ## Choosing a sign-in method
 
-| | Octopus Energy Japan account | Email and password |
-|---|---|---|
-| Available now | no, OEJP has issued no client ID | **yes** |
-| Where you sign in | on the OEJP website | in Home Assistant |
-| Your password | never requested or stored | **stored in Home Assistant** |
-| Needs My Home Assistant | yes | no |
-| Expected lifetime | the method OEJP is moving to | being withdrawn, see below |
+| | Octopus Energy Japan account | Device code | Email and password |
+|---|---|---|---|
+| Available now | no, OEJP has issued no client ID | no, same client ID | **yes** |
+| Where you sign in | on the OEJP website | on the OEJP website, from any device | in Home Assistant |
+| Your password | never requested or stored | never requested or stored | **stored in Home Assistant** |
+| Needs My Home Assistant | yes | no | no |
+| Expected lifetime | the method OEJP is moving to | the same, no redirect needed | being withdrawn, see below |
 
 **Octopus Energy Japan account** is the method to prefer once it works. Sign-in
 happens on the OEJP website, in your browser, and the integration never asks for your
@@ -67,6 +67,14 @@ password or sees it. It needs a public OAuth client ID registered under **Settin
 Devices & services → Application credentials**, and no such ID exists yet. Choosing it
 today stops with a message telling you to add a credential first, which is the correct
 behaviour when there is none to add.
+
+**Device code** is the same OAuth authorization as the account method, obtained
+without a browser redirect. Home Assistant shows a short code, you open the OEJP page
+on any device and approve, and setup continues on its own. Because there is no
+redirect it needs no My Home Assistant and works on an instance with no public
+address, which makes it the better of the two OAuth methods for most installations.
+It needs the same client ID, so it is not available yet either. The endpoint itself is
+live: OEJP documents `/device-authorization/` and it answers.
 
 **Email and password** works today. It is the provider's older login, and OEJP has
 already removed these fields from its published API schema while continuing to accept
@@ -80,10 +88,10 @@ in [`../PRIVACY.md`](../PRIVACY.md).
 
 ### Switching later, without losing history
 
-When a client ID exists, open the integration's menu, choose to reconnect, and pick the
-account method. The entry is promoted in place: your readings and Energy Dashboard
-statistics are kept, and **the stored password is deleted**. You do not delete and
-re-add.
+When a client ID exists, open the integration's menu, choose to reconnect, and pick
+the account or device-code method. The entry is promoted in place: your readings and
+Energy Dashboard statistics are kept, and **the stored password is deleted**. You do
+not delete and re-add. The same route moves an entry between any two methods.
 
 ### My Home Assistant, for the account method only
 
@@ -103,7 +111,7 @@ account you sign in with.
 | Parameter | Where | Required | Meaning |
 |---|---|---|---|
 | Email and password | setup → **Email and password** | for that method | your OEJP sign-in, stored so the integration can sign in again |
-| OAuth client ID | Settings → Devices & services → **Application credentials** | for the account method | the public client ID issued by OEJP. Not a secret. Leave the secret field empty |
+| OAuth client ID | Settings → Devices & services → **Application credentials** | for the account and device-code methods | the public client ID issued by OEJP. Not a secret. Leave the secret field empty |
 | Enabled historical resources | integration → **Configure** | no | which ended accounts or supply points to keep reporting |
 
 Active accounts and supply points are always enabled and cannot be turned off, so a
