@@ -53,12 +53,15 @@ from custom_components.octopus_energy_japan.const import (
     DOMAIN,
 )
 from custom_components.octopus_energy_japan.coordinator import (
+    _TRIAGE_EXCEPTIONS,
+    _TRIAGE_RULES,
     DirectionErrorClass,
     DirectionSyncStatus,
     OejpDataUpdateCoordinator,
     _previous_local_month_start,
     _StatisticsPending,
     _SupplyPointRuntime,
+    _triage,
     enabled_supply_points,
     entity_directions,
     iter_supply_points,
@@ -1817,3 +1820,139 @@ async def test_a_month_pair_roll_supersedes_the_previous_initial_obligations(
     assert any(
         generation.obligation.reason in initial_reasons for generation in rolled.generations
     ), "the rolled pair should have initial windows of its own"
+
+
+async def test_a_marker_that_arrives_during_projection_is_not_dropped(
+    hass: HomeAssistant,
+) -> None:
+    """This is the invariant that makes two lock disciplines safe, so it is pinned here.
+
+    `_async_publish_pending_statistics` runs under the mutation lock in the background
+    worker but outside it in the poll, and the worker only re-checks `_poll_pending` before
+    its network call, not after. A ledger change can therefore be marked dirty while a
+    projection for the same supply point is already awaiting.
+
+    Clearing the marker unconditionally after projection would discard that change, and
+    those statistics would stay stale until something else happened to dirty the same supply
+    point. The re-check before popping is what prevents it.
+    """
+    coordinator = _coordinator(hass)
+    point = _point()
+    _install_state(coordinator, point, router=AsyncMock())
+    key = (ACCOUNT_ID, SUPPLY_POINT_ID)
+    projector = AsyncMock()
+    coordinator._statistics_projector = projector
+    coordinator._statistics_pending[key] = _StatisticsPending(NOW)
+
+    arrived = _StatisticsPending(NOW - timedelta(hours=3))
+
+    async def _project_and_dirty_again(*_args: object, **_kwargs: object) -> None:
+        coordinator._statistics_pending[key] = arrived
+
+    projector.async_project_supply_point.side_effect = _project_and_dirty_again
+
+    await coordinator._async_publish_pending_statistics(NOW)
+
+    assert coordinator._statistics_pending[key] is arrived
+
+
+async def test_an_unchanged_marker_is_cleared_after_projection(
+    hass: HomeAssistant,
+) -> None:
+    """The other side of the re-check: nothing new arrived, so the marker must not persist.
+
+    A marker that survived its own projection would reproject the same supply point on every
+    subsequent poll, forever.
+    """
+    coordinator = _coordinator(hass)
+    _install_state(coordinator, _point(), router=AsyncMock())
+    key = (ACCOUNT_ID, SUPPLY_POINT_ID)
+    coordinator._statistics_projector = AsyncMock()
+    coordinator._statistics_pending[key] = _StatisticsPending(NOW)
+
+    await coordinator._async_publish_pending_statistics(NOW)
+
+    assert key not in coordinator._statistics_pending
+
+
+def test_the_triage_table_is_ordered_most_specific_first() -> None:
+    """`isinstance` takes the first match, so a superclass placed early shadows the rest.
+
+    Two orderings are load-bearing and were previously implicit in the order of `except`
+    clauses, where nothing checked them: `OejpNonRetryableHttpError` is an
+    `OejpTransportError` but must not be recorded as transient, and `OejpError` is the
+    catch-all so nothing may follow it. `ValueError` is outside the provider hierarchy
+    entirely, which the check has to tolerate.
+    """
+    for index, rule in enumerate(_TRIAGE_RULES):
+        for later in _TRIAGE_RULES[index + 1 :]:
+            assert not issubclass(later.exception, rule.exception), (
+                f"{later.exception.__name__} is a subclass of {rule.exception.__name__} "
+                f"and would never be reached"
+            )
+
+
+def test_the_triage_table_describes_every_exception_it_catches() -> None:
+    """The caught set is derived from the table, so drift is structurally impossible.
+
+    Asserting it anyway keeps the derivation from being replaced by a hand-written tuple.
+    """
+    assert set(_TRIAGE_EXCEPTIONS) == {rule.exception for rule in _TRIAGE_RULES}
+
+
+def test_authentication_is_not_in_the_triage_table() -> None:
+    """It is re-raised before the table is consulted.
+
+    `OejpAuthenticationError` is an `OejpError`, so the catch-all entry would classify it as
+    `unavailable` and swallow the reauthentication Home Assistant owns.
+    """
+    assert OejpAuthenticationError not in _TRIAGE_EXCEPTIONS
+    assert not any(rule.exception is OejpAuthenticationError for rule in _TRIAGE_RULES)
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_class", "scope", "queryable", "interrupts"),
+    [
+        (
+            OejpNonRetryableHttpError(400),
+            DirectionErrorClass.NON_RETRYABLE_HTTP,
+            "direction",
+            False,
+            False,
+        ),
+        (OejpRateLimitError(()), DirectionErrorClass.RATE_LIMIT, "direction", None, True),
+        (OejpTransportError("offline"), DirectionErrorClass.TRANSIENT, "direction", None, True),
+        (OejpAuthorizationError(()), DirectionErrorClass.AUTHORIZATION, "direction", False, False),
+        (OejpQueryValidationError(()), DirectionErrorClass.VALIDATION, "direction", False, False),
+        (OejpNotFoundError(()), DirectionErrorClass.NOT_FOUND, "point", False, False),
+        (
+            OejpInvalidResponseError("bad"),
+            DirectionErrorClass.INVALID_RESPONSE,
+            "point",
+            False,
+            False,
+        ),
+        (LedgerError("ledger"), DirectionErrorClass.LEDGER, "point", False, False),
+        (ValueError("invalid"), DirectionErrorClass.INVALID_RESPONSE, "point", False, False),
+        (OejpError("unknown"), DirectionErrorClass.UNAVAILABLE, "direction", False, False),
+    ],
+    ids=lambda value: type(value).__name__ if isinstance(value, BaseException) else str(value),
+)
+def test_each_exception_is_triaged_the_way_the_ladder_did(
+    error: BaseException,
+    expected_class: DirectionErrorClass,
+    scope: str,
+    queryable: bool | None,
+    interrupts: bool,
+) -> None:
+    """The table replaced nine `except` clauses, so every one of them is pinned here.
+
+    `queryable` is the value that matters most: it drives whether the direction is reported
+    stale, so a wrong entry would change reported freshness without failing anything else.
+    """
+    rule = _triage(error)
+
+    assert rule.error_class is expected_class
+    assert rule.scope.value == scope
+    assert rule.queryable is queryable
+    assert rule.interrupts_poll is interrupts

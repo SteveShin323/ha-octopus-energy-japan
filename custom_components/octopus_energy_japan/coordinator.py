@@ -9,6 +9,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from typing import Final
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -115,6 +116,119 @@ class DirectionErrorClass(StrEnum):
     RATE_LIMIT = "rate_limit"
     TRANSIENT = "transient"
     LEDGER = "ledger"
+
+
+class _FailureScope(StrEnum):
+    """Whether a failure condemns one direction or the whole supply point."""
+
+    DIRECTION = "direction"
+    POINT = "point"
+
+
+@dataclass(frozen=True, slots=True)
+class _TriageRule:
+    """How one exception class is recorded when a reading attempt fails."""
+
+    exception: type[BaseException]
+    error_class: DirectionErrorClass
+    scope: _FailureScope
+    # `None` leaves queryability as it was, which also marks the direction stale. `False`
+    # says the provider answered and refused, so the direction is not worth asking again
+    # this poll.
+    queryable: bool | None
+    # A shared fault: the remaining attempts would fail the same way, so they are recorded
+    # without being tried and the poll ends.
+    interrupts_poll: bool = False
+
+
+# Most specific first, because `isinstance` takes the first match. Two orderings are
+# load-bearing: `OejpNonRetryableHttpError` is an `OejpTransportError` but must not be
+# treated as transient, and `OejpError` is the catch-all so nothing may follow it.
+# `test_coordinator.py` asserts the ordering rather than leaving it to source order.
+#
+# `OejpAuthenticationError` is deliberately absent. It is re-raised before this table is
+# consulted, because reauthentication is Home Assistant's own flow and not a direction
+# failure — and it would otherwise be caught by the `OejpError` entry.
+_TRIAGE_RULES: Final = (
+    _TriageRule(
+        OejpNonRetryableHttpError,
+        DirectionErrorClass.NON_RETRYABLE_HTTP,
+        _FailureScope.DIRECTION,
+        queryable=False,
+    ),
+    _TriageRule(
+        OejpRateLimitError,
+        DirectionErrorClass.RATE_LIMIT,
+        _FailureScope.DIRECTION,
+        queryable=None,
+        interrupts_poll=True,
+    ),
+    _TriageRule(
+        OejpTransportError,
+        DirectionErrorClass.TRANSIENT,
+        _FailureScope.DIRECTION,
+        queryable=None,
+        interrupts_poll=True,
+    ),
+    _TriageRule(
+        OejpAuthorizationError,
+        DirectionErrorClass.AUTHORIZATION,
+        _FailureScope.DIRECTION,
+        queryable=False,
+    ),
+    _TriageRule(
+        OejpQueryValidationError,
+        DirectionErrorClass.VALIDATION,
+        _FailureScope.DIRECTION,
+        queryable=False,
+    ),
+    _TriageRule(
+        OejpNotFoundError,
+        DirectionErrorClass.NOT_FOUND,
+        _FailureScope.POINT,
+        queryable=False,
+    ),
+    _TriageRule(
+        OejpInvalidResponseError,
+        DirectionErrorClass.INVALID_RESPONSE,
+        _FailureScope.POINT,
+        queryable=False,
+    ),
+    _TriageRule(
+        LedgerError,
+        DirectionErrorClass.LEDGER,
+        _FailureScope.POINT,
+        queryable=False,
+    ),
+    _TriageRule(
+        ValueError,
+        DirectionErrorClass.INVALID_RESPONSE,
+        _FailureScope.POINT,
+        queryable=False,
+    ),
+    _TriageRule(
+        OejpError,
+        DirectionErrorClass.UNAVAILABLE,
+        _FailureScope.DIRECTION,
+        queryable=False,
+    ),
+)
+
+# The caught set is derived from the table so the two cannot drift apart: an exception the
+# table describes is always caught, and one it does not describe is never swallowed.
+_TRIAGE_EXCEPTIONS: Final = tuple(rule.exception for rule in _TRIAGE_RULES)
+
+
+def _triage(error: BaseException) -> _TriageRule:
+    """Return how a failed reading attempt is recorded."""
+    for rule in _TRIAGE_RULES:
+        if isinstance(error, rule.exception):
+            return rule
+    # Unreachable: the caught set is derived from this table. It guards against someone
+    # replacing that derivation with a hand-written tuple.
+    raise AssertionError(  # pragma: no cover - _TRIAGE_EXCEPTIONS makes this unreachable
+        "A caught exception must be described by the triage table"
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -358,7 +472,11 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             corrections: list[CorrectionResult] = []
             successful_directions: set[tuple[str, str, ReadingDirection]] = set()
             point_failures: dict[SupplyPointKey, DirectionErrorClass] = {}
-            shared_transient: OejpError | None = None
+            # Widened from `OejpError` because the triage table's caught set is typed by
+            # the table, which also carries `ValueError`. Only the two interrupting rules
+            # assign this, and both are `OejpError`, but stating that here would need a
+            # narrowing branch that can never be false.
+            shared_transient: BaseException | None = None
             for index, (state, direction, window) in enumerate(attempts):
                 key = self._direction_key(state, direction)
                 self._ensure_direction_status(state, direction)
@@ -378,88 +496,35 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                         window,
                     )
                 except OejpAuthenticationError:
+                    # Reauthentication is Home Assistant's own flow, never a direction
+                    # failure. This must precede the table, whose catch-all would take it.
                     raise
-                except (OejpRateLimitError, OejpTransportError) as err:
-                    if isinstance(err, OejpNonRetryableHttpError):
+                except _TRIAGE_EXCEPTIONS as err:
+                    rule = _triage(err)
+                    if rule.scope is _FailureScope.POINT:
+                        # The supply point answered in a way that condemns every direction
+                        # on it, so the remaining ones are not attempted.
+                        point_failures[point_key] = rule.error_class
+                        self._record_point_failure(state, rule.error_class)
+                    else:
                         self._record_direction_failure(
                             state,
                             direction,
-                            DirectionErrorClass.NON_RETRYABLE_HTTP,
-                            queryable=False,
+                            rule.error_class,
+                            queryable=rule.queryable,
                         )
+                    if not rule.interrupts_poll:
                         continue
-                    self._record_direction_failure(
-                        state,
-                        direction,
-                        error_class := (
-                            DirectionErrorClass.RATE_LIMIT
-                            if isinstance(err, OejpRateLimitError)
-                            else DirectionErrorClass.TRANSIENT
-                        ),
-                        queryable=None,
-                    )
                     shared_transient = err
                     for pending_state, pending_direction, _pending_window in attempts[index + 1 :]:
                         self._ensure_direction_status(pending_state, pending_direction)
                         self._record_direction_failure(
                             pending_state,
                             pending_direction,
-                            error_class,
-                            queryable=None,
+                            rule.error_class,
+                            queryable=rule.queryable,
                         )
                     break
-                except OejpAuthorizationError:
-                    self._record_direction_failure(
-                        state,
-                        direction,
-                        DirectionErrorClass.AUTHORIZATION,
-                        queryable=False,
-                    )
-                    continue
-                except OejpQueryValidationError:
-                    self._record_direction_failure(
-                        state,
-                        direction,
-                        DirectionErrorClass.VALIDATION,
-                        queryable=False,
-                    )
-                    continue
-                except OejpNotFoundError:
-                    point_failures[point_key] = DirectionErrorClass.NOT_FOUND
-                    self._record_point_failure(
-                        state,
-                        DirectionErrorClass.NOT_FOUND,
-                    )
-                    continue
-                except OejpInvalidResponseError:
-                    point_failures[point_key] = DirectionErrorClass.INVALID_RESPONSE
-                    self._record_point_failure(
-                        state,
-                        DirectionErrorClass.INVALID_RESPONSE,
-                    )
-                    continue
-                except LedgerError:
-                    point_failures[point_key] = DirectionErrorClass.LEDGER
-                    self._record_point_failure(
-                        state,
-                        DirectionErrorClass.LEDGER,
-                    )
-                    continue
-                except ValueError:
-                    point_failures[point_key] = DirectionErrorClass.INVALID_RESPONSE
-                    self._record_point_failure(
-                        state,
-                        DirectionErrorClass.INVALID_RESPONSE,
-                    )
-                    continue
-                except OejpError:
-                    self._record_direction_failure(
-                        state,
-                        direction,
-                        DirectionErrorClass.UNAVAILABLE,
-                        queryable=False,
-                    )
-                    continue
                 else:
                     corrections.append(result)
                     successful_directions.add(key)
