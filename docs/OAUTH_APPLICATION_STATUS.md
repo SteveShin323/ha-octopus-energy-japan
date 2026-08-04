@@ -110,9 +110,11 @@ support that assumption yet:
    advertised. Many servers support PKCE without advertising it, so this is not
    proof of absence, but it is not confirmation either.
 
-`id_token_signing_alg_values_supported` also offers `HS256`, which a public client
-cannot verify because it has no shared secret. Only `RS256` is usable, and the
-JWKS URI exists, so that part is workable.
+`id_token_signing_alg_values_supported` offers `HS256`, which a public client could
+not verify because it holds no shared secret. That does **not** need to be asked:
+the integration never parses or verifies an ID token. Login identity comes from the
+API with `viewer { id }`, so the signing algorithm is irrelevant to it. See
+[ADR 0002](adr/0002-login-scoped-config-entry.md).
 
 These must be asked explicitly, because a mandatory client secret cannot be
 satisfied by a HACS integration:

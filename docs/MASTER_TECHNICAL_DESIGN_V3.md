@@ -136,8 +136,16 @@ One OAuth login identity owns one config entry and all resources visible to it.
 The config-entry unique ID is:
 
 ```text
-HMAC(local installation secret, issuer + OIDC subject)
+HMAC(local installation secret, issuer + authenticated viewer ID)
 ```
+
+The viewer ID is read from the API with `viewer { id }` using the freshly issued
+access token, **not** from the `sub` claim of an ID token. That is deliberate: the
+integration never parses or verifies a JWT, so it does not depend on which
+signing algorithm the provider chose, and it works whether or not an ID token is
+returned at all. It is also the identity the API itself resolves the token to,
+which is the property that actually matters for deciding which entry owns which
+account.
 
 Account and supply-point registry identities use installation-local HMACs over
 provider identifiers. They are stable inside one installation and not
