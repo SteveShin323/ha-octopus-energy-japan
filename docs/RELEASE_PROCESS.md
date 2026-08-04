@@ -55,9 +55,25 @@ No release is tagged unless all of these hold.
 
 Run against a real OEJP account before tagging:
 
-- first OAuth connection, then access-token refresh, then refresh-token rotation;
-- a configuration without `my` loaded aborts with `my_home_assistant_required`
-  rather than reaching a provider error page;
+Cover every sign-in method, not only the one being developed at the time:
+
+- **email and password**: first sign-in, renewal from the refresh token, and a full
+  re-login once the refresh token is past its seven days. The provider does not extend
+  that expiry on renewal, so the re-login path is reachable in normal use and must be
+  exercised;
+- a wrong password reaches reauthentication rather than retrying, and reauthentication
+  with the corrected password recovers the entry;
+- **device code**: sign-in end to end, then that its token refreshes through the same
+  OAuth session as the authorization-code method;
+- an abandoned device flow stops polling;
+- **authorization code**: first OAuth connection, then access-token refresh, then
+  refresh-token rotation;
+- a configuration without `my` loaded aborts with `my_home_assistant_required` on the
+  authorization-code method, and the other two methods work without it;
+- promoting a password entry to either OAuth method keeps its readings and Energy
+  Dashboard statistics and leaves no stored password;
+- removing a password entry leaves no local credential. It does **not** revoke at the
+  provider, which OEJP forbids for an account user, so do not test for that;
 - Home Assistant restart recovery;
 - multiple accounts and multiple supply points;
 - generic and legacy reading providers, including the fallback path;
