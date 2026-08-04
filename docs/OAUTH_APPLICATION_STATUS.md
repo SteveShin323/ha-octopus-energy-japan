@@ -1,7 +1,7 @@
 # OEJP OAuth application status
 
-Status: waiting for OEJP response
-Last updated: 2026-07-29
+Status: acknowledged by OEJP; application and permission model still pending
+Last updated: 2026-08-04
 
 ## Implementation status
 
@@ -37,6 +37,19 @@ The request describes 30-minute consumption polling, slower discovery,
 contract/tariff/billing cadences, daily reconciliation, exponential backoff,
 local-only tokens and statistics, no external telemetry, and redaction of
 customer identifiers.
+
+## Acknowledgement
+
+OEJP has acknowledged the request and reported that the responsible team is
+handling it. No application, client ID, endpoint, scope, or permission decision
+has been received, so every row of the response record below remains pending and
+the implementation continues to fail closed.
+
+Until the application arrives, live contract investigation uses the isolated
+local probe with the deprecated Kraken email/password login, as described in
+[`FIXTURE_REDACTION.md`](FIXTURE_REDACTION.md). That path exists only in
+`scripts/oejp_probe.py`. The Home Assistant config flow and runtime cannot use
+it, and no release depends on it.
 
 ## Release blocker
 

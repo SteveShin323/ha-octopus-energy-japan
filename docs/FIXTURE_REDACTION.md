@@ -41,12 +41,80 @@ python scripts/oejp_probe.py resource_discovery /tmp/resource_discovery.json
 python scripts/oejp_probe.py schema_capabilities /tmp/schema_capabilities.json
 ```
 
+Run every command from the repository root. The script adds the repository root
+to `sys.path` itself, so no editable install or `PYTHONPATH` is required.
+
+## Parameterized operations
+
+Reading and commercial operations need a target. Both targets are customer
+identifiers, so they are read from the environment rather than the command line,
+exactly like credentials. Take the values from the sanitized
+`resource_discovery` output, or from the OEJP web account:
+
+```bash
+read -rp 'OEJP account number: ' OEJP_PROBE_ACCOUNT_NUMBER
+read -rp 'OEJP supply-point SPIN: ' OEJP_PROBE_SUPPLY_POINT_SPIN
+export OEJP_PROBE_ACCOUNT_NUMBER OEJP_PROBE_SUPPLY_POINT_SPIN
+```
+
+`--hours` sets a reading window ending now; it defaults to 48.
+
+| Operation | Requires | Window |
+|---|---|---|
+| `generic_devices` | SPIN | no |
+| `generic_import_readings` | SPIN | yes |
+| `generic_export_readings` | SPIN | yes |
+| `legacy_half_hourly_readings` | account number | yes |
+| `legacy_interval_readings` | account number | yes |
+| `account_overview` | account number | no |
+| `account_agreements` | account number | no |
+| `account_billing` | account number | no |
+
+```bash
+python scripts/oejp_probe.py generic_import_readings /tmp/generic_import.json --hours 48
+python scripts/oejp_probe.py legacy_half_hourly_readings /tmp/legacy_half_hourly.json
+python scripts/oejp_probe.py account_overview /tmp/account_overview.json
+python scripts/oejp_probe.py account_agreements /tmp/account_agreements.json
+python scripts/oejp_probe.py account_billing /tmp/account_billing.json
+unset OEJP_PROBE_ACCOUNT_NUMBER OEJP_PROBE_SUPPLY_POINT_SPIN
+```
+
+Only the fixed variable shape above is bound. The CLI still accepts no arbitrary
+GraphQL, no arbitrary variables, and no mutations.
+
+## What each probe can settle
+
+`docs/CONTRACT_AND_BILLING.md` records four unmet verification items that keep
+provider cost and tariff rates unpublished. These probes are how they close:
+
+| Verification item | Probe | What to look for |
+|---|---|---|
+| OAuth or account permission for cost fields | `legacy_half_hourly_readings` | whether `costEstimate` returns a value or an authorization error |
+| Currency and denomination | `account_billing` | whether the redacted `grossTotal` count of digits matches a known bill total in yen |
+| Interval coverage | `legacy_half_hourly_readings` | whether every returned interval carries `costEstimate` |
+| Correction semantics | `legacy_half_hourly_readings`, twice over an overlapping window | whether a revised reading also revises its `costEstimate` and `version` |
+
+The commercial documents in `account_overview`, `account_agreements`, and
+`account_billing` have never been validated against the live schema. A GraphQL
+validation error from any of them is a real finding: record it and correct the
+document before relying on the parser.
+
+Monetary fields are replaced with placeholders before anything reaches disk, so
+reconciling an amount against a real bill requires reading the value from the
+OEJP web account, not from the fixture.
+
 ## Safety model
 
 - The CLI exposes fixed read-only operations and accepts no arbitrary GraphQL.
 - Raw responses remain in memory and are never intentionally logged or written.
-- Known credential, identity, address, meter, account, and supply-point fields
-  are replaced with deterministic per-document synthetic placeholders.
+- Known credential, identity, address, meter, account, supply-point, and
+  monetary-amount fields are replaced with deterministic per-document synthetic
+  placeholders. A placeholder is a string, so a fixture cannot be used to assert
+  the JSON type of a redacted field.
+- Reading values, units, quality, and timestamps are preserved because they carry
+  the contract shape rather than an identity. Do not commit a probe fixture whose
+  readings you are unwilling to publish; hand-author a `synthetic-test-data`
+  fixture from the observed shape instead, as the committed contract fixtures do.
 - A second scanner rejects credential patterns, email addresses, unsanitized
   sensitive fields, and any original value registered by the sanitizer.
 - Each fixture records the operation, sanitizer/schema version, and SHA-256 of
