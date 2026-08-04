@@ -1,6 +1,7 @@
 # OEJP OAuth application status
 
-Status: acknowledged by OEJP; application and permission model still pending
+Status: endpoints and scopes confirmed from the provider's published discovery
+document; a client ID and written public-client approval are still pending
 Last updated: 2026-08-04
 
 ## Implementation status
@@ -8,14 +9,17 @@ Last updated: 2026-08-04
 The public Home Assistant email/password config flow has been removed.
 Authorization Code + PKCE, refresh-token rotation, one-time authentication
 retry, reauthentication, best-effort revocation, and RFC 8628 device grant
-transport are implemented behind provider-confirmed metadata.
+transport are implemented.
 
-The implementation fails closed while the response table below is incomplete:
-it does not substitute endpoints or header schemes from another Kraken
-territory. Application Credentials can construct a PKCE public client as soon
-as the confirmed metadata is recorded. Device authorization is implemented at
-the transport/session boundary; it will be exposed in the Home Assistant setup
-UI only if OEJP confirms the grant and endpoint.
+The provider's published endpoints, issuer, scopes, and the confirmed `Bearer`
+header scheme are now recorded in `oauth_metadata.py`, so Application Credentials
+constructs a PKCE public client without waiting for a reply. Nothing is substituted
+from another Kraken territory, and the module still fails closed if that metadata
+is ever removed.
+
+Device authorization remains implemented only at the transport and session
+boundary. It is not exposed in the setup UI because the discovery document
+advertises no device-authorization endpoint.
 
 ## Requested application
 
@@ -53,34 +57,76 @@ it, and no release depends on it.
 
 ## Release blocker
 
-No OAuth client ID is currently committed. No public functional release will be
-made until OEJP confirms the allowed application and permission model.
+No OAuth client ID exists, so no user can complete the setup flow. That is now the
+only thing standing between this integration and a working release, together with
+written confirmation that the application may be registered as a public client.
+
+A user cannot work around it by supplying their own client ID through Application
+Credentials either, because OEJP does not offer self-service application
+registration.
 
 ## Response record
 
-Complete this section from the authoritative OEJP reply before implementing
-production OAuth:
+The provider publishes an OpenID Connect discovery document at
+`https://auth.oejp-kraken.energy/.well-known/openid-configuration`. It was read on
+2026-08-04 and settles most of this table without waiting for a reply. Nothing
+below is inferred from another Kraken territory.
 
-| Item | Confirmed value |
-|---|---|
-| Shared public client ID may be published | Pending |
-| Authorization Code + PKCE enabled | Pending |
-| Device Authorization Grant enabled | Pending |
-| Same or separate client ID per grant | Pending |
-| Exact authorization endpoint | Pending |
-| Exact token endpoint | Pending |
-| Exact device authorization endpoint | Pending |
-| Registered redirect URI | Pending |
-| Required OAuth scopes | Pending |
-| GraphQL permissions | Pending |
-| Access-token lifetime | Pending |
-| Refresh-token lifetime | Pending |
-| Refresh-token rotation behavior | Pending |
-| GraphQL Authorization header scheme | Pending |
-| Generic readings access | Pending |
-| Legacy readings access | Pending |
-| Billing and official-cost access | Pending |
-| Revocation endpoint and behavior | Pending |
+| Item | Confirmed value | Source |
+|---|---|---|
+| Authorization endpoint | `https://auth.oejp-kraken.energy/authorize/` | discovery document |
+| Token endpoint | `https://auth.oejp-kraken.energy/token/` | discovery document |
+| Issuer | `https://auth.oejp-kraken.energy/token/` | discovery document, verbatim |
+| Revocation endpoint | `https://auth.oejp-kraken.energy/revoke-token/` | discovery document |
+| UserInfo endpoint | `https://auth.oejp-kraken.energy/userinfo/` | discovery document |
+| JWKS URI | `https://auth.oejp-kraken.energy/.well-known/jwks.json` | discovery document |
+| Authorization Code response type | supported (`code`) | discovery document |
+| Required OAuth scopes | all fourteen requested scopes are advertised | discovery document |
+| Available claims | `sub` only | discovery document |
+| GraphQL Authorization header scheme | `Bearer` | live API: `Bearer`, `JWT`, and a bare token were all accepted; a missing header returned `KT-CT-1112` |
+| Device authorization endpoint | **not advertised** | discovery document |
+| Shared public client ID may be published | Pending | requires a written reply |
+| Public client without a secret | **contradicted, see below** | discovery document |
+| PKCE enabled | **not advertised, see below** | discovery document |
+| Same or separate client ID per grant | Pending | requires a written reply |
+| Registered redirect URI | Pending | requires the issued application |
+| Access-token lifetime | Pending | requires the issued application |
+| Refresh-token lifetime | Pending | requires the issued application |
+| Refresh-token rotation behavior | Pending | requires the issued application |
+| Generic readings access under OAuth | Pending | legacy-login access is not evidence |
+| Legacy readings access under OAuth | Pending | legacy-login access is not evidence |
+| Billing and official-cost access under OAuth | Pending | `marketSupplyAgreements` is already forbidden to the legacy account user |
+
+## Two findings that challenge ADR 0001
+
+[ADR 0001](adr/0001-oauth-public-client.md) assumes a public client using
+Authorization Code with PKCE and no client secret. The discovery document does not
+support that assumption yet:
+
+1. `token_endpoint_auth_methods_supported` lists only `client_secret_post` and
+   `client_secret_basic`. It does **not** list `none`, which is what a public
+   client needs to call the token endpoint without a secret.
+2. There is no `code_challenge_methods_supported` entry, so PKCE is not
+   advertised. Many servers support PKCE without advertising it, so this is not
+   proof of absence, but it is not confirmation either.
+
+`id_token_signing_alg_values_supported` also offers `HS256`, which a public client
+cannot verify because it has no shared secret. Only `RS256` is usable, and the
+JWKS URI exists, so that part is workable.
+
+These must be asked explicitly, because a mandatory client secret cannot be
+satisfied by a HACS integration:
+
+- can the application be registered as a public client, so the token endpoint
+  accepts `none` for client authentication;
+- is PKCE `S256` accepted on the authorization and token endpoints even though it
+  is not advertised; and
+- is the Device Authorization Grant available at all, given no device endpoint is
+  advertised.
+
+Until the first two are answered in writing, the integration ships the published
+endpoints and requests PKCE, but a user still cannot connect because no client ID
+exists.
 
 ## Decision rules
 

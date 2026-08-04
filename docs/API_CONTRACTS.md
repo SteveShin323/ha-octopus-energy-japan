@@ -70,6 +70,21 @@ Capability introspection distinguishes:
 Authorization is never classified as authentication and must not trigger OAuth
 reauthentication.
 
+## Published request limits
+
+The official API basics guide states these limits. They are the reason for the
+constants the integration uses, and a regression test pins the relationship:
+
+| Limit | Published value | Error code | Integration |
+|---|---|---|---|
+| Pagination `first` | must be less than 100 | — | `GENERIC_PAGE_SIZE` is 99; every connection requests at most 99 |
+| Query complexity | at most 200 per request | `KT-CT-1188` | documents stay shallow and request one connection at a time |
+| Node limit | at most 10,000 nodes per request | `KT-CT-1189` | the largest observed response was under 1,500 nodes |
+| Hourly points | 50,000 for an account user, 300,000 for an OAuth application | `KT-CT-1199` | 30-minute polling with a 72-hour overlap, 24-hour discovery, 12-hour commercial |
+
+All three error codes are classified as rate limits, so they back off rather than
+being mistaken for schema or permission problems.
+
 ## Pagination safety
 
 Relay-style connections are collected with `hasNextPage` and `endCursor`.

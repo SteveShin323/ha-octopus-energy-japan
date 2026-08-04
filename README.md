@@ -18,7 +18,7 @@ Japan (OEJP).
 
 | Area | Status |
 |---|---|
-| OAuth architecture | Implemented; awaiting OEJP production metadata |
+| OAuth architecture | Implemented; provider endpoints and scopes confirmed |
 | Account and supply-point discovery | Implemented |
 | Import/export reading providers | Implemented |
 | Correction-aware ledger and JST aggregation | Implemented |
@@ -27,7 +27,7 @@ Japan (OEJP).
 | Account, contract, and billing summaries | Implemented and validated |
 | Provider-issued cost and tariff rates | Blocked on provider verification |
 | Diagnostics and Repairs | Planned |
-| Supported installation | Not available yet |
+| Supported installation | Blocked only on an OEJP client ID |
 
 The badges above report the status of the `main` branch. The Validate workflow
 includes Ruff, strict mypy, pytest with branch coverage, Hassfest, HACS
@@ -35,13 +35,19 @@ validation, and documentation link checks.
 
 ## Status
 
-Pre-alpha architecture and API development. The integration is **not ready to
-install**.
+Pre-alpha. The integration is **not installable yet**, for exactly one reason:
+OEJP has not issued an OAuth client ID.
 
-OEJP has been asked to issue a public OAuth application for Authorization Code
-with PKCE and, if available, Device Authorization Grant. The project will not
-publish a functional release until the client and read-only permission model are
-confirmed. The public integration will not request or store an OEJP password.
+Everything else is in place. The provider's published discovery document supplies
+the authorization, token, and revocation endpoints, the issuer, and every scope
+this integration requests; the `Bearer` header scheme is confirmed against the live
+API. Those are recorded in `oauth_metadata.py`, so the setup flow is complete apart
+from the credential itself.
+
+OEJP has acknowledged the application request. Two questions remain open in writing:
+whether the application can be registered as a public client, and whether PKCE is
+accepted. The integration will never request or store an OEJP password, and will
+never ship a client secret.
 
 ## Technical design
 
@@ -91,10 +97,12 @@ history. Design v3 takes precedence.
 
 ## Installation
 
-There is no supported installation yet. The Home Assistant setup flow no longer
-accepts an OEJP email address or password. OAuth setup remains intentionally
-unavailable until OEJP confirms the production endpoints, scopes, authorization
-header scheme, and public-client terms recorded in
+There is no supported installation yet, because OEJP has not issued an OAuth
+client ID and does not offer self-service application registration, so a user
+cannot supply one through Home Assistant Application Credentials either. The setup
+flow no longer accepts an OEJP email address or password.
+
+Everything the flow needs besides that credential is confirmed and recorded in
 [`docs/OAUTH_APPLICATION_STATUS.md`](docs/OAUTH_APPLICATION_STATUS.md).
 
 Energy Dashboard statistics are implemented, but cannot be used through a
