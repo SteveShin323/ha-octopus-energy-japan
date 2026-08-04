@@ -13,6 +13,7 @@ from .errors import (
     classify_graphql_error_details,
 )
 from .models import (
+    ELECTRICITY_MARKET_NAME,
     Capability,
     CapabilityAvailability,
     CapabilitySnapshot,
@@ -196,7 +197,7 @@ async def async_discover_generic_devices(
         GENERIC_DEVICES_QUERY,
         {
             "externalIdentifier": external_identifier,
-            "marketName": "ELECTRICITY",
+            "marketName": ELECTRICITY_MARKET_NAME,
         },
     )
     supply_point = _required_mapping(

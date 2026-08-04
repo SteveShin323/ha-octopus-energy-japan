@@ -52,6 +52,33 @@ def test_current_and_previous_jst_month_are_chunked(
     assert all(left.end_at == right.start_at for left, right in pairwise(windows))
 
 
+def test_every_planned_window_fits_inside_one_provider_response() -> None:
+    """OEJP narrows an oversized window silently, which would delete history.
+
+    A `halfHourlyReadings` response was measured on a real account at roughly
+    1476 half-hour intervals, about 30.75 days, with no error and no pagination
+    marker. An authoritative snapshot deletes stored intervals that fall inside
+    the requested window and are absent from the response, so a chunk larger than
+    one response can return would discard valid local history.
+    """
+    provider_response_intervals = 1476
+    half_hour = timedelta(minutes=30)
+    planner = SyncWindowPlanner()
+
+    planned = (
+        *planner.poll(NOW),
+        *planner.initial(NOW),
+        *planner.reconciliation(NOW),
+        *planner.long_backfill(NOW, months=13),
+    )
+
+    assert planned
+    for window in planned:
+        intervals = (window.end_at - window.start_at) / half_hour
+        assert intervals <= provider_response_intervals, window
+    assert MAX_QUERY_WINDOW / half_hour <= provider_response_intervals
+
+
 def test_long_backfill_is_bounded_to_requested_local_months() -> None:
     planner = SyncWindowPlanner()
     one_month = planner.long_backfill(NOW, months=1)

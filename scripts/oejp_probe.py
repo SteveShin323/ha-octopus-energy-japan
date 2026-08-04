@@ -23,6 +23,7 @@ from custom_components.octopus_energy_japan.api import (
     ACCOUNT_BILLING_QUERY,
     ACCOUNT_OVERVIEW_QUERY,
     CAPABILITY_QUERY,
+    ELECTRICITY_MARKET_NAME,
     GENERIC_DEVICES_QUERY,
     LEGACY_DISCOVERY_QUERY,
     LEGACY_HALF_HOURLY_QUERY,
@@ -37,7 +38,6 @@ from custom_components.octopus_energy_japan.api.operations import (
 )
 from custom_components.octopus_energy_japan.api.readings import (
     GENERIC_ENERGY_UNITS,
-    GENERIC_MARKET_NAME,
     GENERIC_PAGE_SIZE,
     build_generic_readings_query,
 )
@@ -116,7 +116,7 @@ def _interval_variables(context: ProbeContext) -> dict[str, Any]:
 def _supply_point_variables(context: ProbeContext) -> dict[str, Any]:
     return {
         "externalIdentifier": context.supply_point(),
-        "marketName": GENERIC_MARKET_NAME,
+        "marketName": ELECTRICITY_MARKET_NAME,
     }
 
 
@@ -182,11 +182,27 @@ OPERATIONS: Final = {
 }
 
 
-def build_context(*, hours: int, now: datetime) -> ProbeContext:
-    """Read local-only probe inputs from the environment and a bounded window."""
+def build_context(
+    *,
+    hours: int,
+    now: datetime,
+    ending: str | None = None,
+) -> ProbeContext:
+    """Read local-only probe inputs from the environment and a bounded window.
+
+    `ending` moves the window off the present so a historical range can be asked
+    for directly. That is what distinguishes a per-response result cap from a
+    provider history horizon.
+    """
     if hours < 1:
         raise ValueError("Probe window must be at least one hour")
-    end_at = now.astimezone(UTC)
+    if ending is None:
+        end_at = now.astimezone(UTC)
+    else:
+        parsed = datetime.fromisoformat(ending.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            raise ValueError("Probe window end must be timezone-aware, for example 2026-06-25Z")
+        end_at = parsed.astimezone(UTC)
     return ProbeContext(
         account_number=os.environ.get(ACCOUNT_NUMBER_ENV) or None,
         supply_point_spin=os.environ.get(SUPPLY_POINT_ENV) or None,
@@ -298,9 +314,17 @@ def main() -> None:
         default=DEFAULT_WINDOW_HOURS,
         help="reading window ending now, in hours (default: %(default)s)",
     )
+    parser.add_argument(
+        "--ending",
+        help="ISO-8601 window end with an offset, for example 2026-06-25T00:00:00Z",
+    )
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
-    context = build_context(hours=args.hours, now=datetime.now(UTC))
+    context = build_context(
+        hours=args.hours,
+        now=datetime.now(UTC),
+        ending=args.ending,
+    )
     fixture = asyncio.run(_fetch(OPERATIONS[args.operation], context))
     _write_fixture(args.output, fixture, force=args.force)
 

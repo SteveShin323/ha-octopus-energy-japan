@@ -53,14 +53,17 @@ query AccountCommercialAgreements($accountNumber: String!, $after: String) {
             fullName
             marketName
             rates {
-              gridOperatorCode
-              regionOfOperation
-              band
-              validFrom
-              validTo
-              unitType
+              name
+              category
               pricePerUnit
-              durationMonths
+              unit
+              unitDisplay
+              currency
+              isSalesTax
+              validityPeriod {
+                start
+                end
+              }
             }
           }
         }
@@ -94,18 +97,18 @@ query AccountCommercialBilling($accountNumber: String!) {
           issuedDate
           ... on StatementType {
             paymentDueDate
-            totalCharges { grossTotal }
+            statementTotalCharges: totalCharges { grossTotal }
             status
           }
           ... on PeriodBasedDocumentType {
-            totalCharges { grossTotal }
-            isAnnulled
-            isHeld
+            periodTotalCharges: totalCharges { grossTotal }
+            periodIsAnnulled: isAnnulled
+            periodIsHeld: isHeld
           }
           ... on InvoiceType {
-            grossAmount
-            isAnnulled
-            isHeld
+            invoiceGrossAmount: grossAmount
+            invoiceIsAnnulled: isAnnulled
+            invoiceIsHeld: isHeld
           }
         }
       }
@@ -183,16 +186,17 @@ class AgreementPage:
 
 @dataclass(frozen=True, slots=True)
 class ProductRate:
-    """One provider product rate without selecting a customer region."""
+    """One applicable product rate exactly as the provider denominates it."""
 
-    grid_operator_code: str | None
-    region: str | None
-    band: str | None
+    name: str
+    category: str | None
+    price_per_unit: Decimal | None
+    unit: str | None
+    unit_display: str | None
+    currency: str | None
+    is_sales_tax: bool
     valid_from: datetime | None
     valid_to: datetime | None
-    unit_type: str | None
-    price_per_unit: Decimal | None
-    duration_months: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -480,27 +484,31 @@ def _parse_product(value: Mapping[str, Any]) -> ProductSummary:
 
 
 def _parse_product_rate(value: Mapping[str, Any]) -> ProductRate:
+    period = value.get("validityPeriod")
+    validity = (
+        _required_mapping(period, "Product rate validityPeriod was malformed")
+        if period is not None
+        else {}
+    )
     return ProductRate(
-        _optional_string(value.get("gridOperatorCode")),
-        _optional_string(value.get("regionOfOperation")),
-        _optional_string(value.get("band")),
-        _optional_datetime(value.get("validFrom"), "Product rate validFrom"),
-        _optional_datetime(value.get("validTo"), "Product rate validTo"),
-        _optional_string(value.get("unitType")),
-        _optional_decimal(value.get("pricePerUnit"), "Product rate pricePerUnit"),
-        _optional_int(value.get("durationMonths"), "Product rate durationMonths"),
+        name=_required_identifier(value, "name", "Product rate"),
+        category=_optional_string(value.get("category")),
+        price_per_unit=_optional_decimal(value.get("pricePerUnit"), "Product rate pricePerUnit"),
+        unit=_optional_string(value.get("unit")),
+        unit_display=_optional_string(value.get("unitDisplay")),
+        currency=_optional_string(value.get("currency")),
+        is_sales_tax=_optional_bool(value.get("isSalesTax"), "Product rate isSalesTax") or False,
+        valid_from=_optional_datetime(validity.get("start"), "Product rate validityPeriod start"),
+        valid_to=_optional_datetime(validity.get("end"), "Product rate validityPeriod end"),
     )
 
 
 def _parse_bill(value: Mapping[str, Any]) -> BillSummary:
-    total_charges = value.get("totalCharges")
-    gross_total = None
-    if total_charges is not None:
-        gross_total = _optional_int(
-            _required_mapping(total_charges, "Bill totalCharges was malformed").get("grossTotal"),
-            "Bill grossTotal",
-        )
-    gross_amount = _optional_int(value.get("grossAmount"), "Bill grossAmount")
+    # `isHeld`, `isAnnulled`, `totalCharges`, and `grossAmount` are aliased per
+    # inline fragment because the bill implementations disagree on nullability and
+    # on the total type, which GraphQL rejects for one shared response name.
+    gross_total = _first_gross_total(value)
+    gross_amount = _optional_int(value.get("invoiceGrossAmount"), "Bill grossAmount")
     if gross_total is not None and gross_amount is not None and gross_total != gross_amount:
         raise OejpInvalidResponseError("Bill response contained conflicting gross amounts")
     return BillSummary(
@@ -513,9 +521,32 @@ def _parse_bill(value: Mapping[str, Any]) -> BillSummary:
         due_date=_optional_date(value.get("paymentDueDate"), "Bill paymentDueDate"),
         gross_amount_minor=gross_total if gross_total is not None else gross_amount,
         status=_optional_string(value.get("status")),
-        is_annulled=_optional_bool(value.get("isAnnulled"), "Bill isAnnulled"),
-        is_held=_optional_bool(value.get("isHeld"), "Bill isHeld"),
+        is_annulled=_first_bool(value, ("periodIsAnnulled", "invoiceIsAnnulled"), "isAnnulled"),
+        is_held=_first_bool(value, ("periodIsHeld", "invoiceIsHeld"), "isHeld"),
     )
+
+
+def _first_gross_total(value: Mapping[str, Any]) -> int | None:
+    for key in ("statementTotalCharges", "periodTotalCharges"):
+        total = value.get(key)
+        if total is None:
+            continue
+        return _optional_int(
+            _required_mapping(total, "Bill totalCharges was malformed").get("grossTotal"),
+            "Bill grossTotal",
+        )
+    return None
+
+
+def _first_bool(
+    value: Mapping[str, Any],
+    keys: tuple[str, ...],
+    context: str,
+) -> bool | None:
+    for key in keys:
+        if (found := value.get(key)) is not None:
+            return _required_bool(found, f"Bill {context}")
+    return None
 
 
 def _parse_transaction(value: Mapping[str, Any]) -> TransactionSummary:

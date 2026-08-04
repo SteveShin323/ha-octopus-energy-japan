@@ -67,6 +67,7 @@ from .errors import (
     classify_graphql_errors,
 )
 from .models import (
+    ELECTRICITY_MARKET_NAME,
     Capability,
     CapabilityAvailability,
     CapabilitySnapshot,
@@ -116,6 +117,7 @@ __all__ = [
     "ACCOUNT_OVERVIEW_QUERY",
     "CAPABILITY_QUERY",
     "DEFAULT_ENDPOINT",
+    "ELECTRICITY_MARKET_NAME",
     "GENERIC_DEVICES_QUERY",
     "GENERIC_ENERGY_UNITS",
     "GENERIC_PAGE_SIZE",

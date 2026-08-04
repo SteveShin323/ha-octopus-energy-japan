@@ -128,15 +128,15 @@ text such as a transaction title is parsed away rather than exposed.
 Raw account numbers never appear in entity IDs, unique IDs, device identifiers,
 or state. The account device is addressed by installation-local HMAC identity.
 
-### Monetary unit assumption
+### Monetary unit
 
 Monetary values are surfaced exactly as OEJP reports them, with the unit `JPY`
-and no scaling. This assumes the provider denominates these fields in whole yen.
-Japanese yen has no smaller circulating unit, which makes the assumption
-plausible, but it is **not confirmed** by provider metadata or a probe. If OEJP
-reports a sub-yen minor unit, every monetary entity is wrong by a constant
-factor. The assumption is recorded in `const.py` beside the unit and must be
-verified before a public release.
+and no scaling. This was **confirmed** on 2026-08-04 by reconciling provider cost
+against a real invoice for the same supply point: the implied unit price fell
+inside the per-kWh band the invoice itself spans, while a sub-yen minor unit would
+have been two orders of magnitude smaller. Integer fields such as `balance` and
+`grossTotal` are whole yen for the same reason, since JPY has no circulating
+sub-unit.
 
 ## 6. Provider cost verification gate
 
@@ -144,17 +144,62 @@ verified before a public release.
 cost but leaves publication disabled pending verification in this scope. The
 required evidence is:
 
-| Item | Status | Evidence that closes it |
+| Item | Status | Evidence |
 |---|---|---|
-| OAuth permission for cost fields | unmet | OEJP scope confirmation, or a probe reaching cost data with account-user OAuth |
-| Currency and denomination | unmet | provider metadata, or a probe response whose value can be reconciled against a known bill total |
-| Interval coverage | unmet | a probe confirming whether every returned interval carries a cost |
-| Correction semantics | unmet | a probe confirming whether a corrected reading also revises its cost |
+| Account permission for cost fields | **met** | a real-account probe on 2026-08-04 returned `costEstimate` on `halfHourlyReadings` for every interval |
+| Interval coverage | **met** | the same probe showed a `costEstimate` and a `version` on every returned interval |
+| Currency and denomination | **met** | reconciled against a real invoice: the implied unit price fell inside the invoice's own per-kWh band, so values are whole yen |
+| Correction semantics | **partly met** | `version` was observed switching from `DAILY` to `MONTHLY` exactly at the billing-period boundary, so intervals are reissued when a period closes; a before-and-after comparison of one interval is still outstanding |
+| Generic provider parity | unmet | `SupplyPointType.readings` exposes no cost field at all, so provider cost is only reachable through the legacy operations that the fallback policy restricts |
+| OAuth permission for cost fields | unmet | OEJP scope confirmation; the probe result above was obtained with the legacy login, not OAuth |
 
-None of the four is satisfied. OEJP has acknowledged the OAuth application
-request but has not yet replied with the application, and no real-account probe
-has been run. This PR therefore keeps every provider-cost projection
-unpublished, with one gate and three consequences:
+Three items are now closed and one is partly closed. Reading-level provider cost
+is present, complete, and denominated in yen for this account under the legacy
+login.
+
+A new finding replaces denomination as the reason to stay disabled:
+**`costEstimate` is not the billed amount.** The invoice combines a fixed daily
+standing charge, three-tier energy pricing, a monthly fuel-cost adjustment, a
+renewable levy, and consumption tax. A per-interval value cannot carry the fixed
+daily charge, which was 8.5 percent of the invoice on its own, so summing
+`costEstimate` under-reports the bill. Its exact composition cannot be determined
+from this API because the provider serves a shorter history than one closed
+billing period plus the open one.
+
+Reconciling the readings against that invoice settled two things and left one
+open. The comparison covered one complete billing period with no interval gaps.
+
+Energy reconciles. Summed interval values came within 0.6 percent of the invoiced
+kWh, which validates the reading pipeline end to end against a provider invoice.
+
+Cost does not, and the formula is now known. Against the published tariff
+definition for the customer's menu, `costEstimate` per kWh equals the marginal
+energy rate plus a constant of about 8.47 JPY, where the marginal rate steps from
+the tariff's **first**-tier price to its **second**-tier price at 300 kWh of
+cumulative period usage.
+
+The provider therefore applies the tariff's 120 kWh tier step at the 300 kWh
+threshold, skips the 120 kWh boundary, and never reaches the third tier. Its
+constant also exceeds the tariff's fuel adjustment plus renewable levy, and no
+per-interval value can carry the fixed daily standing charge. The derivation is
+recorded in [`API_CONTRACTS.md`](API_CONTRACTS.md).
+
+`costEstimate` is therefore a provider estimate computed from its own simplified
+rate model, not the customer's tariff applied per interval. Publishing it as the
+Energy Dashboard cost would present a figure carrying provider authority that no
+line of the bill supports. If it is published later it must be named and
+documented as a provider estimate, never as the bill.
+
+A second obstacle appeared with it. The generic reading API carries no cost field,
+so provider cost is only available from the legacy operations, which the fallback
+policy restricts to observed capability gaps. Publishing provider cost would mean
+querying legacy operations outside that policy, which needs its own decision.
+
+The OAuth item also cannot close until OEJP issues the application, because
+account-user OAuth permission may differ from the legacy login's.
+
+Provider-cost projection therefore stays disabled, with one gate and three
+consequences:
 
 1. official-cost external statistics remain disabled
    (`include_official_cost=False`);
@@ -162,13 +207,15 @@ unpublished, with one gate and three consequences:
 3. product rate components are parsed and retained but not projected to an
    entity.
 
-The third consequence has an additional reason. OEJP publishes rates per grid
-operator, region, and band, and the integration has no verified way to decide
-which one applies to a given supply point. Design v3 also excludes
-`kWh x user-entered unit price` cost estimation from the 1.0 scope until the
-tariff structure can be reproduced faithfully. Guessing a customer's applicable
-rate is the same class of error the project forbids for the authorization
-header scheme.
+The third consequence has an additional reason, now better understood.
+Introspection showed that `ApplicableRateType` does not carry a grid operator,
+region, or band at all. Attribution is expressed through `category` and
+`variantProfile`, and `variantProfile` is `JSONString`/`GenericScalar` — opaque
+provider JSON rather than a typed contract. Selecting one rate therefore still
+requires interpreting an untyped payload, so the integration parses and retains
+rates but projects none. Design v3 also excludes `kWh x user-entered unit price`
+cost estimation from the 1.0 scope until the tariff structure can be reproduced
+faithfully.
 
 Retaining the parsed rate model is deliberate: it is required for PR 10
 diagnostics and it lets the eventual probe validate rate handling without

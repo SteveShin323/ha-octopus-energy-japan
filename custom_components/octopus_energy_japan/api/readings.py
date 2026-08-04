@@ -18,6 +18,7 @@ from .errors import (
     OejpQueryValidationError,
 )
 from .models import (
+    ELECTRICITY_MARKET_NAME,
     Capability,
     CapabilityAvailability,
     CapabilitySnapshot,
@@ -32,7 +33,6 @@ from .models import (
 )
 
 GENERIC_PAGE_SIZE = 99
-GENERIC_MARKET_NAME = "ELECTRICITY"
 GENERIC_READING_TYPE = "INTERVAL"
 GENERIC_TIME_GRANULARITY = "THIRTY_MIN"
 GENERIC_TIMEZONE = "UTC"
@@ -263,7 +263,7 @@ class GenericReadingsProvider:
             async def fetch_page(cursor: str | None) -> ConnectionPage[EnergyReading]:
                 variables: dict[str, Any] = {
                     "externalIdentifier": external_identifier,
-                    "marketName": GENERIC_MARKET_NAME,
+                    "marketName": ELECTRICITY_MARKET_NAME,
                     "startAt": _graphql_datetime(start_at),
                     "endAt": _graphql_datetime(end_at),
                     "after": cursor,

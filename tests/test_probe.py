@@ -213,6 +213,30 @@ def test_collection_key_does_not_redact_the_readings_underneath_it() -> None:
     }
 
 
+def test_resolved_type_name_is_preserved_so_parsers_can_select_a_shape() -> None:
+    sanitizer = SyntheticFixtureSanitizer()
+
+    sanitized = sanitizer.sanitize(
+        {
+            "__typename": "PeriodBasedDocumentType",
+            "name": "Private customer name",
+            "id": "bill-private",
+        }
+    )
+
+    assert sanitized["__typename"] == "PeriodBasedDocumentType"
+    assert sanitized["name"].startswith("<synthetic:name:")
+    assert sanitized["id"].startswith("<synthetic:identifier:")
+
+
+def test_type_name_that_is_not_a_graphql_name_is_still_redacted() -> None:
+    sanitizer = SyntheticFixtureSanitizer()
+
+    sanitized = sanitizer.sanitize({"__typename": "not a type name"})
+
+    assert sanitized["__typename"].startswith("<synthetic:name:")
+
+
 def test_nested_sensitive_object_is_still_redacted_as_a_whole() -> None:
     sanitizer = SyntheticFixtureSanitizer()
 
