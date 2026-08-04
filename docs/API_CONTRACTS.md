@@ -149,6 +149,30 @@ intervals), and the source families replaced by that successful batch. This
 metadata lets the ledger delete stale topology and provider-transition rows
 without guessing authority from a non-empty response.
 
+## Optional commercial operations
+
+Account status, agreements, and billing are three separate optional documents,
+not one combined query. `AccountCommercialOverview` reads `account` status and
+balances. `AccountCommercialAgreements` reads `marketSupplyAgreements` with its
+product and rate connection and follows `endCursor` pagination.
+`AccountCommercialBilling` reads the single newest `bills` node, using inline
+fragments for `StatementType`, `PeriodBasedDocumentType`, and `InvoiceType`, plus
+the single newest `transactions` node.
+
+These documents have **not** been validated against the live schema. Unlike the
+reading contracts above, they were derived from the published OEJP schema
+documentation only. The `rates` shape, the bill fragment coverage, and the
+denomination of every monetary field must be confirmed by the redacting local
+probe before alpha release. The consequences of that gap, and the projections
+withheld because of it, are recorded in
+[`CONTRACT_AND_BILLING.md`](CONTRACT_AND_BILLING.md).
+
+Each operation runs through the optional execution path. A per-operation
+availability status distinguishes provider permission (`forbidden`) from schema
+rejection (`unsupported`) and from transport or server outcomes (`failed`), so a
+missing commercial permission never degrades consumption. Authentication errors
+are propagated rather than recorded as an availability status.
+
 ## Privacy boundary
 
 Raw account numbers, property identifiers, supply-point identifiers, meter

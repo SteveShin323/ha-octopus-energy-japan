@@ -46,6 +46,21 @@
   },
   "entity": {
     "sensor": {
+      "account_balance": {
+        "name": "Account balance"
+      },
+      "account_status": {
+        "name": "Account status"
+      },
+      "agreement_end": {
+        "name": "Current agreement end"
+      },
+      "agreement_start": {
+        "name": "Current agreement start"
+      },
+      "current_product": {
+        "name": "Current product"
+      },
       "import_latest_interval": {
         "name": "Import latest reported interval consumption"
       },
@@ -93,6 +108,21 @@
       },
       "export_data_delay": {
         "name": "Export data delay"
+      },
+      "latest_bill_amount": {
+        "name": "Latest bill amount"
+      },
+      "latest_bill_due": {
+        "name": "Latest bill payment due date"
+      },
+      "latest_bill_issued": {
+        "name": "Latest bill issued date"
+      },
+      "latest_transaction_amount": {
+        "name": "Latest transaction amount"
+      },
+      "overdue_balance": {
+        "name": "Overdue balance"
       },
       "supply_point_status": {
         "name": "Status",

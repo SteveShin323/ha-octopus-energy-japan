@@ -5,10 +5,36 @@ from __future__ import annotations
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api import ReadingDirection
+from .api import AccountCommercialSnapshot, ReadingDirection
+from .commercial_coordinator import OejpCommercialCoordinator
 from .const import DOMAIN
 from .coordinator import OejpDataUpdateCoordinator, SupplyPointKey
 from .identity import stable_account_identity, stable_supply_point_identity
+
+
+class OejpAccountEntity(CoordinatorEntity[OejpCommercialCoordinator]):
+    """Base commercial entity attached to a privacy-preserving account device."""
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: OejpCommercialCoordinator,
+        identity_secret: str,
+        account_id: str,
+        entity_key: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._account_id = account_id
+        identity = stable_account_identity(identity_secret, account_id)
+        self._attr_unique_id = f"{identity}-account-{entity_key}"
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, identity)})
+
+    @property
+    def account_snapshot(self) -> AccountCommercialSnapshot | None:
+        """Return private typed data for this account."""
+        data = self.coordinator.data
+        return data.account(self._account_id) if data is not None else None
 
 
 class OejpSupplyPointEntity(CoordinatorEntity[OejpDataUpdateCoordinator]):

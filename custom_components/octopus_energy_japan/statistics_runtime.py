@@ -18,7 +18,7 @@ from homeassistant.helpers.recorder import get_instance
 from homeassistant.util.unit_conversion import EnergyConverter
 
 from .api import ReadingDirection
-from .const import DOMAIN
+from .const import CURRENCY_JPY, DOMAIN
 from .identity import stable_supply_point_identity
 from .ledger import PersistentIntervalLedger, partition_bounds
 from .statistics import (
@@ -185,7 +185,7 @@ def _metadata(
             series.key.kind,
         ),
         unit_class=None,
-        unit_of_measurement="JPY",
+        unit_of_measurement=CURRENCY_JPY,
     )
 
 
