@@ -408,6 +408,15 @@ fields are `sourceSystem`, `name`, `pricePerUnit`, `unit`, `unitDisplay`,
 `variantProfile`; `variantProfile` is `JSONString`/`GenericScalar`, so it is
 opaque provider JSON rather than a typed contract.
 
+**An account user may not read them, and asking is not free.** Measured 2026-08-04:
+requesting `product.rates` returns `AUTHORIZATION/KT-CT-1111` at
+`account.marketSupplyAgreements.edges.0.node.product.rates`. GraphQL propagates a field
+error to the nearest nullable parent, so the whole `product` came back `null` and the
+current product name was lost — for a field this integration never publishes. The same
+query without `rates` returns no error at all, resolves the product, and moves the
+`agreements` capability from `partial` to `available`. `ACCOUNT_AGREEMENTS_QUERY`
+therefore omits it, and a test asserts it stays omitted.
+
 **Bill fragments.** `bills` returns `BillConnectionTypeConnection` over
 `BillInterface`, implemented by `StatementType`, `PreKrakenBillType`,
 `PeriodBasedDocumentType`, `CollectiveBillType`, and `InvoiceType`. Those
