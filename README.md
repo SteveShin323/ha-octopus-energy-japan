@@ -26,7 +26,7 @@ Japan (OEJP).
 | Energy Dashboard statistics | Implemented and validated |
 | Account, contract, and billing summaries | Implemented and validated |
 | Provider-issued cost and tariff rates | Blocked on provider verification |
-| Diagnostics and Repairs | Planned |
+| Diagnostics and Repairs | Implemented and validated |
 | Supported installation | Blocked only on an OEJP client ID |
 
 The badges above report the status of the `main` branch. The Validate workflow
@@ -59,8 +59,10 @@ The current normative architecture and implementation plan is:
 - [`docs/RUNTIME_AND_ENTITIES.md`](docs/RUNTIME_AND_ENTITIES.md)
 - [`docs/ENERGY_STATISTICS.md`](docs/ENERGY_STATISTICS.md)
 - [`docs/CONTRACT_AND_BILLING.md`](docs/CONTRACT_AND_BILLING.md)
+- [`docs/DIAGNOSTICS_AND_REPAIRS.md`](docs/DIAGNOSTICS_AND_REPAIRS.md)
 - [`docs/ja/ENERGY_DASHBOARD.md`](docs/ja/ENERGY_DASHBOARD.md)
 - [`docs/ja/CONTRACT_AND_BILLING.md`](docs/ja/CONTRACT_AND_BILLING.md)
+- [`docs/ja/DIAGNOSTICS.md`](docs/ja/DIAGNOSTICS.md)
 - [`docs/PR7_DELIVERY_PLAN.md`](docs/PR7_DELIVERY_PLAN.md)
 - [`docs/PR7_COMPLETION_AUDIT.md`](docs/PR7_COMPLETION_AUDIT.md)
 - [`docs/adr/`](docs/adr/)
