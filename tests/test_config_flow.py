@@ -32,9 +32,14 @@ from custom_components.octopus_energy_japan.oauth_metadata import (
 )
 from custom_components.octopus_energy_japan.runtime import OejpRuntimeData
 from homeassistant import config_entries
+from homeassistant.components.application_credentials import (
+    ClientCredential,
+    async_import_client_credential,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import config_entry_oauth2_flow
+from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 IDENTITY_SECRET = "01" * 32
@@ -330,3 +335,53 @@ async def test_reconfigure_aborts_without_runtime_or_history(
 
     assert no_history["type"] is FlowResultType.ABORT
     assert no_history["reason"] == "no_historical_resources"
+
+
+async def test_first_run_without_application_credentials_tells_the_user_where_to_go(
+    hass: HomeAssistant,
+) -> None:
+    """This is today's real first-run experience: no client ID exists yet.
+
+    Home Assistant's `missing_configuration` text points at Application Credentials,
+    which is exactly where the user has to act, so the flow must reach that abort
+    rather than a bare error.
+    """
+    await async_setup_component(hass, "application_credentials", {})
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_USER},
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "missing_credentials"
+
+
+@pytest.mark.usefixtures("current_request_with_host")
+async def test_setup_requires_no_user_input_once_a_credential_exists(
+    hass: HomeAssistant,
+) -> None:
+    """Nothing is typed during setup: no API key, account number, or supply point."""
+    await async_setup_component(hass, "application_credentials", {})
+    await async_import_client_credential(
+        hass,
+        DOMAIN,
+        ClientCredential("public-client", ""),
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_USER},
+    )
+
+    # With one credential there is nothing to choose, so Home Assistant goes
+    # straight to the provider-hosted sign-in. The user types nothing at all.
+    assert result["type"] is FlowResultType.EXTERNAL_STEP
+    assert result["url"].startswith("https://auth.oejp-kraken.energy/authorize/")
+    assert "code_challenge=" in result["url"]
+    assert "code_challenge_method=S256" in result["url"]
+    assert "client_secret" not in result["url"]
+    for scope in ("openid", "view:account-number", "request:consumption-data"):
+        assert scope in result["url"]
+    # Least privilege: the broad scope is never requested.
+    assert "full-customer-access" not in result["url"]

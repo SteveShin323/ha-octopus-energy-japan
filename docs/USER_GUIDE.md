@@ -53,6 +53,10 @@ services → Add integration → Octopus Energy Japan**.
 Sign-in happens on the OEJP website, in your browser. The integration never asks
 for your OEJP password and cannot see it.
 
+If you try to add the integration before registering an application credential,
+Home Assistant stops with a message telling you to add one first. That is the
+expected behaviour today, because no client ID exists to register.
+
 ### Configuration parameters
 
 There is nothing to type during setup. No API key, no account number, no supply
