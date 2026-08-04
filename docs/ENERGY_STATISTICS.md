@@ -36,11 +36,15 @@ both directions. What it checks, and what this integration therefore guarantees:
 | An energy unit it can convert | `kWh`, with the energy unit class |
 | External statistic id | `octopus_energy_japan:sp_<digest>_<direction>_energy` |
 
-Leave **cost** empty. This integration publishes no cost statistic, for the reasons in
-[`CONTRACT_AND_BILLING.md`](CONTRACT_AND_BILLING.md). Entering a fixed price per kWh
-there produces a number that no line of a Japanese bill supports, because the tariff is
-tiered and carries a daily standing charge, a monthly fuel-cost adjustment, a renewable
-levy, and tax.
+**Cost cannot be configured from the Energy dashboard for these series.** Home
+Assistant builds a cost sensor only when the energy source is a valid entity id — see
+`homeassistant/components/energy/sensor.py`, which returns early otherwise — and an
+external statistic id such as `octopus_energy_japan:sp_…_import_energy` is not one. A
+price entered there is ignored, not applied.
+
+That leaves `stat_cost`, a cost statistic published by this integration, as the only
+route. There is none today, for the reasons in
+[`CONTRACT_AND_BILLING.md`](CONTRACT_AND_BILLING.md).
 
 There is no `total_increasing` meter sensor to select instead, by design. OEJP publishes
 30-minute totals several hours late and revises them when a billing period closes. A

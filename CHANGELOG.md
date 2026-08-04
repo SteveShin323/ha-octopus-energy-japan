@@ -44,6 +44,11 @@ email and password login works today and is selectable at setup.
 
 ### Fixed
 
+- documentation said to leave the Energy dashboard's cost field empty because a fixed
+  price would be wrong. It is worse than wrong: Home Assistant builds a cost sensor only
+  when the energy source is a valid entity id, and an external statistic is not one, so a
+  price typed there is ignored rather than applied. The guides now say that, and a test
+  pins the fact;
 - device pages now show the account number and the supply-point number
   (供給地点特定番号) as their serial number. Hiding every provider identifier left a
   customer with two supply points unable to tell which device was which; entity IDs,
