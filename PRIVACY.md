@@ -38,13 +38,16 @@ Everything below lives in your Home Assistant's own storage.
 | Access and refresh tokens | authenticating | yes |
 | Your email and password, with that sign-in method | signing in again after seven days | yes |
 | Account, supply point, meter, and register identifiers | calling the API and joining stored readings to a supply point | yes |
-| Half-hourly readings with version and quality | totals and statistics that survive corrections | yes |
-| Your tariff prices | computing the cost statistic | yes |
-| Property address and postcode | the optional Address entity | yes |
+| Half-hourly readings with version, quality, and the provider's own cost figure | totals and statistics that survive corrections | yes |
 | Synchronisation checkpoints | resuming background work after a restart | yes |
 | An installation-local secret | deriving stable private identities | with the last entry |
 | Energy Dashboard statistics | long-term energy history | **no**, see below |
 | Application credentials (client ID) | re-adding without retyping | **no**, see below |
+
+Two things are deliberately **not** written to storage. Your tariff prices and your
+property's address are held in memory only and re-read from the provider on each refresh,
+so they exist on disk nowhere except inside a Home Assistant backup of the recorder, and
+only then if you enabled the Address entity.
 
 ## What never appears in the user interface
 

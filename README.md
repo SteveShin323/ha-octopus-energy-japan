@@ -194,6 +194,10 @@ Set cost to `OEJP supply point 1-1 Import cost`. Leave the price fields empty â€
 Assistant only multiplies a *sensor* by a price and skips that for an external
 statistic, so anything entered there is ignored. The cost statistic is the route.
 
+There is no export cost statistic. Energy fed back is compensated under a different
+arrangement than consumption, and pricing it at a consumption rate would invent a
+payment. Leave **Return to grid** without a cost.
+
 Treat cost as a good estimate, not your bill. Measured against one real closed bill it
 came to 104% of the billed total, for two reasons described under
 [known limitations](#known-limitations).
