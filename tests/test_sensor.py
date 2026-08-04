@@ -641,3 +641,33 @@ async def test_direction_entities_are_added_dynamically_exactly_once(
 
     assert add_entities.call_count == 2
     assert len(add_entities.call_args.args[0]) == len(ENERGY_DESCRIPTIONS)
+
+
+def test_energy_state_classes_are_ones_home_assistant_accepts() -> None:
+    """Home Assistant rejects `measurement` alongside the energy device class.
+
+    It logged "state class 'measurement' which is impossible considering device class
+    ('energy')" on a real setup, and pointed the user at this repository's issue tracker.
+    The latest-interval sensor carries no state class: it is one 30-minute total replaced
+    by the next, not a running sum, so `total` and `total_increasing` would both invite
+    the recorder to treat consecutive intervals as cumulative. Long-term history comes
+    from the external statistics this integration publishes instead.
+    """
+    from custom_components.octopus_energy_japan.sensor import ENERGY_DESCRIPTIONS
+    from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
+
+    energy = [
+        description
+        for description in ENERGY_DESCRIPTIONS
+        if description.device_class is SensorDeviceClass.ENERGY
+    ]
+    assert energy
+    for description in energy:
+        assert description.state_class in (
+            None,
+            SensorStateClass.TOTAL,
+            SensorStateClass.TOTAL_INCREASING,
+        ), f"{description.key} uses {description.state_class}"
+
+    latest = next(d for d in ENERGY_DESCRIPTIONS if d.key == "latest_interval")
+    assert latest.state_class is None

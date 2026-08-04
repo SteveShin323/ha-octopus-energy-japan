@@ -62,7 +62,14 @@ ENERGY_DESCRIPTIONS: tuple[OejpSensorEntityDescription, ...] = (
         key="latest_interval",
         device_class=SensorDeviceClass.ENERGY,
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
-        state_class=SensorStateClass.MEASUREMENT,
+        # No state class. Home Assistant rejects `measurement` with the energy device
+        # class — it logged "state class 'measurement' which is impossible considering
+        # device class ('energy')" and told the user to open a bug report here. The
+        # alternatives are wrong too: this is one 30-minute total that is replaced by
+        # the next, not a running sum, so `total` and `total_increasing` would both
+        # invite the recorder to treat consecutive intervals as a cumulative series.
+        # Long-term energy history comes from the external statistics this integration
+        # publishes, so nothing is lost by leaving this one out of recorder statistics.
         value_fn=lambda value: value.latest.energy_kwh if value.latest is not None else None,
     ),
     OejpSensorEntityDescription(
