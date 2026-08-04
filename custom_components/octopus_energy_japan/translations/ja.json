@@ -155,7 +155,7 @@
     },
     "ledger_partitions_corrupt": {
       "title": "保存されている Octopus Energy Japan の履歴を読み込めませんでした",
-      "description": "保存済みデータのうち {count} か月分を読み込めなかったため、残りの履歴を守るために切り離しました。直近の使用量は引き続き記録されますが、該当月の集計と Energy Dashboard の統計は不完全な可能性があります。連携を削除して再追加すると、Octopus Energy Japan が提供する範囲（およそ直近30日）を再取得します。"
+      "description": "保存済みデータのうち {count} か月分を読み込めなかったため、残りの履歴を守るために切り離しました。直近の使用量は引き続き記録されますが、該当月の集計と Energy Dashboard の統計は不完全な可能性があります。連携を削除して再追加すると、今月と前月ぶんを再取得します。"
     },
     "readings_silent": {
       "title": "Octopus Energy Japan から新しい使用量が届いていません",

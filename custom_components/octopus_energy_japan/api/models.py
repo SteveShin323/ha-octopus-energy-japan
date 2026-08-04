@@ -15,6 +15,12 @@ from typing import Final
 # format error.
 ELECTRICITY_MARKET_NAME: Final = "JPN_ELECTRICITY"
 
+# Every paginated field must carry `first`, and the provider's GraphQL guide states
+# it must be "less than 100": a request without it, or over the limit, errors. 99 is
+# the largest conforming value, so one page is as large as the provider allows and
+# every connection this integration queries uses it.
+MAX_PAGE_SIZE: Final = 99
+
 
 class ResourceLifecycle(StrEnum):
     """Normalized lifecycle independent of provider status spelling."""

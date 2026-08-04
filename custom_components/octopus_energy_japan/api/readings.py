@@ -19,6 +19,7 @@ from .errors import (
 )
 from .models import (
     ELECTRICITY_MARKET_NAME,
+    MAX_PAGE_SIZE,
     Capability,
     CapabilityAvailability,
     CapabilitySnapshot,
@@ -32,7 +33,7 @@ from .models import (
     ReadingSource,
 )
 
-GENERIC_PAGE_SIZE = 99
+GENERIC_PAGE_SIZE = MAX_PAGE_SIZE
 GENERIC_READING_TYPE = "INTERVAL"
 GENERIC_TIME_GRANULARITY = "THIRTY_MIN"
 GENERIC_TIMEZONE = "UTC"
@@ -192,8 +193,8 @@ class GenericReadingsProvider:
         now: Callable[[], datetime] | None = None,
         page_size: int = GENERIC_PAGE_SIZE,
     ) -> None:
-        if page_size <= 0 or page_size >= 100:
-            raise ValueError("Generic reading page_size must be between 1 and 99")
+        if page_size <= 0 or page_size > MAX_PAGE_SIZE:
+            raise ValueError(f"Generic reading page_size must be between 1 and {MAX_PAGE_SIZE}")
         self._client = client
         self._capabilities = capabilities
         self._now = now or (lambda: datetime.now(UTC))
