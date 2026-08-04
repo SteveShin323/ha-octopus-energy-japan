@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from functools import partial
@@ -362,7 +363,11 @@ async def test_the_energy_dashboard_accepts_the_published_statistics(
     from homeassistant.components.energy import validate as energy_validate
     from homeassistant.setup import async_setup_component
 
-    projector = HomeAssistantStatisticsProjector(hass, SECRET)
+    projector = HomeAssistantStatisticsProjector(
+        hass,
+        SECRET,
+        tariff_lookup=lambda _account, _point: _priceable_tariff(),
+    )
     for direction in (ReadingDirection.IMPORT, ReadingDirection.EXPORT):
         await projector.async_project_supply_point(
             _Ledger((_record(direction=direction),)),  # type: ignore[arg-type]
@@ -376,9 +381,11 @@ async def test_the_energy_dashboard_accepts_the_published_statistics(
     published = await hass.async_add_executor_job(
         partial(get_metadata, hass, statistic_source="octopus_energy_japan")
     )
-    assert len(published) == 2
+    # Import energy, export energy, and the cost derived from the import.
+    assert len(published) == 3
     consumption = next(key for key in published if key.endswith("_import_energy"))
     ret = next(key for key in published if key.endswith("_export_energy"))
+    cost = next(key for key in published if key.endswith("_tariff_cost"))
 
     assert await async_setup_component(hass, "energy", {})
     manager = await energy_data.async_get_manager(hass)
@@ -389,7 +396,10 @@ async def test_the_energy_dashboard_accepts_the_published_statistics(
                     "type": "grid",
                     "stat_energy_from": consumption,
                     "stat_energy_to": ret,
-                    "stat_cost": None,
+                    # The whole point of publishing a cost statistic: the dashboard cannot
+                    # price an external statistic itself, so this is the only way the cost
+                    # column can be filled.
+                    "stat_cost": cost,
                     "entity_energy_price": None,
                     "number_energy_price": None,
                     "stat_compensation": None,
@@ -409,6 +419,9 @@ async def test_the_energy_dashboard_accepts_the_published_statistics(
     assert result.device_consumption == [], result.device_consumption
 
     # And the metadata is what makes that possible, so pin the parts it checks.
+    _, cost_metadata = published[cost]
+    assert cost_metadata["has_sum"] is True
+    assert cost_metadata["unit_of_measurement"] == "JPY"
     for statistic_id in (consumption, ret):
         _, metadata = published[statistic_id]
         assert metadata["has_sum"] is True
@@ -513,3 +526,184 @@ def test_the_energy_dashboard_cannot_price_an_external_statistic() -> None:
 
     assert ":" in statistic_id
     assert not valid_entity_id(statistic_id)
+
+
+def _priceable_tariff() -> object:
+    from custom_components.octopus_energy_japan.api.tariff import (
+        SupplyPointTariff,
+        TariffAdder,
+        TariffStep,
+    )
+
+    return SupplyPointTariff(
+        account_number="A-1",
+        supply_point_id="SP-1",
+        product_code="P",
+        product_name="P",
+        steps=(
+            TariffStep(start_kwh=Decimal(0), end_kwh=Decimal(120), price_inc_tax=Decimal("20.62")),
+            TariffStep(start_kwh=Decimal(120), end_kwh=None, price_inc_tax=Decimal("25.29")),
+        ),
+        standing_charge_per_day=Decimal("38.80"),
+        fuel_cost_adjustment=TariffAdder(price_inc_tax=Decimal("4.32")),
+        renewable_energy_levy=TariffAdder(price_inc_tax=Decimal("4.18")),
+    )
+
+
+async def test_a_cost_series_is_published_when_a_tariff_is_known(hass: HomeAssistant) -> None:
+    """The Energy dashboard cannot price an external statistic, so this is the only route.
+
+    `homeassistant/components/energy/sensor.py` builds a cost sensor only for a real entity
+    id, so a price typed into the dashboard is ignored. A cost statistic published here is
+    what fills `stat_cost`.
+    """
+    hass.config.components.add(RECORDER)
+    published: list[tuple[object, ...]] = []
+    projector = HomeAssistantStatisticsProjector(
+        hass,
+        SECRET,
+        publisher=lambda *args: published.append(args),
+        tariff_lookup=lambda _account, _point: _priceable_tariff(),
+    )
+
+    await projector.async_project_supply_point(
+        _Ledger((_record(),)),  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+
+    kinds = [args[1]["statistic_id"] for args in published]
+    assert any(statistic_id.endswith("_import_energy") for statistic_id in kinds)
+    cost_id = next(statistic_id for statistic_id in kinds if statistic_id.endswith("_tariff_cost"))
+    cost_metadata = next(args[1] for args in published if args[1]["statistic_id"] == cost_id)
+    assert cost_metadata["unit_of_measurement"] == "JPY"
+    assert cost_metadata["has_sum"] is True
+    assert cost_metadata["unit_class"] is None
+    assert cost_metadata["name"].endswith("Import cost")
+
+    rows = next(args[2] for args in published if args[1]["statistic_id"] == cost_id)
+    # 0.5 kWh at the first step, plus both adders, plus one hour of the standing charge.
+    expected = (
+        Decimal("0.5") * Decimal("20.62")
+        + Decimal("0.5") * Decimal("8.50")
+        + Decimal("38.80") / Decimal(24)
+    )
+    assert rows[0]["state"] == pytest.approx(float(expected))
+    assert rows[0]["sum"] == pytest.approx(float(expected))
+
+
+async def test_no_cost_series_without_a_tariff(hass: HomeAssistant) -> None:
+    hass.config.components.add(RECORDER)
+    published: list[tuple[object, ...]] = []
+    projector = HomeAssistantStatisticsProjector(
+        hass,
+        SECRET,
+        publisher=lambda *args: published.append(args),
+        tariff_lookup=lambda _account, _point: None,
+    )
+
+    await projector.async_project_supply_point(
+        _Ledger((_record(),)),  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+
+    assert published
+    assert not any(args[1]["statistic_id"].endswith("_tariff_cost") for args in published)
+
+
+async def test_no_cost_series_when_the_tariff_carries_no_steps(hass: HomeAssistant) -> None:
+    """A flat-rate product has no `consumptionCharges`; inventing one would be a guess."""
+    from custom_components.octopus_energy_japan.api.tariff import SupplyPointTariff
+
+    hass.config.components.add(RECORDER)
+    published: list[tuple[object, ...]] = []
+    unpriceable = SupplyPointTariff(
+        account_number="A-1",
+        supply_point_id="SP-1",
+        product_code="P",
+        product_name="P",
+        steps=(),
+        standing_charge_per_day=Decimal("38.80"),
+        fuel_cost_adjustment=None,
+        renewable_energy_levy=None,
+    )
+    projector = HomeAssistantStatisticsProjector(
+        hass,
+        SECRET,
+        publisher=lambda *args: published.append(args),
+        tariff_lookup=lambda _account, _point: unpriceable,
+    )
+
+    await projector.async_project_supply_point(
+        _Ledger((_record(),)),  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+
+    assert not any(args[1]["statistic_id"].endswith("_tariff_cost") for args in published)
+
+
+async def test_the_cost_sum_continues_across_a_correction(hass: HomeAssistant) -> None:
+    """`dirty_from` limits the rows returned, never the sum they carry.
+
+    A correction has to rewrite the affected hour and every later cumulative total, so the
+    sum is accumulated from the whole ledger and only the tail is published.
+    """
+    hass.config.components.add(RECORDER)
+    published: list[tuple[object, ...]] = []
+    projector = HomeAssistantStatisticsProjector(
+        hass,
+        SECRET,
+        publisher=lambda *args: published.append(args),
+        tariff_lookup=lambda _account, _point: _priceable_tariff(),
+    )
+    earlier = replace(
+        _record(),
+        reading=replace(
+            _record().reading,
+            start_at=datetime(2026, 8, 2, 0, tzinfo=UTC),
+            end_at=datetime(2026, 8, 2, 0, 30, tzinfo=UTC),
+        ),
+    )
+
+    await projector.async_project_supply_point(
+        _Ledger((earlier, _record())),  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=datetime(2026, 8, 3, tzinfo=UTC),
+    )
+
+    rows = next(args[2] for args in published if args[1]["statistic_id"].endswith("_tariff_cost"))
+    # Only the dirty hour is republished, and its sum still includes the earlier day.
+    assert len(rows) == 1
+    assert rows[0]["sum"] > rows[0]["state"]
+
+
+async def test_export_energy_never_gets_a_cost_series(hass: HomeAssistant) -> None:
+    hass.config.components.add(RECORDER)
+    published: list[tuple[object, ...]] = []
+    projector = HomeAssistantStatisticsProjector(
+        hass,
+        SECRET,
+        publisher=lambda *args: published.append(args),
+        tariff_lookup=lambda _account, _point: _priceable_tariff(),
+    )
+
+    await projector.async_project_supply_point(
+        _Ledger((_record(direction=ReadingDirection.EXPORT),)),  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+
+    assert published
+    assert not any(args[1]["statistic_id"].endswith("_tariff_cost") for args in published)

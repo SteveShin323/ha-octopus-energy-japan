@@ -189,15 +189,21 @@ Pick the **statistic**, not a period sensor. The period sensors are for display;
 statistics are the correction-safe source, and they are what Home Assistant can rewrite
 when OEJP revises a reading.
 
-**The cost fields do nothing here, whatever you enter.** Home Assistant computes cost
-by multiplying a *sensor* entity's energy by a price, and it skips that entirely when the
-energy source is an external statistic, which is what this integration publishes. So a
-price you type into the Energy dashboard is silently ignored rather than applied.
+**Set cost to `OEJP supply point 1-1 Import cost`.** Leave the price fields alone — Home
+Assistant only multiplies a *sensor* by a price, and skips that for an external statistic,
+so anything you type there is ignored rather than applied. The cost statistic is the route,
+and the integration publishes one.
 
-The only way cost could appear is a cost statistic published by the integration, and
-there is none. Why is in [`CONTRACT_AND_BILLING.md`](CONTRACT_AND_BILLING.md): the
-provider's own per-interval estimate does not reproduce the billed tariff, and an account
-cannot read the tariff's unit prices to compute one.
+It is computed from your own tariff as OEJP reports it: the three price steps with their
+kWh boundaries, the daily standing charge, the monthly fuel-cost adjustment, and the annual
+renewable levy. You enter none of it.
+
+**Treat it as a good estimate, not your bill.** Measured against one real bill it came to
+104% of the billed total, for two reasons that are unavoidable today. Your bill runs to a
+meter read a few hours after midnight, while the price steps here restart on the Tokyo
+calendar month. And OEJP publishes only the *current* month's fuel-cost adjustment, so
+hours from earlier months are priced without one. The reasoning is in
+[`ENERGY_STATISTICS.md`](ENERGY_STATISTICS.md).
 
 There is deliberately no cumulative meter sensor to choose instead. OEJP publishes
 30-minute totals hours late and revises them when a billing period closes; a cumulative
@@ -216,15 +222,13 @@ charge at all. Showing it as your cost would carry provider authority for a figu
 no line of your bill supports. The evidence is in
 [`CONTRACT_AND_BILLING.md`](CONTRACT_AND_BILLING.md).
 
-**No tariff unit prices yet, though they are readable.** `product.rates` on your
-agreement is refused for an account, and asking for it also nulls the product it belongs
-to, which is why the integration does not request it. A separate catalogue query does
-work and returns the full stepped tariff — the three price steps with their kWh
-boundaries, tax included, and a standing charge for each contract amperage. Two pieces
-are still missing before that could become a cost you could trust: which amperage you
-contracted, and the monthly fuel-cost adjustment and annual renewable levy, neither of
-which an account can read. Progress is in
-[`API_CONTRACTS.md`](API_CONTRACTS.md).
+**Cost is an estimate, and history is incomplete.** The tariff itself is read from your
+agreement, so the prices are yours rather than a guess. What limits it is the boundary your
+bill uses and the fuel-cost adjustment's history, both described under
+[Energy Dashboard](#energy-dashboard) above. The provider's own per-interval `costEstimate`
+is still not published, because it collapses the adjustment and levy into one figure and
+cannot express the standing charge — see
+[`CONTRACT_AND_BILLING.md`](CONTRACT_AND_BILLING.md).
 
 **No `kWh × unit price` estimate.** A Japanese electricity bill combines tiered
 energy pricing, a fixed daily charge, a monthly fuel-cost adjustment, a renewable

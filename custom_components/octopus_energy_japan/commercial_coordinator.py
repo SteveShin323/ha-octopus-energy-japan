@@ -21,7 +21,9 @@ from .api import (
     OejpAccount,
     OejpAuthenticationError,
     OejpError,
+    SupplyPointTariff,
     async_fetch_account_commercial_snapshot,
+    async_fetch_supply_point_tariffs,
 )
 from .const import DOMAIN
 
@@ -35,10 +37,25 @@ class OejpCommercialData:
 
     accounts: tuple[AccountCommercialSnapshot, ...]
     observed_at: datetime
+    # Keyed by (account number, supply point id). The tariff is what turns consumption
+    # into a cost the Energy dashboard can show, and it lives on the agreement rather
+    # than the account, so it is collected here beside the other optional reads.
+    tariffs: tuple[SupplyPointTariff, ...] = ()
 
     def account(self, account_id: str) -> AccountCommercialSnapshot | None:
         """Return a commercial snapshot by raw runtime-only account ID."""
         return next((value for value in self.accounts if value.account_id == account_id), None)
+
+    def tariff(self, account_id: str, supply_point_id: str) -> SupplyPointTariff | None:
+        """Return the tariff for one supply point, if the provider reported one."""
+        return next(
+            (
+                value
+                for value in self.tariffs
+                if value.account_number == account_id and value.supply_point_id == supply_point_id
+            ),
+            None,
+        )
 
 
 class OejpCommercialCoordinator(DataUpdateCoordinator[OejpCommercialData]):
@@ -74,6 +91,7 @@ class OejpCommercialCoordinator(DataUpdateCoordinator[OejpCommercialData]):
     async def _async_update_data(self) -> OejpCommercialData:
         observed_at = _utc(self._now())
         previous = {snapshot.account_id: snapshot for snapshot in self.data.accounts}
+        previous_tariffs = self.data.tariffs
         snapshots: list[AccountCommercialSnapshot] = []
         for account in self._accounts:
             try:
@@ -89,7 +107,20 @@ class OejpCommercialCoordinator(DataUpdateCoordinator[OejpCommercialData]):
                     account.number, previous.get(account.number), observed_at
                 )
             snapshots.append(snapshot)
-        return OejpCommercialData(tuple(snapshots), observed_at)
+
+        tariffs: list[SupplyPointTariff] = []
+        for account in self._accounts:
+            try:
+                tariffs.extend(await async_fetch_supply_point_tariffs(self._client, account.number))
+            except OejpAuthenticationError as err:
+                raise ConfigEntryAuthFailed("OEJP OAuth authorization must be renewed") from err
+            except OejpError:
+                # A tariff this account cannot read costs only the cost series. Keeping
+                # whatever was read before is better than dropping a working price.
+                tariffs.extend(
+                    value for value in previous_tariffs if value.account_number == account.number
+                )
+        return OejpCommercialData(tuple(snapshots), observed_at, tuple(tariffs))
 
 
 def _failed_snapshot(

@@ -159,7 +159,11 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
     commercial_coordinator.async_request_refresh.assert_awaited_once_with()
     commercial_coordinator.async_refresh.assert_not_awaited()
     coordinator.async_start_background_sync.assert_awaited_once_with()
-    projector_factory.assert_called_once_with(hass, "01" * 32)
+    # The projector now receives a tariff lookup, because a cost series can only be
+    # published from the tariff the commercial coordinator reads on its slower cadence.
+    projector_factory.assert_called_once()
+    assert projector_factory.call_args.args == (hass, "01" * 32)
+    assert callable(projector_factory.call_args.kwargs["tariff_lookup"])
     assert coordinator_factory.call_args.kwargs["statistics_projector"] is statistics_projector
     commercial_factory.assert_called_once()
     project_devices.assert_called_once_with(hass, entry, entry.runtime_data)
