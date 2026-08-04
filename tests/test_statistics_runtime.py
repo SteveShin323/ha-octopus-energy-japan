@@ -30,6 +30,9 @@ from pytest_homeassistant_custom_component.components.recorder.common import (
 
 NOW = datetime(2026, 8, 3, 3, tzinfo=UTC)
 SECRET = "11" * 32
+# Statistics need the recorder, which `after_dependencies` orders but does not require,
+# so tests that project have to declare it. Its absence has its own test below.
+RECORDER = "recorder"
 
 
 class _Ledger:
@@ -66,6 +69,7 @@ def _record(*, value: str = "0.5", cost: str | None = None) -> LedgerRecord:
 
 
 async def test_publishes_safe_energy_metadata_and_dirty_rows(hass: HomeAssistant) -> None:
+    hass.config.components.add(RECORDER)
     publisher = Mock()
     ledger = _Ledger((_record(),))
     projector = HomeAssistantStatisticsProjector(
@@ -97,6 +101,7 @@ async def test_publishes_safe_energy_metadata_and_dirty_rows(hass: HomeAssistant
 
 
 async def test_official_cost_requires_explicit_activation(hass: HomeAssistant) -> None:
+    hass.config.components.add(RECORDER)
     default_publisher = Mock()
     enabled_publisher = Mock()
     ledger = _Ledger((_record(cost="15"),))
@@ -133,6 +138,7 @@ async def test_official_cost_requires_explicit_activation(hass: HomeAssistant) -
 
 
 async def test_empty_ledger_is_a_noop(hass: HomeAssistant) -> None:
+    hass.config.components.add(RECORDER)
     publisher = Mock()
     ledger = _Ledger(())
     ledger.known_partitions = frozenset()
@@ -153,6 +159,7 @@ async def test_empty_ledger_is_a_noop(hass: HomeAssistant) -> None:
 
 
 async def test_empty_projection_rows_are_not_published(hass: HomeAssistant) -> None:
+    hass.config.components.add(RECORDER)
     publisher = Mock()
     ledger = _Ledger((_record(),))
 
@@ -174,6 +181,7 @@ async def test_empty_projection_rows_are_not_published(hass: HomeAssistant) -> N
 async def test_empty_partition_index_can_still_clear_deleted_series(
     hass: HomeAssistant,
 ) -> None:
+    hass.config.components.add(RECORDER)
     projector = HomeAssistantStatisticsProjector(hass, SECRET)
     projector._clear_directions = Mock()  # type: ignore[method-assign]
     ledger = _Ledger(())
@@ -196,6 +204,7 @@ async def test_empty_partition_index_can_still_clear_deleted_series(
 
 
 def test_clear_with_no_directions_is_a_noop(hass: HomeAssistant) -> None:
+    hass.config.components.add(RECORDER)
     projector = HomeAssistantStatisticsProjector(hass, SECRET)
 
     projector._clear_directions("A-1", "SP-1", frozenset())
@@ -287,3 +296,45 @@ async def test_recorder_harness_replaces_external_hourly_rows(
             statistic_source="octopus_energy_japan",
         )
     )
+
+
+async def test_projection_is_skipped_without_the_recorder(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`after_dependencies` orders the recorder; it does not require it.
+
+    Without `recorder:` in the configuration, `get_instance` raised
+    `KeyError: recorder_instance`, observed live on 2026-08-04. Consumption entities and
+    calendar totals do not need the recorder, so statistics are skipped rather than
+    allowed to fail the refresh.
+    """
+    hass.config.components.add(RECORDER)
+    hass.config.components.remove(RECORDER)
+    publisher = Mock()
+    ledger = _Ledger((_record(),))
+    projector = HomeAssistantStatisticsProjector(hass, SECRET, publisher=publisher)
+
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+        reset_directions=frozenset({ReadingDirection.IMPORT}),
+    )
+
+    publisher.assert_not_called()
+    assert ledger.requested is None
+    assert "recorder is not enabled" in caplog.text
+
+    # It names a deliberate configuration choice, so a refresh must not repeat it.
+    caplog.clear()
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+    assert "recorder is not enabled" not in caplog.text
