@@ -105,5 +105,8 @@ class OejpPkceAuthSession(AuthSession):
         return access_token
 
 
-class OejpDeviceAuthSession(OejpPkceAuthSession):
-    """Runtime session for tokens obtained through Device Authorization Grant."""
+# Device Authorization Grant tokens need no session type of their own. They are
+# issued by the same `/token/` endpoint as the authorization-code grant and refresh
+# with the same `grant_type=refresh_token` request, so `OejpPkceAuthSession` handles
+# them unchanged. A subclass existed here with a docstring and no body, which only
+# implied a capability that did not exist.

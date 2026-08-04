@@ -345,3 +345,31 @@ async def test_diagnostics_omit_data_delay_when_no_projection_reports_one(
     report = await async_get_config_entry_diagnostics(hass, entry)
 
     assert report["aggregation"]["max_data_delay_seconds"] is None
+
+
+async def test_diagnostics_never_contain_a_stored_credential(hass: HomeAssistant) -> None:
+    """The password method stores a credential; diagnostics must not carry it.
+
+    The report is built from an allow-list, so this cannot regress quietly — but the
+    point of the diagnostics contract is that a user can attach the file to a public
+    issue without reading it first, and a stored password would make that unsafe.
+    """
+    email = "person@example.test"
+    password = "correct horse"
+    entry = _entry(hass)
+    hass.config_entries.async_update_entry(
+        entry,
+        data={
+            "auth_method": "password",
+            "email": email,
+            "password": password,
+            "access_token": "legacy-access",
+            "refresh_token": "legacy-refresh",
+        },
+    )
+
+    report = await async_get_config_entry_diagnostics(hass, entry)
+
+    serialised = json.dumps(report, default=str)
+    for secret in (email, password, "legacy-access", "legacy-refresh"):
+        assert secret not in serialised

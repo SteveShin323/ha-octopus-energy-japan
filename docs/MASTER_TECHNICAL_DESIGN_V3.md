@@ -85,9 +85,11 @@ Add integration
   -> Home Assistant reauthentication after revoke or terminal refresh failure
 ```
 
-Authorization Code with PKCE is primary. Device Authorization Grant is an
-optional fallback if OEJP approves it. A client secret is never embedded or
-distributed.
+Authorization Code with PKCE is primary. Device Authorization Grant is an optional
+fallback if OEJP enables it on the application; its endpoint is documented by the
+provider and answers live. The provider's email and password login is offered as a
+third, selectable method, because it is the only one that works without a client ID.
+A client secret is never embedded or distributed.
 
 A shared public client ID may be committed only after OEJP confirms publication
 and reuse across installations. If user-specific client IDs are required, use
@@ -115,10 +117,17 @@ class AuthSession(Protocol):
     async def async_revoke(self) -> None: ...
 ```
 
-Implementations are `OejpPkceAuthSession`, optional
-`OejpDeviceAuthSession`, deterministic `FakeAuthSession`, and a probe-only
-`LegacyKrakenAuthSession`. Deprecated password operations never enter public
-config flow or runtime.
+Implementations are `OejpPkceAuthSession`, which also serves Device Authorization
+Grant tokens because they come from the same token endpoint and refresh identically,
+`OejpPasswordAuthSession` for the provider's email and password login, and a
+deterministic `FakeAuthSession` for tests.
+
+The password method is selectable in the config flow and is the only one that works
+before OEJP issues a client ID. It stores the credential, because the provider's
+refresh token lasts seven days and renewing does not extend it. See
+[ADR 0008](adr/0008-password-authentication.md). A rejected sign-in is terminal and
+reaches reauthentication rather than a retry loop, because OEJP reports a wrong
+password with the same error class as an expired token.
 
 ### 2.3 OEJP application outcomes
 

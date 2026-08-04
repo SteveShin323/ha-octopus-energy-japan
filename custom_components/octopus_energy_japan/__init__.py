@@ -21,6 +21,7 @@ PLATFORMS = ["sensor", "binary_sensor"]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Octopus Energy Japan from an OAuth config entry."""
+    from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
     from homeassistant.core import callback
     from homeassistant.exceptions import (
         ConfigEntryAuthFailed,
@@ -35,6 +36,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     from .api import (
         AuthenticatedGraphQLClient,
+        AuthSession,
         OejpAuthenticationError,
         OejpError,
         OejpGraphQLClient,
@@ -42,6 +44,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         OejpTransportError,
     )
     from .commercial_coordinator import OejpCommercialCoordinator
+    from .const import AUTH_METHOD_OAUTH, AUTH_METHOD_PASSWORD, CONF_AUTH_METHOD
     from .coordinator import OejpDataUpdateCoordinator
     from .identity import async_get_identity_secret
     from .issues import async_update_issues
@@ -50,35 +53,67 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         OAuthMetadataUnavailableError,
         require_oauth_metadata,
     )
+    from .password_auth import OejpPasswordAuthError, OejpPasswordAuthSession
     from .runtime import OejpRuntimeData, async_project_discovered_devices
     from .statistics_runtime import HomeAssistantStatisticsProjector
 
-    try:
-        implementation = await config_entry_oauth2_flow.async_get_config_entry_implementation(
+    client = OejpGraphQLClient(async_get_clientsession(hass))
+    auth: AuthSession
+    method = entry.data.get(CONF_AUTH_METHOD, AUTH_METHOD_OAUTH)
+
+    if method == AUTH_METHOD_PASSWORD:
+        email = entry.data.get(CONF_EMAIL)
+        password = entry.data.get(CONF_PASSWORD)
+        if not isinstance(email, str) or not isinstance(password, str):
+            raise ConfigEntryAuthFailed("OEJP email and password are no longer stored")
+        try:
+            metadata = require_oauth_metadata()
+        except OAuthMetadataUnavailableError as err:
+            raise ConfigEntryNotReady("OEJP metadata is temporarily unavailable") from err
+        auth = OejpPasswordAuthSession(
             hass,
             entry,
+            client,
+            email=email,
+            password=password,
+            scheme=metadata.authorization_scheme.value,
         )
-        metadata = require_oauth_metadata()
-    except (
-        config_entry_oauth2_flow.ImplementationUnavailableError,
-        OAuthMetadataUnavailableError,
-        ValueError,
-    ) as err:
-        raise ConfigEntryNotReady("OEJP OAuth implementation is temporarily unavailable") from err
+        try:
+            await auth.async_get_authorization_header()
+        except OejpPasswordAuthError as err:
+            # The stored credential no longer works, or OEJP stopped honouring
+            # password login. Retrying cannot fix either, so ask the user.
+            raise ConfigEntryAuthFailed("OEJP rejected the stored email and password") from err
+        except (OejpRateLimitError, OejpTransportError) as err:
+            raise ConfigEntryNotReady("OEJP sign-in is temporarily unavailable") from err
+    else:
+        try:
+            implementation = await config_entry_oauth2_flow.async_get_config_entry_implementation(
+                hass,
+                entry,
+            )
+            metadata = require_oauth_metadata()
+        except (
+            config_entry_oauth2_flow.ImplementationUnavailableError,
+            OAuthMetadataUnavailableError,
+            ValueError,
+        ) as err:
+            raise ConfigEntryNotReady(
+                "OEJP OAuth implementation is temporarily unavailable"
+            ) from err
 
-    auth = OejpPkceAuthSession(hass, entry, implementation, metadata)
-    try:
-        await auth.async_get_authorization_header()
-    except OAuth2TokenRequestReauthError as err:
-        raise ConfigEntryAuthFailed("OEJP OAuth authorization must be renewed") from err
-    except OAuth2TokenRequestTransientError as err:
-        raise ConfigEntryNotReady("OEJP OAuth server is temporarily unavailable") from err
-    except OAuth2TokenRequestError as err:
-        raise ConfigEntryNotReady("OEJP OAuth token request failed") from err
-    except OejpOAuthError as err:
-        raise ConfigEntryAuthFailed("OEJP OAuth token is invalid") from err
+        auth = OejpPkceAuthSession(hass, entry, implementation, metadata)
+        try:
+            await auth.async_get_authorization_header()
+        except OAuth2TokenRequestReauthError as err:
+            raise ConfigEntryAuthFailed("OEJP OAuth authorization must be renewed") from err
+        except OAuth2TokenRequestTransientError as err:
+            raise ConfigEntryNotReady("OEJP OAuth server is temporarily unavailable") from err
+        except OAuth2TokenRequestError as err:
+            raise ConfigEntryNotReady("OEJP OAuth token request failed") from err
+        except OejpOAuthError as err:
+            raise ConfigEntryAuthFailed("OEJP OAuth token is invalid") from err
 
-    client = OejpGraphQLClient(async_get_clientsession(hass))
     authenticated_client = AuthenticatedGraphQLClient(client, auth)
     try:
         accounts, capabilities = await _async_discover_state(authenticated_client)
@@ -194,18 +229,42 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Best-effort revoke OAuth authorization when an entry is removed."""
+    """Best-effort revoke the authorization this entry holds, when it is removed."""
+    from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
     from homeassistant.helpers import config_entry_oauth2_flow
+    from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+    from .api import OejpError, OejpGraphQLClient
+    from .const import AUTH_METHOD_OAUTH, AUTH_METHOD_PASSWORD, CONF_AUTH_METHOD
     from .issues import async_clear_issues
     from .oauth import OejpOAuthRevocationError, OejpPkceAuthSession
     from .oauth_metadata import (
         OAuthMetadataUnavailableError,
         require_oauth_metadata,
     )
+    from .password_auth import OejpPasswordAuthSession
 
     # Repair issues outlive a reload on purpose, so removal is what clears them.
     async_clear_issues(hass, entry.entry_id)
+
+    if entry.data.get(CONF_AUTH_METHOD, AUTH_METHOD_OAUTH) == AUTH_METHOD_PASSWORD:
+        email = entry.data.get(CONF_EMAIL)
+        password = entry.data.get(CONF_PASSWORD)
+        if not isinstance(email, str) or not isinstance(password, str):
+            return
+        try:
+            session = OejpPasswordAuthSession(
+                hass,
+                entry,
+                OejpGraphQLClient(async_get_clientsession(hass)),
+                email=email,
+                password=password,
+                scheme=require_oauth_metadata().authorization_scheme.value,
+            )
+            await session.async_revoke()
+        except OAuthMetadataUnavailableError, OejpError:
+            _LOGGER.warning("Unable to invalidate the OEJP refresh token during entry removal")
+        return
 
     try:
         implementation = await config_entry_oauth2_flow.async_get_config_entry_implementation(

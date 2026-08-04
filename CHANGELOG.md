@@ -4,14 +4,22 @@ All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-No version has been released yet. The integration cannot be connected until Octopus
-Energy Japan issues an OAuth client ID; see
-[`docs/OAUTH_APPLICATION_STATUS.md`](docs/OAUTH_APPLICATION_STATUS.md).
+No version has been released yet. The OAuth methods wait on a client ID from Octopus
+Energy Japan; see
+[`docs/OAUTH_APPLICATION_STATUS.md`](docs/OAUTH_APPLICATION_STATUS.md). The provider's
+email and password login works today and is selectable at setup.
 
 ## [Unreleased]
 
 ### Added
 
+- a choice of sign-in method at setup. **Email and password** works without an OAuth
+  client ID, storing the credential because the provider's refresh token lasts seven
+  days and renewing does not extend it. **Octopus Energy Japan account** is the
+  recommended method and never sees the password. One OEJP login owns one config entry
+  under either method, so an entry can be promoted to OAuth in place — keeping its
+  readings and statistics, and deleting the stored password. See
+  [ADR 0008](docs/adr/0008-password-authentication.md);
 - read-only OEJP integration: OAuth with PKCE, account and supply-point discovery,
   generic and legacy reading providers with an explicit fallback policy;
 - a persistent correction-aware interval ledger and Asia/Tokyo calendar aggregation;
@@ -40,6 +48,9 @@ Energy Japan issues an OAuth client ID; see
   the 31-day figure is a per-response cap of 1488 intervals that silently keeps the
   newest and drops the oldest. The scoped contract had this right and the user
   documentation contradicted it;
+- `OejpDeviceAuthSession` was a subclass with a docstring and no body, implying a
+  capability that did not exist. Device-grant tokens come from the same token endpoint
+  and refresh identically, so `OejpPkceAuthSession` serves them unchanged;
 - the device-authorization endpoint was recorded as absent, which left the
   implemented RFC 8628 client unconstructible. The provider documents
   `/device-authorization/` and the live endpoint answers a POST with

@@ -8,10 +8,11 @@ Last updated: 2026-08-04
 
 ## Implementation status
 
-The public Home Assistant email/password config flow has been removed.
-Authorization Code + PKCE, refresh-token rotation, one-time authentication
-retry, reauthentication, best-effort revocation, and RFC 8628 device grant
-transport are implemented.
+Authorization Code + PKCE, refresh-token rotation, one-time authentication retry,
+reauthentication, best-effort revocation, and RFC 8628 device grant transport are
+implemented. The provider's email and password login is implemented and selectable as
+well; it stores the credential and is expected to be withdrawn by OEJP, as recorded in
+[ADR 0008](adr/0008-password-authentication.md).
 
 The provider's published endpoints, issuer, scopes, and the confirmed `Bearer`
 header scheme are now recorded in `oauth_metadata.py`, so Application Credentials
@@ -95,21 +96,23 @@ handling it. No application, client ID, endpoint, scope, or permission decision
 has been received, so every row of the response record below remains pending and
 the implementation continues to fail closed.
 
-Until the application arrives, live contract investigation uses the isolated
-local probe with the deprecated Kraken email/password login, as described in
-[`FIXTURE_REDACTION.md`](FIXTURE_REDACTION.md). That path exists only in
-`scripts/oejp_probe.py`. The Home Assistant config flow and runtime cannot use
-it, and no release depends on it.
+Live contract investigation uses the isolated local probe, as described in
+[`FIXTURE_REDACTION.md`](FIXTURE_REDACTION.md), with the same email/password login the
+config flow now offers to users.
 
 ## Release blocker
 
-No OAuth client ID exists, so no user can complete the setup flow. That is now the
-only thing standing between this integration and a working release, together with
-written confirmation that the application may be registered as a public client.
+No OAuth client ID exists, so neither OAuth method can be completed, and a user
+cannot work around that by supplying their own client ID through Application
+Credentials because OEJP offers no self-service registration.
 
-A user cannot work around it by supplying their own client ID through Application
-Credentials either, because OEJP does not offer self-service application
-registration.
+It is no longer a **total** blocker. Since [ADR 0008](adr/0008-password-authentication.md)
+the integration also offers the provider's email and password login, which needs no
+client ID and works today. What the missing client ID still blocks is the method OEJP
+is moving to, and therefore the integration's future: the password fields are already
+absent from the published input schema while still being honoured, so they can be
+withdrawn at any time, and when they are, an issued client ID is the only thing that
+keeps the integration working at all.
 
 ## Response record
 
