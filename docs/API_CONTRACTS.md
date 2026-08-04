@@ -161,6 +161,30 @@ that ordering the integration would treat an expired or revoked authorization as
 an unsupported schema and mark the capability permanently unavailable instead of
 requesting reauthentication.
 
+## Market name requires a territory prefix
+
+`Query.supplyPoint(externalIdentifier: String!, marketName: String!)` validates
+the market name as a plain string, not an enum, so introspection cannot enumerate
+the accepted values. Confirmed empirically on 2026-08-04:
+
+| Value | Result |
+|---|---|
+| `JPN_ELECTRICITY` | accepted, resolved the supply point |
+| `ELECTRICITY` | rejected, `KT-CT-4723` |
+| `JP_ELECTRICITY` | rejected, `KT-CT-4723` |
+| `JAPAN_ELECTRICITY` | rejected, `KT-CT-4723` |
+| `JPN_GAS` | reached authorization (`KT-CT-1111`), not a format error |
+
+`JPN_GAS` failing on authorization rather than format is what confirms the
+`TERRITORY_MARKETNAME` pattern rather than a single magic string.
+
+Before this was confirmed the integration sent `ELECTRICITY`, so every generic
+readings and generic device request failed validation. The failure classified as
+an unsupported capability and the runtime fell back to legacy readings
+permanently, which is why consumption still worked while import/export
+separation, device and register scopes, and reading quality metadata never did.
+`ELECTRICITY_MARKET_NAME` in `api/models.py` is now the single definition.
+
 ## Optional commercial operations
 
 Account status, agreements, and billing are three separate optional documents,
@@ -171,12 +195,43 @@ product and rate connection and follows `endCursor` pagination.
 fragments for `StatementType`, `PeriodBasedDocumentType`, and `InvoiceType`, plus
 the single newest `transactions` node.
 
-These documents have **not** been validated against the live schema. Unlike the
-reading contracts above, they were derived from the published OEJP schema
-documentation only. The `rates` shape, the bill fragment coverage, and the
-denomination of every monetary field must be confirmed by the redacting local
-probe before alpha release. The consequences of that gap, and the projections
-withheld because of it, are recorded in
+These documents were validated by schema introspection against a real account on
+2026-08-04, which corrected three mistakes in the originally documented shape.
+
+**Type names.** The account type is `Account`, not `AccountType`; `viewer` returns
+`AccountUser`; `viewer.accounts` returns `[AccountInterface]`, so account fields
+beyond the interface require `... on Account`.
+
+**Rates.** `SupplyProductType.rates` returns `[ApplicableRateType!]!`, whose real
+fields are `sourceSystem`, `name`, `pricePerUnit`, `unit`, `unitDisplay`,
+`variantProfile`, `rateId`, `overridePrice`, `currency`, `category`,
+`validityPeriod`, and `isSalesTax`. None of `gridOperatorCode`,
+`regionOfOperation`, `band`, `validFrom`, `validTo`, `unitType`, or
+`durationMonths` exists. Rate attribution is expressed through `category` and
+`variantProfile`; `variantProfile` is `JSONString`/`GenericScalar`, so it is
+opaque provider JSON rather than a typed contract.
+
+**Bill fragments.** `bills` returns `BillConnectionTypeConnection` over
+`BillInterface`, implemented by `StatementType`, `PreKrakenBillType`,
+`PeriodBasedDocumentType`, `CollectiveBillType`, and `InvoiceType`. Those
+implementations disagree on nullability and on the total type:
+
+| Field | `PeriodBasedDocumentType` | `InvoiceType` | `PreKrakenBillType` |
+|---|---|---|---|
+| `isHeld` | `Boolean!` | `Boolean` | absent |
+| `isAnnulled` | `Boolean!` | `Boolean!` | absent |
+| `totalCharges` | `StatementTotalType` | `InvoiceTotalType` | absent |
+| `grossAmount` | absent | `Int` | `BigInt` |
+
+GraphQL rejects one shared response name whose shapes differ, so the query aliases
+these per fragment. `StatementType` carries `paymentDueDate`, `status`, and
+`heldStatus` rather than `isHeld`.
+
+Transactions return the `TransactionType` interface, implemented by `Charge`,
+`Payment`, `Refund`, and `Credit`. Every field the integration selects exists on
+the interface itself, so no transaction fragment is required.
+
+The remaining unverified items are recorded in
 [`CONTRACT_AND_BILLING.md`](CONTRACT_AND_BILLING.md).
 
 Each operation runs through the optional execution path. A per-operation

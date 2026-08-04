@@ -195,7 +195,7 @@ def _commercial_snapshot(
                         "PRODUCT-CODE",
                         "Octopus plan",
                         None,
-                        "ELECTRICITY",
+                        "JPN_ELECTRICITY",
                     ),
                 ),
             )

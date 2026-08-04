@@ -102,17 +102,18 @@ GraphQL, no arbitrary variables, and no mutations.
 `docs/CONTRACT_AND_BILLING.md` records four unmet verification items that keep
 provider cost and tariff rates unpublished. These probes are how they close:
 
-| Verification item | Probe | What to look for |
-|---|---|---|
-| OAuth or account permission for cost fields | `legacy_half_hourly_readings` | whether `costEstimate` returns a value or an authorization error |
-| Currency and denomination | `account_billing` | whether the redacted `grossTotal` count of digits matches a known bill total in yen |
-| Interval coverage | `legacy_half_hourly_readings` | whether every returned interval carries `costEstimate` |
-| Correction semantics | `legacy_half_hourly_readings`, twice over an overlapping window | whether a revised reading also revises its `costEstimate` and `version` |
+| Verification item | Probe | What to look for | Status |
+|---|---|---|---|
+| Account permission for cost fields | `legacy_half_hourly_readings` | whether `costEstimate` returns a value or an authorization error | closed 2026-08-04 |
+| Interval coverage | `legacy_half_hourly_readings` | whether every returned interval carries `costEstimate` | closed 2026-08-04 |
+| Currency and denomination | `account_agreements`, then `account_billing` | the `currency` and `unit` on a rate, then whether the bill total reconciles against a bill read from the OEJP web account | open |
+| Correction semantics | `legacy_half_hourly_readings`, twice over an overlapping window | whether a revised reading also revises its `costEstimate` and `version` | open |
+| OAuth permission for cost fields | any reading probe once OAuth exists | the legacy login is not evidence for account-user OAuth | blocked on OEJP |
 
-The commercial documents in `account_overview`, `account_agreements`, and
-`account_billing` have never been validated against the live schema. A GraphQL
-validation error from any of them is a real finding: record it and correct the
-document before relying on the parser.
+The commercial documents were validated by introspection on 2026-08-04, which
+corrected the rate fields and the bill fragment aliases. They are no longer
+guesses, but a GraphQL validation error from any operation is still a real
+finding: record it and correct the document before relying on the parser.
 
 Monetary fields are replaced with placeholders before anything reaches disk, so
 reconciling an amount against a real bill requires reading the value from the

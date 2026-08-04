@@ -139,7 +139,7 @@ async def test_generic_device_operation_validates_supply_point_identity() -> Non
         GENERIC_DEVICES_QUERY,
         {
             "externalIdentifier": "spin-1",
-            "marketName": "ELECTRICITY",
+            "marketName": "JPN_ELECTRICITY",
         },
     )
 

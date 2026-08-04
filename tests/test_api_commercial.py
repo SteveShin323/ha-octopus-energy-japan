@@ -62,17 +62,20 @@ def _agreements() -> dict[str, object]:
                                 "code": "OEJP-2",
                                 "displayName": "Octopus plan",
                                 "fullName": "Octopus Energy Japan plan",
-                                "marketName": "ELECTRICITY",
+                                "marketName": "JPN_ELECTRICITY",
                                 "rates": [
                                     {
-                                        "gridOperatorCode": "GRID",
-                                        "regionOfOperation": "REGION",
-                                        "band": "STANDARD",
-                                        "validFrom": "2026-07-01T00:00:00+09:00",
-                                        "validTo": None,
-                                        "unitType": "KWH",
+                                        "name": "Standard unit rate",
+                                        "category": "CONSUMPTION_CHARGE",
                                         "pricePerUnit": "31.25",
-                                        "durationMonths": None,
+                                        "unit": "KWH",
+                                        "unitDisplay": "kWh",
+                                        "currency": "JPY",
+                                        "isSalesTax": False,
+                                        "validityPeriod": {
+                                            "start": "2026-07-01T00:00:00+09:00",
+                                            "end": None,
+                                        },
                                     }
                                 ],
                             },
@@ -111,10 +114,8 @@ def _billing() -> dict[str, object]:
                             "toDate": "2026-06-30",
                             "issuedDate": "2026-07-05",
                             "paymentDueDate": "2026-07-31",
-                            "totalCharges": {"grossTotal": 8765},
+                            "statementTotalCharges": {"grossTotal": 8765},
                             "status": "CLOSED",
-                            "isAnnulled": None,
-                            "isHeld": None,
                         }
                     }
                 ]
@@ -158,6 +159,62 @@ def test_parsers_return_typed_deterministic_commercial_data() -> None:
     assert transaction is not None
     assert transaction.amount_minor == -8765
     assert transaction.created_at == datetime(2026, 7, 10, 1, 2, 3, tzinfo=UTC)
+
+
+def test_applicable_rate_is_parsed_with_its_provider_denomination() -> None:
+    agreements = parse_account_agreements(_agreements(), ACCOUNT)
+
+    product = agreements[-1].product
+    assert product is not None
+    rate = product.rates[0]
+    assert rate.name == "Standard unit rate"
+    assert rate.category == "CONSUMPTION_CHARGE"
+    assert rate.price_per_unit == Decimal("31.25")
+    assert rate.unit == "KWH"
+    assert rate.unit_display == "kWh"
+    assert rate.currency == "JPY"
+    assert rate.is_sales_tax is False
+    assert rate.valid_from == datetime(2026, 6, 30, 15, tzinfo=UTC)
+    assert rate.valid_to is None
+
+
+def test_absent_optional_rate_flags_fall_back_to_safe_defaults() -> None:
+    payload = deepcopy(_agreements())
+    node = payload["account"]["marketSupplyAgreements"]["edges"][0]["node"]  # type: ignore[index]
+    node["product"]["rates"][0].update({"isSalesTax": None, "validityPeriod": None})
+    node["isActive"] = None
+
+    agreements = parse_account_agreements(payload, ACCOUNT)
+
+    product = agreements[-1].product
+    assert product is not None
+    assert product.rates[0].is_sales_tax is False
+    assert product.rates[0].valid_from is None
+    assert agreements[-1].is_active is None
+
+
+def test_period_based_document_held_and_annulled_aliases_are_read() -> None:
+    payload = deepcopy(_billing())
+    node = payload["account"]["bills"]["edges"][0]["node"]  # type: ignore[index]
+    node.pop("statementTotalCharges")
+    node.pop("paymentDueDate")
+    node.update(
+        {
+            "__typename": "PeriodBasedDocumentType",
+            "periodTotalCharges": {"grossTotal": 5000},
+            "periodIsAnnulled": False,
+            "periodIsHeld": True,
+        }
+    )
+
+    bill, _ = parse_account_billing(payload, ACCOUNT)
+
+    assert bill is not None
+    assert bill.type_name == "PeriodBasedDocumentType"
+    assert bill.gross_amount_minor == 5000
+    assert bill.is_annulled is False
+    assert bill.is_held is True
+    assert bill.due_date is None
 
 
 def test_current_agreement_uses_half_open_utc_periods() -> None:
@@ -470,8 +527,8 @@ def test_optional_bill_dates_round_trip(value: str | None, expected: str | None)
 def test_invoice_gross_amount_is_used_when_no_charge_breakdown_exists() -> None:
     payload = deepcopy(_billing())
     node = payload["account"]["bills"]["edges"][0]["node"]  # type: ignore[index]
-    node.pop("totalCharges")
-    node.update({"__typename": "InvoiceType", "grossAmount": 4321})
+    node.pop("statementTotalCharges")
+    node.update({"__typename": "InvoiceType", "invoiceGrossAmount": 4321})
 
     bill, _ = parse_account_billing(payload, ACCOUNT)
 
@@ -492,7 +549,7 @@ def test_malformed_bill_dates_are_rejected(value: object) -> None:
 def test_billing_rejects_conflicting_or_excess_results() -> None:
     conflicting = deepcopy(_billing())
     bill = conflicting["account"]["bills"]["edges"][0]["node"]  # type: ignore[index]
-    bill["grossAmount"] = 1
+    bill["invoiceGrossAmount"] = 1
     with pytest.raises(OejpInvalidResponseError, match="conflicting gross"):
         parse_account_billing(conflicting, ACCOUNT)
 

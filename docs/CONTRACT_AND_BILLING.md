@@ -144,17 +144,27 @@ verified before a public release.
 cost but leaves publication disabled pending verification in this scope. The
 required evidence is:
 
-| Item | Status | Evidence that closes it |
+| Item | Status | Evidence |
 |---|---|---|
-| OAuth permission for cost fields | unmet | OEJP scope confirmation, or a probe reaching cost data with account-user OAuth |
-| Currency and denomination | unmet | provider metadata, or a probe response whose value can be reconciled against a known bill total |
-| Interval coverage | unmet | a probe confirming whether every returned interval carries a cost |
-| Correction semantics | unmet | a probe confirming whether a corrected reading also revises its cost |
+| Account permission for cost fields | **met** | a real-account probe on 2026-08-04 returned `costEstimate` on `halfHourlyReadings` for every interval |
+| Interval coverage | **met** | the same probe showed a `costEstimate` and a `version` on every returned interval |
+| Currency and denomination | unmet | `ApplicableRateType.currency` and `unit` exist and must be read; a rate response must also be reconciled against a known bill total |
+| Correction semantics | unmet | two probes over an overlapping window, comparing `costEstimate` and `version` |
+| OAuth permission for cost fields | unmet | OEJP scope confirmation; the probe result above was obtained with the legacy login, not OAuth |
 
-None of the four is satisfied. OEJP has acknowledged the OAuth application
-request but has not yet replied with the application, and no real-account probe
-has been run. This PR therefore keeps every provider-cost projection
-unpublished, with one gate and three consequences:
+Two items are now closed. Reading-level provider cost is present and complete for
+this account under the legacy login.
+
+Two remain. Denomination is the blocking one: the probe redacts monetary values
+before they reach disk, so the digit count has to be reconciled against a bill
+the operator reads from the OEJP web account. `ApplicableRateType` now gives a
+typed `currency` and `unit`, which is a stronger signal than the earlier
+whole-yen assumption, but it has not been observed yet. The OAuth item cannot
+close until OEJP issues the application, because account-user OAuth permission
+may differ from the legacy login's.
+
+Provider-cost projection therefore stays disabled, with one gate and three
+consequences:
 
 1. official-cost external statistics remain disabled
    (`include_official_cost=False`);
@@ -162,13 +172,15 @@ unpublished, with one gate and three consequences:
 3. product rate components are parsed and retained but not projected to an
    entity.
 
-The third consequence has an additional reason. OEJP publishes rates per grid
-operator, region, and band, and the integration has no verified way to decide
-which one applies to a given supply point. Design v3 also excludes
-`kWh x user-entered unit price` cost estimation from the 1.0 scope until the
-tariff structure can be reproduced faithfully. Guessing a customer's applicable
-rate is the same class of error the project forbids for the authorization
-header scheme.
+The third consequence has an additional reason, now better understood.
+Introspection showed that `ApplicableRateType` does not carry a grid operator,
+region, or band at all. Attribution is expressed through `category` and
+`variantProfile`, and `variantProfile` is `JSONString`/`GenericScalar` — opaque
+provider JSON rather than a typed contract. Selecting one rate therefore still
+requires interpreting an untyped payload, so the integration parses and retains
+rates but projects none. Design v3 also excludes `kWh x user-entered unit price`
+cost estimation from the 1.0 scope until the tariff structure can be reproduced
+faithfully.
 
 Retaining the parsed rate model is deliberate: it is required for PR 10
 diagnostics and it lets the eventual probe validate rate handling without

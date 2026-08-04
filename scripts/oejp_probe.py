@@ -23,6 +23,7 @@ from custom_components.octopus_energy_japan.api import (
     ACCOUNT_BILLING_QUERY,
     ACCOUNT_OVERVIEW_QUERY,
     CAPABILITY_QUERY,
+    ELECTRICITY_MARKET_NAME,
     GENERIC_DEVICES_QUERY,
     LEGACY_DISCOVERY_QUERY,
     LEGACY_HALF_HOURLY_QUERY,
@@ -37,7 +38,6 @@ from custom_components.octopus_energy_japan.api.operations import (
 )
 from custom_components.octopus_energy_japan.api.readings import (
     GENERIC_ENERGY_UNITS,
-    GENERIC_MARKET_NAME,
     GENERIC_PAGE_SIZE,
     build_generic_readings_query,
 )
@@ -116,7 +116,7 @@ def _interval_variables(context: ProbeContext) -> dict[str, Any]:
 def _supply_point_variables(context: ProbeContext) -> dict[str, Any]:
     return {
         "externalIdentifier": context.supply_point(),
-        "marketName": GENERIC_MARKET_NAME,
+        "marketName": ELECTRICITY_MARKET_NAME,
     }
 
 
