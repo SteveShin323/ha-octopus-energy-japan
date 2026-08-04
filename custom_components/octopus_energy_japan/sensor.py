@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from homeassistant.components.sensor import (
@@ -14,10 +14,9 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfEnergy, UnitOfTime
+from homeassistant.const import EntityCategory, UnitOfEnergy, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import PlatformNotReady
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .aggregation import SupplyPointAggregation
@@ -29,6 +28,7 @@ from .api import (
     ResourceLifecycle,
 )
 from .commercial_coordinator import OejpCommercialCoordinator
+from .const import CURRENCY_JPY
 from .coordinator import (
     OejpDataUpdateCoordinator,
     entity_directions,
@@ -37,7 +37,7 @@ from .coordinator import (
 from .entity import OejpAccountEntity, OejpSupplyPointEntity
 from .runtime import OejpRuntimeData
 
-type SensorValue = Decimal | datetime | float | str | int | None
+type SensorValue = Decimal | datetime | date | float | str | int | None
 
 PARALLEL_UPDATES = 0
 
@@ -117,6 +117,29 @@ ENERGY_DESCRIPTIONS: tuple[OejpSensorEntityDescription, ...] = (
 )
 
 
+# Provider-issued costs are only reported for fully covered calendar periods so
+# a partially synchronized day never reads as a cheaper one. These entities are
+# projections for display; the Energy Dashboard uses external statistics.
+COST_DESCRIPTIONS: tuple[OejpSensorEntityDescription, ...] = (
+    OejpSensorEntityDescription(
+        key="official_cost_today",
+        device_class=SensorDeviceClass.MONETARY,
+        native_unit_of_measurement=CURRENCY_JPY,
+        entity_registry_enabled_default=False,
+        value_fn=lambda value: value.today.official_cost if value.today.complete else None,
+    ),
+    OejpSensorEntityDescription(
+        key="official_cost_this_month",
+        device_class=SensorDeviceClass.MONETARY,
+        native_unit_of_measurement=CURRENCY_JPY,
+        entity_registry_enabled_default=False,
+        value_fn=lambda value: (
+            value.this_month.official_cost if value.this_month.complete else None
+        ),
+    ),
+)
+
+
 COMMERCIAL_DESCRIPTIONS: tuple[OejpCommercialSensorEntityDescription, ...] = (
     OejpCommercialSensorEntityDescription(
         key="account_status",
@@ -132,6 +155,12 @@ COMMERCIAL_DESCRIPTIONS: tuple[OejpCommercialSensorEntityDescription, ...] = (
         value_fn=lambda snapshot, now: _current_product_name(snapshot, now),
     ),
     OejpCommercialSensorEntityDescription(
+        key="agreement_start",
+        feature=CommercialFeature.AGREEMENTS,
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda snapshot, now: _current_agreement_start(snapshot, now),
+    ),
+    OejpCommercialSensorEntityDescription(
         key="agreement_end",
         feature=CommercialFeature.AGREEMENTS,
         device_class=SensorDeviceClass.TIMESTAMP,
@@ -141,7 +170,7 @@ COMMERCIAL_DESCRIPTIONS: tuple[OejpCommercialSensorEntityDescription, ...] = (
         key="account_balance",
         feature=CommercialFeature.OVERVIEW,
         device_class=SensorDeviceClass.MONETARY,
-        native_unit_of_measurement="JPY",
+        native_unit_of_measurement=CURRENCY_JPY,
         entity_registry_enabled_default=False,
         value_fn=lambda snapshot, _now: (
             snapshot.overview.balance_minor if snapshot.overview is not None else None
@@ -151,7 +180,7 @@ COMMERCIAL_DESCRIPTIONS: tuple[OejpCommercialSensorEntityDescription, ...] = (
         key="overdue_balance",
         feature=CommercialFeature.OVERVIEW,
         device_class=SensorDeviceClass.MONETARY,
-        native_unit_of_measurement="JPY",
+        native_unit_of_measurement=CURRENCY_JPY,
         entity_registry_enabled_default=False,
         value_fn=lambda snapshot, _now: (
             snapshot.overview.overdue_balance_minor if snapshot.overview is not None else None
@@ -161,7 +190,7 @@ COMMERCIAL_DESCRIPTIONS: tuple[OejpCommercialSensorEntityDescription, ...] = (
         key="latest_bill_amount",
         feature=CommercialFeature.BILLING,
         device_class=SensorDeviceClass.MONETARY,
-        native_unit_of_measurement="JPY",
+        native_unit_of_measurement=CURRENCY_JPY,
         entity_registry_enabled_default=False,
         value_fn=lambda snapshot, _now: (
             snapshot.latest_bill.gross_amount_minor if snapshot.latest_bill is not None else None
@@ -170,18 +199,26 @@ COMMERCIAL_DESCRIPTIONS: tuple[OejpCommercialSensorEntityDescription, ...] = (
     OejpCommercialSensorEntityDescription(
         key="latest_bill_issued",
         feature=CommercialFeature.BILLING,
+        device_class=SensorDeviceClass.DATE,
         entity_registry_enabled_default=False,
         value_fn=lambda snapshot, _now: (
-            snapshot.latest_bill.issued_date.isoformat()
-            if snapshot.latest_bill is not None and snapshot.latest_bill.issued_date is not None
-            else None
+            snapshot.latest_bill.issued_date if snapshot.latest_bill is not None else None
+        ),
+    ),
+    OejpCommercialSensorEntityDescription(
+        key="latest_bill_due",
+        feature=CommercialFeature.BILLING,
+        device_class=SensorDeviceClass.DATE,
+        entity_registry_enabled_default=False,
+        value_fn=lambda snapshot, _now: (
+            snapshot.latest_bill.due_date if snapshot.latest_bill is not None else None
         ),
     ),
     OejpCommercialSensorEntityDescription(
         key="latest_transaction_amount",
         feature=CommercialFeature.BILLING,
         device_class=SensorDeviceClass.MONETARY,
-        native_unit_of_measurement="JPY",
+        native_unit_of_measurement=CURRENCY_JPY,
         entity_registry_enabled_default=False,
         value_fn=lambda snapshot, _now: (
             snapshot.latest_transaction.amount_minor
@@ -226,7 +263,7 @@ async def async_setup_entry(
                     account.number,
                     point.id,
                 ):
-                    for description in ENERGY_DESCRIPTIONS:
+                    for description in (*ENERGY_DESCRIPTIONS, *COST_DESCRIPTIONS):
                         entity = OejpConsumptionSensor(
                             coordinator,
                             runtime.identity_secret,
@@ -389,6 +426,14 @@ def _current_product_name(snapshot: AccountCommercialSnapshot, at: datetime) -> 
     if agreement is None or agreement.product is None:
         return None
     return agreement.product.display_name or agreement.product.full_name or agreement.product.code
+
+
+def _current_agreement_start(
+    snapshot: AccountCommercialSnapshot,
+    at: datetime,
+) -> datetime | None:
+    agreement = snapshot.current_agreement(at)
+    return agreement.valid_from if agreement is not None else None
 
 
 def _current_agreement_end(

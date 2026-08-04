@@ -55,6 +55,9 @@
       "agreement_end": {
         "name": "Current agreement end"
       },
+      "agreement_start": {
+        "name": "Current agreement start"
+      },
       "current_product": {
         "name": "Current product"
       },
@@ -82,6 +85,12 @@
       "import_data_delay": {
         "name": "Import data delay"
       },
+      "import_official_cost_today": {
+        "name": "Import official cost today"
+      },
+      "import_official_cost_this_month": {
+        "name": "Import official cost this month"
+      },
       "export_latest_interval": {
         "name": "Export latest reported interval energy"
       },
@@ -106,8 +115,17 @@
       "export_data_delay": {
         "name": "Export data delay"
       },
+      "export_official_cost_today": {
+        "name": "Export official amount today"
+      },
+      "export_official_cost_this_month": {
+        "name": "Export official amount this month"
+      },
       "latest_bill_amount": {
         "name": "Latest bill amount"
+      },
+      "latest_bill_due": {
+        "name": "Latest bill payment due date"
       },
       "latest_bill_issued": {
         "name": "Latest bill issued date"

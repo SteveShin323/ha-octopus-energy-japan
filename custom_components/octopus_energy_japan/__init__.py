@@ -125,7 +125,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         await coordinator.async_config_entry_first_refresh()
         commercial_coordinator.set_accounts(coordinator.accounts)
-        await commercial_coordinator.async_refresh()
         entry.async_on_unload(
             coordinator.async_add_listener(
                 lambda: commercial_coordinator.set_accounts(coordinator.accounts)
@@ -134,6 +133,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         async_project_discovered_devices(hass, entry, runtime)
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         await coordinator.async_start_background_sync()
+        # Optional commercial operations must never delay setup or compete with
+        # the first consumption refresh. Arming the debouncer staggers them
+        # behind entity creation without blocking on the additional queries.
+        await commercial_coordinator.async_request_refresh()
     except BaseException:
         # Platform forwarding can allocate listeners before it fails. Unload is
         # intentionally best-effort so cleanup never hides the setup failure.

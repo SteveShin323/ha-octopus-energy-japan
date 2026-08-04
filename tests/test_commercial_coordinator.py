@@ -87,6 +87,39 @@ async def test_commercial_failure_preserves_last_values_and_marks_access_failed(
     }
 
 
+async def test_first_commercial_failure_reports_no_values_instead_of_guessing(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = _coordinator(hass, (OejpAccount("A"),))
+
+    with patch(
+        "custom_components.octopus_energy_japan.commercial_coordinator.async_fetch_account_commercial_snapshot",
+        AsyncMock(side_effect=OejpTransportError("offline")),
+    ):
+        data = await coordinator._async_update_data()
+
+    snapshot = data.account("A")
+    assert snapshot is not None
+    assert snapshot.overview is None
+    assert snapshot.agreements == ()
+    assert snapshot.latest_bill is None
+    assert snapshot.latest_transaction is None
+    assert {snapshot.feature_access(feature).availability for feature in CommercialFeature} == {
+        CommercialAvailability.FAILED
+    }
+
+
+async def test_commercial_coordinator_rejects_naive_timestamps(hass: HomeAssistant) -> None:
+    with pytest.raises(ValueError, match="timezone-aware"):
+        OejpCommercialCoordinator(
+            hass,
+            MockConfigEntry(),
+            AsyncMock(spec=AuthenticatedGraphQLClient),
+            (OejpAccount("A"),),
+            now=lambda: datetime(2026, 8, 3, 12),  # noqa: DTZ001
+        )
+
+
 async def test_commercial_authentication_failure_requests_reauth(
     hass: HomeAssistant,
 ) -> None:

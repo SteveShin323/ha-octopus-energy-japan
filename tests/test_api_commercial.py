@@ -263,6 +263,232 @@ def test_agreements_reject_malformed_contract_data(mutation: object) -> None:
         parse_account_agreements(payload, ACCOUNT)
 
 
+async def test_fetch_rejects_an_empty_account_identifier() -> None:
+    with pytest.raises(ValueError, match="account_id"):
+        await async_fetch_account_commercial_snapshot(
+            AsyncMock(spec=AuthenticatedGraphQLClient),
+            "",
+            observed_at=NOW,
+        )
+
+
+def _page(agreement_id: str, *, has_next: bool, cursor: str | None) -> dict[str, object]:
+    return {
+        "account": {
+            "number": ACCOUNT,
+            "marketSupplyAgreements": {
+                "edges": [
+                    {
+                        "node": {
+                            "id": agreement_id,
+                            "validFrom": "2026-07-01T00:00:00+09:00",
+                            "validTo": None,
+                            "agreedAt": None,
+                            "terminatedAt": None,
+                            "isActive": True,
+                            "product": None,
+                        }
+                    }
+                ],
+                "pageInfo": {"hasNextPage": has_next, "endCursor": cursor},
+            },
+        }
+    }
+
+
+async def test_agreement_pagination_follows_every_cursor_exactly_once() -> None:
+    client = AsyncMock(spec=AuthenticatedGraphQLClient)
+    client.execute_optional.side_effect = [
+        GraphQLResult(_overview()),
+        GraphQLResult(_page("first", has_next=True, cursor="cursor-1")),
+        GraphQLResult(_page("second", has_next=False, cursor="cursor-2")),
+        GraphQLResult(_billing()),
+    ]
+
+    snapshot = await async_fetch_account_commercial_snapshot(client, ACCOUNT, observed_at=NOW)
+
+    assert [agreement.id for agreement in snapshot.agreements] == ["first", "second"]
+    assert [call.args[1].get("after") for call in client.execute_optional.await_args_list[1:3]] == [
+        None,
+        "cursor-1",
+    ]
+
+
+async def test_agreement_pagination_rejects_a_repeated_cursor() -> None:
+    client = AsyncMock(spec=AuthenticatedGraphQLClient)
+    client.execute_optional.side_effect = [
+        GraphQLResult(_overview()),
+        GraphQLResult(_page("first", has_next=True, cursor="repeat")),
+        GraphQLResult(_page("second", has_next=True, cursor="repeat")),
+    ]
+
+    with pytest.raises(OejpInvalidResponseError, match="cursor repeated"):
+        await async_fetch_account_commercial_snapshot(client, ACCOUNT, observed_at=NOW)
+
+
+async def test_agreement_pagination_stops_at_the_page_safety_limit() -> None:
+    client = AsyncMock(spec=AuthenticatedGraphQLClient)
+    pages = iter(range(2_000))
+
+    def _next_page(query: str, _variables: dict[str, object]) -> GraphQLResult:
+        if query == ACCOUNT_OVERVIEW_QUERY:
+            return GraphQLResult(_overview())
+        index = next(pages)
+        return GraphQLResult(_page(f"agreement-{index}", has_next=True, cursor=f"cursor-{index}"))
+
+    client.execute_optional.side_effect = _next_page
+
+    with pytest.raises(OejpInvalidResponseError, match="page safety limit"):
+        await async_fetch_account_commercial_snapshot(client, ACCOUNT, observed_at=NOW)
+
+
+async def test_agreement_pagination_reports_conflicting_duplicates_across_pages() -> None:
+    conflicting = _page("same", has_next=False, cursor=None)
+    conflicting["account"]["marketSupplyAgreements"]["edges"][0]["node"].update(  # type: ignore[index]
+        {"isActive": False}
+    )
+    client = AsyncMock(spec=AuthenticatedGraphQLClient)
+    client.execute_optional.side_effect = [
+        GraphQLResult(_overview()),
+        GraphQLResult(_page("same", has_next=True, cursor="cursor-1")),
+        GraphQLResult(conflicting),
+    ]
+
+    with pytest.raises(OejpInvalidResponseError, match="pagination contained a conflicting"):
+        await async_fetch_account_commercial_snapshot(client, ACCOUNT, observed_at=NOW)
+
+
+async def test_agreements_report_no_values_when_the_operation_returns_no_data() -> None:
+    client = AsyncMock(spec=AuthenticatedGraphQLClient)
+    client.execute_optional.side_effect = [
+        GraphQLResult(_overview()),
+        GraphQLResult(None, (GraphQLErrorDetail("safe", error_type="VALIDATION"),)),
+        GraphQLResult(_billing()),
+    ]
+
+    snapshot = await async_fetch_account_commercial_snapshot(client, ACCOUNT, observed_at=NOW)
+
+    assert snapshot.agreements == ()
+    assert (
+        snapshot.feature_access(CommercialFeature.AGREEMENTS).availability
+        is CommercialAvailability.UNSUPPORTED
+    )
+
+
+async def test_unclassified_optional_failure_is_reported_as_failed() -> None:
+    client = AsyncMock(spec=AuthenticatedGraphQLClient)
+    client.execute_optional.side_effect = [
+        GraphQLResult(None, (GraphQLErrorDetail("safe", error_type="INTERNAL"),)),
+        GraphQLResult(_agreements()),
+        GraphQLResult(_billing()),
+    ]
+
+    snapshot = await async_fetch_account_commercial_snapshot(client, ACCOUNT, observed_at=NOW)
+
+    assert snapshot.overview is None
+    assert (
+        snapshot.feature_access(CommercialFeature.OVERVIEW).availability
+        is CommercialAvailability.FAILED
+    )
+
+
+def test_single_page_rejects_a_conflicting_duplicate_agreement() -> None:
+    payload = deepcopy(_agreements())
+    edges = payload["account"]["marketSupplyAgreements"]["edges"]  # type: ignore[index]
+    duplicate = deepcopy(edges[0])
+    duplicate["node"]["isActive"] = False
+    edges.append(duplicate)
+
+    with pytest.raises(OejpInvalidResponseError, match="response contained a conflicting"):
+        parse_account_agreements(payload, ACCOUNT)
+
+
+def test_page_info_must_provide_a_cursor_when_more_pages_exist() -> None:
+    payload = deepcopy(_agreements())
+    payload["account"]["marketSupplyAgreements"]["pageInfo"].update(  # type: ignore[index]
+        {"hasNextPage": True, "endCursor": None}
+    )
+
+    with pytest.raises(OejpInvalidResponseError, match="without endCursor"):
+        parse_account_agreements(payload, ACCOUNT)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        (lambda node: node.pop("id"), "was missing id"),
+        (lambda node: node.update({"validFrom": None}), "validFrom was missing"),
+        (lambda node: node.update({"validTo": 123}), "validTo was malformed"),
+        (
+            lambda node: node.update({"validTo": "2026-07-01T00:00:00"}),
+            "not timezone-aware",
+        ),
+        (
+            lambda node: node["product"]["rates"][0].update({"pricePerUnit": "not-a-number"}),
+            "pricePerUnit was malformed",
+        ),
+        (
+            lambda node: node["product"]["rates"][0].update({"pricePerUnit": True}),
+            "pricePerUnit was malformed",
+        ),
+    ],
+)
+def test_agreement_field_contracts_are_enforced(mutation: object, message: str) -> None:
+    payload = deepcopy(_agreements())
+    mutation(payload["account"]["marketSupplyAgreements"]["edges"][0]["node"])  # type: ignore[index,operator]
+
+    with pytest.raises(OejpInvalidResponseError, match=message):
+        parse_account_agreements(payload, ACCOUNT)
+
+
+def test_absent_rate_price_is_preserved_as_unknown() -> None:
+    payload = deepcopy(_agreements())
+    payload["account"]["marketSupplyAgreements"]["edges"][0]["node"]["product"]["rates"][0].update(  # type: ignore[index]
+        {"pricePerUnit": None}
+    )
+
+    agreements = parse_account_agreements(payload, ACCOUNT)
+
+    assert agreements[-1].product is not None
+    assert agreements[-1].product.rates[0].price_per_unit is None
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(None, None), ("2026-07-05", "2026-07-05")],
+)
+def test_optional_bill_dates_round_trip(value: str | None, expected: str | None) -> None:
+    payload = deepcopy(_billing())
+    payload["account"]["bills"]["edges"][0]["node"].update({"issuedDate": value})  # type: ignore[index]
+
+    bill, _ = parse_account_billing(payload, ACCOUNT)
+
+    assert bill is not None
+    assert (bill.issued_date.isoformat() if bill.issued_date is not None else None) == expected
+
+
+def test_invoice_gross_amount_is_used_when_no_charge_breakdown_exists() -> None:
+    payload = deepcopy(_billing())
+    node = payload["account"]["bills"]["edges"][0]["node"]  # type: ignore[index]
+    node.pop("totalCharges")
+    node.update({"__typename": "InvoiceType", "grossAmount": 4321})
+
+    bill, _ = parse_account_billing(payload, ACCOUNT)
+
+    assert bill is not None
+    assert bill.type_name == "InvoiceType"
+    assert bill.gross_amount_minor == 4321
+
+
+@pytest.mark.parametrize("value", [123, "2026-13-40"])
+def test_malformed_bill_dates_are_rejected(value: object) -> None:
+    payload = deepcopy(_billing())
+    payload["account"]["bills"]["edges"][0]["node"].update({"fromDate": value})  # type: ignore[index]
+
+    with pytest.raises(OejpInvalidResponseError, match="fromDate was malformed"):
+        parse_account_billing(payload, ACCOUNT)
+
+
 def test_billing_rejects_conflicting_or_excess_results() -> None:
     conflicting = deepcopy(_billing())
     bill = conflicting["account"]["bills"]["edges"][0]["node"]  # type: ignore[index]

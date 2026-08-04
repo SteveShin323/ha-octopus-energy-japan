@@ -62,6 +62,9 @@
       "agreement_end": {
         "name": "現在の契約終了日時"
       },
+      "agreement_start": {
+        "name": "現在の契約開始日時"
+      },
       "current_product": {
         "name": "現在の料金プラン"
       },
@@ -76,6 +79,12 @@
       },
       "export_latest_reading": {
         "name": "最新売電データ日時"
+      },
+      "export_official_cost_this_month": {
+        "name": "今月の売電公式金額"
+      },
+      "export_official_cost_today": {
+        "name": "今日の売電公式金額"
       },
       "export_this_month": {
         "name": "今月の売電量"
@@ -101,6 +110,12 @@
       "import_latest_reading": {
         "name": "最新使用量データ日時"
       },
+      "import_official_cost_this_month": {
+        "name": "今月の公式料金"
+      },
+      "import_official_cost_today": {
+        "name": "今日の公式料金"
+      },
       "import_this_month": {
         "name": "今月の使用量"
       },
@@ -115,6 +130,9 @@
       },
       "latest_bill_amount": {
         "name": "最新請求額"
+      },
+      "latest_bill_due": {
+        "name": "最新請求の支払期日"
       },
       "latest_bill_issued": {
         "name": "最新請求書発行日"

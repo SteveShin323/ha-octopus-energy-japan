@@ -70,10 +70,11 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
     coordinator.async_add_listener = Mock(return_value=Mock())
     commercial_coordinator = AsyncMock()
     commercial_coordinator.async_add_listener = Mock(return_value=Mock())
+    commercial_coordinator.set_accounts = Mock()
     statistics_projector = AsyncMock()
     coordinator.async_config_entry_first_refresh.side_effect = lambda: events.append("refresh")
     coordinator.async_start_background_sync.side_effect = lambda: events.append("background")
-    commercial_coordinator.async_refresh.side_effect = lambda: events.append("commercial")
+    commercial_coordinator.async_request_refresh.side_effect = lambda: events.append("commercial")
     auth.async_get_authorization_header.return_value = "Bearer access"
     with (
         patch(
@@ -130,14 +131,17 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
     assert entry.runtime_data.commercial_coordinator is commercial_coordinator
     auth.async_get_authorization_header.assert_awaited_once_with()
     coordinator.async_config_entry_first_refresh.assert_awaited_once_with()
-    commercial_coordinator.async_refresh.assert_awaited_once_with()
+    commercial_coordinator.async_request_refresh.assert_awaited_once_with()
+    commercial_coordinator.async_refresh.assert_not_awaited()
     coordinator.async_start_background_sync.assert_awaited_once_with()
     projector_factory.assert_called_once_with(hass, "01" * 32)
     assert coordinator_factory.call_args.kwargs["statistics_projector"] is statistics_projector
     commercial_factory.assert_called_once()
     project_devices.assert_called_once_with(hass, entry, entry.runtime_data)
     forward.assert_awaited_once_with(entry, ["sensor", "binary_sensor"])
-    assert events == ["refresh", "commercial", "devices", "platforms", "background"]
+    # Optional commercial operations are armed last so they never delay setup,
+    # entity creation, or the first consumption refresh.
+    assert events == ["refresh", "devices", "platforms", "background", "commercial"]
 
 
 async def test_discovery_queries_generic_topology_sequentially() -> None:
@@ -319,6 +323,7 @@ async def test_platform_forward_failure_is_cleaned_without_masking_error(
     auth = AsyncMock()
     auth.async_get_authorization_header.return_value = "Bearer access"
     coordinator = AsyncMock()
+    coordinator.async_add_listener = Mock(return_value=Mock())
     forward_error = RuntimeError("platform failed")
     with (
         patch(
@@ -412,6 +417,33 @@ async def test_unload_quiesces_worker_before_platforms_and_flushes_after(
         assert await async_unload_entry(hass, entry)
 
     assert events == ["prepare", "platforms", "flush"]
+    assert entry.runtime_data is None
+
+
+async def test_unload_also_stops_the_optional_commercial_coordinator(
+    hass: HomeAssistant,
+) -> None:
+    entry = _entry()
+    coordinator = AsyncMock()
+    commercial_coordinator = AsyncMock()
+    entry.runtime_data = OejpRuntimeData(
+        auth=AsyncMock(),
+        accounts=(),
+        capabilities=CapabilitySnapshot(),
+        identity_secret="01" * 32,
+        coordinator=coordinator,
+        commercial_coordinator=commercial_coordinator,
+    )
+
+    with patch.object(
+        hass.config_entries,
+        "async_unload_platforms",
+        AsyncMock(return_value=True),
+    ):
+        assert await async_unload_entry(hass, entry)
+
+    coordinator.async_shutdown_runtime.assert_awaited_once_with()
+    commercial_coordinator.async_shutdown.assert_awaited_once_with()
     assert entry.runtime_data is None
 
 
