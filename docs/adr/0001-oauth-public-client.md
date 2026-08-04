@@ -34,11 +34,12 @@ and runtime before alpha.
 
 The provider's published OpenID Connect discovery document confirms the
 authorization, token, revocation, userinfo, and JWKS endpoints, the `code` response
-type, and every scope this integration requests. Those are recorded in
-`oauth_metadata.py`. The `Bearer` header scheme was confirmed against the live
-GraphQL API.
+type, and every scope this integration requests. The device-authorization endpoint
+is absent from it but documented by the provider and confirmed live. Those are
+recorded in `oauth_metadata.py`. The `Bearer` header scheme was confirmed against
+the live GraphQL API with a legacy token.
 
-Two parts of this decision are **not** yet supported by that document:
+Two parts of this decision are **not** confirmed by that document:
 
 - `token_endpoint_auth_methods_supported` lists only `client_secret_post` and
   `client_secret_basic`, not `none`, so public-client token exchange is
@@ -46,8 +47,13 @@ Two parts of this decision are **not** yet supported by that document:
 - no `code_challenge_methods_supported` entry is published, so PKCE is
   unadvertised.
 
-Neither is proof of absence, and no other approach is open to a HACS integration,
-so the decision stands. Both were submitted to OEJP as required specification with
+The provider's own auth-server documentation, read the same day, supports both:
+it asks an applicant to state a client type of "public or confidential" and lists
+"Authorization with PKCE" among its grant types. The discovery document is also
+proven incomplete, because it omits the device-authorization endpoint that the same
+documentation describes and the live server answers. Both entries therefore read as
+metadata gaps rather than refusals, and no other approach is open to a HACS
+integration, so the decision stands. Both were submitted to OEJP as required specification with
 the application request, and what a reply must confirm is recorded in
 [`OAUTH_APPLICATION_STATUS.md`](../OAUTH_APPLICATION_STATUS.md). If a client secret
 turns out to be mandatory, this ADR must be superseded rather than worked around,
