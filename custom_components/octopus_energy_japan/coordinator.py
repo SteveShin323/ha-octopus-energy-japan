@@ -861,7 +861,18 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             )
 
     async def _async_publish_pending_statistics(self, generated_at: datetime) -> None:
-        """Publish durable ledger projections without failing consumption updates."""
+        """Publish durable ledger projections without failing consumption updates.
+
+        Called under two different lock disciplines: the poll calls it *without* the mutation
+        lock, and the background worker calls it *with* the lock held. The two can overlap,
+        because the worker only re-checks `_poll_pending` before its network request and a
+        poll can start during that request.
+
+        That is why the marker is popped only when it still equals the one just projected. A
+        ledger change marked dirty while a projection was already awaiting would otherwise be
+        discarded, leaving those statistics stale until something else dirtied the same supply
+        point. `test_coordinator.py` pins both sides of that check.
+        """
         if self._statistics_projector is None:
             self._statistics_pending.clear()
             self._statistics_failures.clear()
