@@ -155,7 +155,7 @@
     },
     "ledger_partitions_corrupt": {
       "title": "Some stored Octopus Energy Japan history could not be read",
-      "description": "{count} month(s) of stored readings failed to load and were quarantined so the rest of your history stays usable. Recent readings continue to be recorded, but totals and Energy Dashboard statistics for the affected months may be incomplete. Removing and re-adding the integration re-downloads whatever Octopus Energy Japan still serves, which is roughly the last 30 days."
+      "description": "{count} month(s) of stored readings failed to load and were quarantined so the rest of your history stays usable. Recent readings continue to be recorded, but totals and Energy Dashboard statistics for the affected months may be incomplete. Removing and re-adding the integration re-downloads the current and previous month."
     },
     "readings_silent": {
       "title": "Octopus Energy Japan has not sent new readings",

@@ -200,20 +200,67 @@ permanently, which is why consumption still worked while import/export
 separation, device and register scopes, and reading quality metadata never did.
 `ELECTRICITY_MARKET_NAME` in `api/models.py` is now the single definition.
 
-## Legacy readings cap one response and narrow the window silently
+## Legacy readings cap one response at 1488 intervals and truncate silently
 
-Measured on a real account 2026-08-04. A `halfHourlyReadings` request for a
-1160-hour window returned 1476 intervals spanning 30.75 days, beginning well after
-the requested start, with no error, no warning, and no pagination marker.
+Measured on a real account 2026-08-04, holding the window end fixed at
+`2026-08-03T00:00Z` and moving only the start:
 
-It is a **result cap, not a history horizon**. Two explicit seven-day windows
-beginning at the supply-start date each returned their full 336 intervals, so
-older history is served normally when the request fits inside the cap. The
-returned blocks had no duplicate intervals and no gaps.
+| Window | Intervals requested | Intervals returned | Oldest returned |
+|---|---|---|---|
+| 29 days | 1392 | 1392 | 2026-07-05 |
+| 30 days | 1440 | 1440 | 2026-07-04 |
+| 31 days | 1488 | 1488 | 2026-07-03 |
+| 32 days | 1536 | **1488** | 2026-07-03 |
+| 40 days | 1920 | **1488** | 2026-07-03 |
+| 47 days | 2256 | **1488** | 2026-07-03 |
+
+The cap is exactly **1488 intervals**, which is 31 days of half-hourly data. Beyond
+it the provider **keeps the newest intervals and silently drops the oldest**: no
+error, no warning, no pagination marker, and the returned start is later than the
+requested start.
+
+It is not a node-count limit. Selecting one field per interval instead of five
+returned the same 1488, so the documented 10,000-node limit is not what binds here.
+
+It is a **result cap, not a history horizon.** Seven-day windows walked back to the
+supply-start date each returned their full 336 intervals, including a partial 258
+for the first week of supply, and the window before supply began returned zero. All
+history since supply started is therefore retrievable, provided each request stays
+inside the cap. The returned blocks had no duplicate intervals and no gaps.
 
 `MAX_QUERY_WINDOW` is seven days, so the integration never approaches the cap. The
 consequence for ledger authority, and the invariant that keeps it safe, are
 recorded in [`LEDGER_AND_AGGREGATION.md`](LEDGER_AND_AGGREGATION.md).
+
+User-facing documentation stated for a while that OEJP serves "roughly the last 30
+days". That was this cap mistaken for a retention limit, and it is false: the 31-day
+figure is how much fits in one response, not how much exists.
+
+## Documented API limits
+
+From the provider's GraphQL guide, read 2026-08-04:
+
+| Limit | Value | Error when exceeded |
+|---|---|---|
+| Paginated `first` argument | required, and **less than 100** | request errors |
+| Query complexity | 200 per request | `KT-CT-1188` |
+| Nodes per request | 10,000 | `KT-CT-1189` |
+| Request rate | static or dynamic per operation | `KT-CT-1199` |
+
+Hourly complexity-point allowances differ by caller, which is why the
+authentication method affects headroom rather than only privacy:
+
+| Caller | Points per hour |
+|---|---|
+| Account user | 50,000 |
+| Organization | 100,000 |
+| OAuth application | 300,000 |
+
+An email/password login is an account user, so it has one sixth of the allowance an
+OAuth application gets. `MAX_PAGE_SIZE` in `api/models.py` is the single definition
+of the page size, and `tests/test_api_conformance.py` scans every shipped query to
+assert each connection requests it. `devices` and `registers` shipped without
+`first` at all until that scan was added.
 
 ## Only the legacy API carries provider cost
 

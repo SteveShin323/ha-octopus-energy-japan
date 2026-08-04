@@ -68,8 +68,9 @@ A stored month of readings failed to load and was quarantined so the rest of the
 history stays usable. Severity is error, because totals and Energy Dashboard
 statistics for those months may be incomplete.
 
-Recovery is bounded by the provider: removing and re-adding the integration
-re-downloads only what OEJP still serves, which is roughly the last 30 days.
+Removing and re-adding the integration re-downloads the current and previous
+month. OEJP still serves older intervals, so a wider recovery is possible in
+principle; the integration does not request one on its own today.
 
 ### readings-silent
 

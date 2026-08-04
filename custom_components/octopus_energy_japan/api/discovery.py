@@ -14,6 +14,7 @@ from .errors import (
 )
 from .models import (
     ELECTRICITY_MARKET_NAME,
+    MAX_PAGE_SIZE,
     Capability,
     CapabilityAvailability,
     CapabilitySnapshot,
@@ -63,32 +64,32 @@ query OejpSchemaCapabilities {
 }
 """
 
-GENERIC_DEVICES_QUERY = """
+GENERIC_DEVICES_QUERY = f"""
 query SupplyPointDevices(
   $externalIdentifier: String!
   $marketName: String!
-) {
+) {{
   supplyPoint(
     externalIdentifier: $externalIdentifier
     marketName: $marketName
-  ) {
+  ) {{
     externalIdentifier
-    devices {
-      edges {
-        node {
+    devices(first: {MAX_PAGE_SIZE}) {{
+      edges {{
+        node {{
           deviceIdentifier
-          registers {
-            edges {
-              node {
+          registers(first: {MAX_PAGE_SIZE}) {{
+            edges {{
+              node {{
                 registerIdentifier
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-}
+              }}
+            }}
+          }}
+        }}
+      }}
+    }}
+  }}
+}}
 """
 
 _ACTIVE_STATUSES = {"ACTIVE", "OPEN", "ON_SUPPLY", "LIVE", "CURRENT"}
