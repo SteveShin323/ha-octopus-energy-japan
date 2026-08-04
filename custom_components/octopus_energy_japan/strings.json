@@ -2,6 +2,13 @@
   "title": "Octopus Energy Japan",
   "config": {
     "step": {
+      "device": {
+        "title": "Sign in with a device code",
+        "description": "Home Assistant will show a code to enter on the Octopus Energy Japan website. Nothing is typed here and no browser redirect is involved, so this works on a Home Assistant with no public address.",
+        "data": {
+          "auth_implementation": "Credentials"
+        }
+      },
       "password": {
         "title": "Sign in with email and password",
         "description": "Enter the email address and password you use for Octopus Energy Japan. Both are stored in Home Assistant so the integration can sign in again when the provider's seven-day refresh token expires. Switch to the account sign-in later and the stored password is deleted.",
@@ -25,6 +32,7 @@
         "title": "Choose how to sign in",
         "description": "**Octopus Energy Japan account (recommended)** signs you in on the OEJP website. This integration never sees your password. It needs an OAuth client ID, which OEJP has not issued yet.\n\n**Email and password** uses the provider's older login. It works today, but OEJP has already removed these fields from its published API schema and can stop accepting them without notice. Your password is stored in Home Assistant, because the provider's refresh token lasts only seven days and nothing else can renew it.",
         "menu_options": {
+          "device": "Device code (no browser redirect)",
           "oauth": "Octopus Energy Japan account (recommended)",
           "password": "Email and password"
         }
@@ -40,6 +48,8 @@
       "already_in_progress": "[%key:common::config_flow::abort::already_in_progress%]",
       "authorize_url_timeout": "[%key:common::config_flow::abort::oauth2_authorize_url_timeout%]",
       "cannot_connect": "Could not connect to Octopus Energy Japan",
+      "device_code_expired": "The device code expired before access was approved. Start again to get a new code.",
+      "device_grant_unavailable": "Octopus Energy Japan did not accept a device-code sign-in for this client. Use the account sign-in instead.",
       "missing_configuration": "[%key:common::config_flow::abort::oauth2_missing_configuration%]",
       "missing_credentials": "Add an application credential first. Home Assistant needs the public OAuth client ID that Octopus Energy Japan issues for this integration, under Settings > Devices & services > Application credentials. Octopus Energy Japan has not issued one yet, so setup cannot be completed.",
       "my_home_assistant_required": "My Home Assistant must be enabled. Signing in to Octopus Energy Japan returns you through my.home-assistant.io, which is the single redirect address registered for this integration. Without it, Octopus Energy Japan would reject the sign-in with an error of its own. Add \"my:\" to your configuration.yaml, or restore \"default_config:\", then restart Home Assistant.",
@@ -59,6 +69,9 @@
     },
     "create_entry": {
       "default": "[%key:common::config_flow::create_entry::authenticated%]"
+    },
+    "progress": {
+      "wait_for_device": "Open {url} and enter the code **{user_code}**, then approve access. This page continues on its own once you do."
     }
   },
   "application_credentials": {

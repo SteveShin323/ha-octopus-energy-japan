@@ -15,8 +15,12 @@ CONF_ENABLED_HISTORICAL_RESOURCES = "enabled_historical_resources"
 # is the default when the key is missing.
 CONF_AUTH_METHOD = "auth_method"
 AUTH_METHOD_OAUTH = "oauth"
+AUTH_METHOD_DEVICE = "device"
 AUTH_METHOD_PASSWORD = "password"
-AUTH_METHODS = (AUTH_METHOD_OAUTH, AUTH_METHOD_PASSWORD)
+AUTH_METHODS = (AUTH_METHOD_OAUTH, AUTH_METHOD_DEVICE, AUTH_METHOD_PASSWORD)
+# Device authorization yields ordinary OAuth tokens from the same token endpoint, so
+# its entries are set up and refreshed exactly like authorization-code entries.
+OAUTH_AUTH_METHODS = (AUTH_METHOD_OAUTH, AUTH_METHOD_DEVICE)
 
 # Password-method entry data. The credential is stored because the provider's
 # refresh token lasts seven days and renewing does not extend it, so nothing else

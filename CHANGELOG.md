@@ -13,10 +13,12 @@ email and password login works today and is selectable at setup.
 
 ### Added
 
-- a choice of sign-in method at setup. **Email and password** works without an OAuth
-  client ID, storing the credential because the provider's refresh token lasts seven
-  days and renewing does not extend it. **Octopus Energy Japan account** is the
-  recommended method and never sees the password. One OEJP login owns one config entry
+- a choice of three sign-in methods at setup. **Email and password** works without an
+  OAuth client ID, storing the credential because the provider's refresh token lasts
+  seven days and renewing does not extend it. **Octopus Energy Japan account** and
+  **device code** are OAuth and never see the password; the device code needs no
+  redirect URI, so it does not require My Home Assistant and is the better of the two
+  once a client ID exists. One OEJP login owns one config entry
   under either method, so an entry can be promoted to OAuth in place — keeping its
   readings and statistics, and deleting the stored password. Removing such an entry
   deletes the local credential but cannot revoke the token at OEJP, which does not

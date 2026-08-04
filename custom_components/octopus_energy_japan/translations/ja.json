@@ -8,6 +8,8 @@
       "already_in_progress": "[%key:common::config_flow::abort::already_in_progress%]",
       "authorize_url_timeout": "[%key:common::config_flow::abort::oauth2_authorize_url_timeout%]",
       "cannot_connect": "Octopus Energy Japan に接続できませんでした",
+      "device_code_expired": "アクセスが許可される前にデバイスコードの有効期限が切れました。もう一度やり直して新しいコードを取得してください。",
+      "device_grant_unavailable": "このクライアントではデバイスコードによるサインインが Octopus Energy Japan に受け付けられませんでした。アカウントサインインをご利用ください。",
       "missing_configuration": "[%key:common::config_flow::abort::oauth2_missing_configuration%]",
       "missing_credentials": "先にアプリケーション認証情報を追加してください。Home Assistant には、この連携のために Octopus Energy Japan が発行するパブリック OAuth クライアント ID が必要で、「設定 > デバイスとサービス > アプリケーション認証情報」から登録します。現時点で Octopus Energy Japan は発行していないため、セットアップを完了できません。",
       "my_home_assistant_required": "My Home Assistant を有効にしてください。Octopus Energy Japan へのサインインは my.home-assistant.io を経由して戻る仕組みで、この連携に登録されているリダイレクト先はその 1 つだけです。無効のままでは Octopus Energy Japan 側でサインインが拒否され、事業者のエラー画面が表示されます。configuration.yaml に「my:」を追加するか「default_config:」を戻してから、Home Assistant を再起動してください。",
@@ -34,6 +36,13 @@
       "unknown": "Octopus Energy Japan から予期しない応答が返されました"
     },
     "step": {
+      "device": {
+        "title": "デバイスコードでサインイン",
+        "description": "Octopus Energy Japan のサイトに入力するコードを Home Assistant が表示します。ここで入力するものはなく、ブラウザのリダイレクトも使わないため、外部から到達できない Home Assistant でも利用できます。",
+        "data": {
+          "auth_implementation": "認証情報"
+        }
+      },
       "password": {
         "title": "メールアドレスとパスワードでサインイン",
         "description": "Octopus Energy Japan で使用しているメールアドレスとパスワードを入力してください。事業者のリフレッシュトークン（7日間）が切れたあとも再サインインできるよう、どちらも Home Assistant 内に保存されます。あとでアカウントサインインに切り替えると、保存されたパスワードは削除されます。",
@@ -57,10 +66,14 @@
         "title": "サインイン方法を選択",
         "description": "**Octopus Energy Japan アカウント（推奨）** は OEJP のサイトでサインインします。この連携がパスワードを受け取ることはありません。OAuth クライアント ID が必要ですが、OEJP からはまだ発行されていません。\n\n**メールアドレスとパスワード** は事業者の従来のログインを使います。現在は利用できますが、OEJP は公開 API スキーマからこれらの項目をすでに削除しており、予告なく受け付けなくなる可能性があります。事業者のリフレッシュトークンは7日間しか有効でなく、他に更新する手段がないため、パスワードは Home Assistant 内に保存されます。",
         "menu_options": {
+          "device": "デバイスコード（リダイレクトなし）",
           "oauth": "Octopus Energy Japan アカウント（推奨）",
           "password": "メールアドレスとパスワード"
         }
       }
+    },
+    "progress": {
+      "wait_for_device": "{url} を開いてコード **{user_code}** を入力し、アクセスを許可してください。許可すると、この画面は自動的に次へ進みます。"
     }
   },
   "entity": {

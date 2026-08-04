@@ -67,7 +67,7 @@ renewable levy, and tax. One unit price cannot reproduce it.
 
 | Area | Status |
 |---|---|
-| Sign-in methods | Email/password and OAuth implemented, selectable at setup |
+| Sign-in methods | Email/password, OAuth authorization code, and device code — selectable at setup |
 | OAuth architecture | Implemented; provider endpoints and scopes confirmed |
 | Account and supply-point discovery | Implemented |
 | Import/export reading providers | Implemented |

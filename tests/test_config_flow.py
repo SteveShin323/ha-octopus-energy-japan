@@ -9,6 +9,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from custom_components.octopus_energy_japan.api import (
     CapabilitySnapshot,
+    DeviceAuthorization,
+    DeviceAuthorizationDeniedError,
+    DeviceAuthorizationError,
+    DeviceAuthorizationExpiredError,
+    DeviceAuthorizationTransientError,
     GraphQLErrorDetail,
     OejpAccount,
     OejpAuthenticationError,
@@ -80,7 +85,7 @@ async def _choose_method(
     """Advance past the login-method menu that now opens every flow."""
     assert result["type"] is FlowResultType.MENU
     assert result["step_id"] == "user"
-    assert result["menu_options"] == ["oauth", "password"]
+    assert result["menu_options"] == ["oauth", "device", "password"]
     return await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {"next_step_id": method},
@@ -761,3 +766,462 @@ async def test_password_login_aborts_when_the_viewer_cannot_be_identified(
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == reason
+
+
+DEVICE_AUTHORIZATION = DeviceAuthorization(
+    device_code="device-code",
+    user_code="WXYZ-1234",
+    verification_uri="https://auth.example.test/device",
+    verification_uri_complete="https://auth.example.test/device?code=WXYZ-1234",
+    expires_in=600,
+    interval=5,
+)
+DEVICE_TOKEN = {
+    "access_token": "device-access",
+    "refresh_token": "device-refresh",
+    "expires_in": 3600,
+    "token_type": "Bearer",
+}
+
+
+async def _register_credential(hass: HomeAssistant) -> None:
+    await async_setup_component(hass, "application_credentials", {})
+    await async_import_client_credential(
+        hass,
+        DOMAIN,
+        ClientCredential("public-client", ""),
+    )
+
+
+async def _run_device_flow(
+    hass: HomeAssistant,
+    *,
+    start: Any = None,
+    wait: Any = None,
+    source: str = config_entries.SOURCE_USER,
+    entry_id: str | None = None,
+) -> dict[str, Any]:
+    client = AsyncMock()
+    client.async_start = AsyncMock(
+        side_effect=start if isinstance(start, Exception) else None,
+        return_value=DEVICE_AUTHORIZATION if start is None else start,
+    )
+    client.async_wait_for_token = AsyncMock(
+        side_effect=wait if isinstance(wait, Exception) else None,
+        return_value=DEVICE_TOKEN if wait is None else wait,
+    )
+    context: dict[str, Any] = {"source": source}
+    if entry_id is not None:
+        context["entry_id"] = entry_id
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.config_flow.OejpDeviceAuthorizationClient",
+            return_value=client,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.config_flow.async_get_viewer_identity",
+            AsyncMock(return_value=SUBJECT),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.config_flow.async_get_identity_secret",
+            AsyncMock(return_value=IDENTITY_SECRET),
+        ),
+    ):
+        result = await hass.config_entries.flow.async_init(DOMAIN, context=context)
+        if source == config_entries.SOURCE_REAUTH:
+            result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+        result = await _choose_method(hass, result, "device")
+        while result["type"] is FlowResultType.SHOW_PROGRESS:
+            await hass.async_block_till_done()
+            result = await hass.config_entries.flow.async_configure(result["flow_id"])
+        return result
+
+
+async def test_device_flow_shows_the_code_then_creates_the_entry(hass: HomeAssistant) -> None:
+    """No redirect is involved, so this path works without My Home Assistant."""
+    hass.config.components.remove("my")
+    await _register_credential(hass)
+
+    result = await _run_device_flow(hass)
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    data = result["data"]
+    assert data["auth_method"] == "device"
+    # The token is stored in the shape Home Assistant's OAuth session refreshes from,
+    # which means adding `expires_at`: the device grant only returns `expires_in`.
+    assert data["token"]["access_token"] == "device-access"
+    assert data["token"]["refresh_token"] == "device-refresh"
+    assert data["token"]["expires_at"] > 0
+    assert data["auth_implementation"] == DOMAIN
+    assert "password" not in data
+
+
+async def test_device_flow_owns_the_same_entry_as_the_other_methods(
+    hass: HomeAssistant,
+) -> None:
+    await _register_credential(hass)
+
+    result = await _run_device_flow(hass)
+
+    assert result["result"].unique_id == stable_login_identity(
+        IDENTITY_SECRET,
+        OEJP_AUTH_ISSUER,
+        SUBJECT,
+    )
+
+
+async def test_device_flow_needs_a_client_id_like_the_browser_flow(
+    hass: HomeAssistant,
+) -> None:
+    await async_setup_component(hass, "application_credentials", {})
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_USER},
+    )
+    result = await _choose_method(hass, result, "device")
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "missing_credentials"
+
+
+@pytest.mark.parametrize(
+    ("wait", "reason"),
+    [
+        (DeviceAuthorizationDeniedError("denied"), "user_rejected_authorize"),
+        (DeviceAuthorizationExpiredError("expired"), "device_code_expired"),
+        (DeviceAuthorizationTransientError("offline"), "cannot_connect"),
+    ],
+)
+async def test_device_flow_explains_each_way_authorization_can_fail(
+    hass: HomeAssistant,
+    wait: Exception,
+    reason: str,
+) -> None:
+    await _register_credential(hass)
+
+    result = await _run_device_flow(hass, wait=wait)
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == reason
+
+
+@pytest.mark.parametrize(
+    ("start", "reason"),
+    [
+        (DeviceAuthorizationTransientError("offline"), "cannot_connect"),
+        (DeviceAuthorizationError("refused"), "device_grant_unavailable"),
+    ],
+)
+async def test_device_flow_reports_a_refused_start(
+    hass: HomeAssistant,
+    start: Exception,
+    reason: str,
+) -> None:
+    """OEJP may not have enabled the device grant on this application."""
+    await _register_credential(hass)
+
+    result = await _run_device_flow(hass, start=start)
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == reason
+
+
+async def test_device_flow_aborts_when_no_device_endpoint_is_recorded(
+    hass: HomeAssistant,
+) -> None:
+    """The metadata module fails closed, and so must the flow that depends on it."""
+    await _register_credential(hass)
+
+    with patch(
+        "custom_components.octopus_energy_japan.application_credentials.require_oauth_metadata",
+        return_value=OejpOAuthMetadata(
+            issuer=OEJP_AUTH_ISSUER,
+            authorize_url="https://auth.example.test/authorize",
+            token_url="https://auth.example.test/token",
+            scopes=("openid",),
+            authorization_scheme=AuthorizationHeaderScheme.BEARER,
+            device_authorization_url=None,
+        ),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_USER},
+        )
+        result = await _choose_method(hass, result, "device")
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "device_grant_unavailable"
+
+
+async def test_a_device_entry_can_replace_a_password_entry_in_place(
+    hass: HomeAssistant,
+) -> None:
+    created = await _complete_password_flow(hass)
+    entry = created["result"]
+    await _register_credential(hass)
+
+    result = await _run_device_flow(
+        hass,
+        source=config_entries.SOURCE_REAUTH,
+        entry_id=entry.entry_id,
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert entry.data["auth_method"] == "device"
+    assert "password" not in entry.data
+    assert entry.data["token"]["access_token"] == "device-access"
+
+
+async def test_device_flow_asks_which_credential_when_several_exist(
+    hass: HomeAssistant,
+) -> None:
+    """A device grant is identified by client ID alone, so the choice must be explicit.
+
+    The browser flow gets Home Assistant's own implementation picker. This one has to
+    ask for itself, and must not silently pick whichever credential sorts first.
+    """
+    await async_setup_component(hass, "application_credentials", {})
+    for auth_domain in ("first", "second"):
+        # Distinct client IDs: Home Assistant treats a repeated one as the same
+        # credential and imports it only once.
+        await async_import_client_credential(
+            hass,
+            DOMAIN,
+            ClientCredential(f"public-client-{auth_domain}", ""),
+            auth_domain,
+        )
+    implementations = await config_entry_oauth2_flow.async_get_implementations(hass, DOMAIN)
+    assert len(implementations) == 2
+
+    client = AsyncMock()
+    client.async_start = AsyncMock(side_effect=AssertionError("must ask before starting"))
+    with patch(
+        "custom_components.octopus_energy_japan.config_flow.OejpDeviceAuthorizationClient",
+        return_value=client,
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_USER},
+        )
+        result = await _choose_method(hass, result, "device")
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "device"
+    marker = next(iter(result["data_schema"].schema))
+    assert str(marker) == "auth_implementation"
+    assert sorted(result["data_schema"].schema[marker].container) == ["first", "second"]
+
+
+@pytest.mark.parametrize("step", ["async_step_device_authorize", "async_step_device_finish"])
+async def test_device_steps_abort_when_reached_without_a_started_authorization(
+    hass: HomeAssistant,
+    step: str,
+) -> None:
+    """A resumed or replayed flow must not act on absent state."""
+    handler = OctopusEnergyJapanConfigFlow()
+    handler.hass = hass
+    handler.flow_id = "direct"
+    handler.context = {"source": config_entries.SOURCE_USER}
+
+    result = await getattr(handler, step)()
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "device_grant_unavailable"
+
+
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [
+        (
+            OejpAuthenticationError(
+                (
+                    GraphQLErrorDetail(
+                        message="GraphQL operation failed",
+                        error_type="AUTHENTICATION",
+                    ),
+                )
+            ),
+            "oauth_unauthorized",
+        ),
+        (OejpTransportError("network failed"), "cannot_connect"),
+        (OejpInvalidResponseError("invalid"), "oauth_identity_unavailable"),
+    ],
+)
+async def test_device_flow_aborts_when_the_viewer_cannot_be_identified(
+    hass: HomeAssistant,
+    error: Exception,
+    reason: str,
+) -> None:
+    await _register_credential(hass)
+    client = AsyncMock()
+    client.async_start = AsyncMock(return_value=DEVICE_AUTHORIZATION)
+    client.async_wait_for_token = AsyncMock(return_value=DEVICE_TOKEN)
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.config_flow.OejpDeviceAuthorizationClient",
+            return_value=client,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.config_flow.async_get_viewer_identity",
+            AsyncMock(side_effect=error),
+        ),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_USER},
+        )
+        result = await _choose_method(hass, result, "device")
+        while result["type"] is FlowResultType.SHOW_PROGRESS:
+            await hass.async_block_till_done()
+            result = await hass.config_entries.flow.async_configure(result["flow_id"])
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == reason
+
+
+async def test_device_flow_shows_the_user_code_while_it_waits(hass: HomeAssistant) -> None:
+    """Displaying the code and the URL is the entire point of this method.
+
+    The other device tests resolve the token immediately, so the progress screen never
+    renders in them. This one holds the poll open and inspects what the user sees.
+    """
+    import asyncio
+
+    await _register_credential(hass)
+    release = asyncio.Event()
+
+    async def blocking_wait(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        await release.wait()
+        return DEVICE_TOKEN
+
+    client = AsyncMock()
+    client.async_start = AsyncMock(return_value=DEVICE_AUTHORIZATION)
+    client.async_wait_for_token = AsyncMock(side_effect=blocking_wait)
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.config_flow.OejpDeviceAuthorizationClient",
+            return_value=client,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.config_flow.async_get_viewer_identity",
+            AsyncMock(return_value=SUBJECT),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.config_flow.async_get_identity_secret",
+            AsyncMock(return_value=IDENTITY_SECRET),
+        ),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_USER},
+        )
+        result = await _choose_method(hass, result, "device")
+
+        assert result["type"] is FlowResultType.SHOW_PROGRESS
+        assert result["step_id"] == "device_authorize"
+        assert result["progress_action"] == "wait_for_device"
+        placeholders = result["description_placeholders"]
+        assert placeholders is not None
+        assert placeholders["user_code"] == "WXYZ-1234"
+        # The complete URI already carries the code, so it is preferred when offered.
+        assert placeholders["url"] == DEVICE_AUTHORIZATION.verification_uri_complete
+
+        release.set()
+        await hass.async_block_till_done()
+        result = await hass.config_entries.flow.async_configure(result["flow_id"])
+        while result["type"] is FlowResultType.SHOW_PROGRESS:
+            await hass.async_block_till_done()
+            result = await hass.config_entries.flow.async_configure(result["flow_id"])
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"]["auth_method"] == "device"
+
+
+async def test_device_flow_falls_back_to_the_plain_verification_uri(
+    hass: HomeAssistant,
+) -> None:
+    """`verification_uri_complete` is optional in RFC 8628."""
+    import asyncio
+
+    await _register_credential(hass)
+    release = asyncio.Event()
+
+    async def blocking_wait(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        await release.wait()
+        return DEVICE_TOKEN
+
+    client = AsyncMock()
+    client.async_start = AsyncMock(
+        return_value=DeviceAuthorization(
+            device_code="device-code",
+            user_code="WXYZ-1234",
+            verification_uri="https://auth.example.test/device",
+            verification_uri_complete=None,
+            expires_in=600,
+            interval=5,
+        )
+    )
+    client.async_wait_for_token = AsyncMock(side_effect=blocking_wait)
+    with patch(
+        "custom_components.octopus_energy_japan.config_flow.OejpDeviceAuthorizationClient",
+        return_value=client,
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_USER},
+        )
+        result = await _choose_method(hass, result, "device")
+        placeholders = result["description_placeholders"]
+        assert placeholders is not None
+        assert placeholders["url"] == "https://auth.example.test/device"
+        release.set()
+        await hass.async_block_till_done()
+
+
+async def test_device_flow_uses_the_credential_the_user_selected(hass: HomeAssistant) -> None:
+    await async_setup_component(hass, "application_credentials", {})
+    for auth_domain in ("first", "second"):
+        await async_import_client_credential(
+            hass,
+            DOMAIN,
+            ClientCredential(f"public-client-{auth_domain}", ""),
+            auth_domain,
+        )
+
+    client = AsyncMock()
+    client.async_start = AsyncMock(return_value=DEVICE_AUTHORIZATION)
+    client.async_wait_for_token = AsyncMock(return_value=DEVICE_TOKEN)
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.config_flow.OejpDeviceAuthorizationClient",
+            return_value=client,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.config_flow.async_get_viewer_identity",
+            AsyncMock(return_value=SUBJECT),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.config_flow.async_get_identity_secret",
+            AsyncMock(return_value=IDENTITY_SECRET),
+        ),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_USER},
+        )
+        result = await _choose_method(hass, result, "device")
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"auth_implementation": "second"},
+        )
+        while result["type"] is FlowResultType.SHOW_PROGRESS:
+            await hass.async_block_till_done()
+            result = await hass.config_entries.flow.async_configure(result["flow_id"])
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"]["auth_implementation"] == "second"
+    # The selected credential's client ID is the one sent to the provider.
+    assert client.async_start.await_args is not None
+    assert client.async_start.await_args.args[0] == "public-client-second"

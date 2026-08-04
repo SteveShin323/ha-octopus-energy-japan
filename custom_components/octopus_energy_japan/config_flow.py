@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+from asyncio import Task
 from collections.abc import Mapping
+from time import time
 from typing import Any, override
 
 import voluptuous as vol
@@ -13,7 +15,13 @@ from homeassistant.helpers import config_entry_oauth2_flow, selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import (
+    DeviceAuthorization,
+    DeviceAuthorizationDeniedError,
+    DeviceAuthorizationError,
+    DeviceAuthorizationExpiredError,
+    DeviceAuthorizationTransientError,
     OejpAuthenticationError,
+    OejpDeviceAuthorizationClient,
     OejpError,
     OejpGraphQLClient,
     OejpRateLimitError,
@@ -22,6 +30,7 @@ from .api import (
     async_obtain_token,
 )
 from .const import (
+    AUTH_METHOD_DEVICE,
     AUTH_METHOD_OAUTH,
     AUTH_METHOD_PASSWORD,
     CONF_ACCESS_TOKEN,
@@ -53,6 +62,11 @@ _TRANSIENT_ERRORS = (OejpRateLimitError, OejpTransportError)
 # the cause. Fail here instead, while the message can still explain itself.
 _MY_HOME_ASSISTANT_DOMAIN = "my"
 
+# Home Assistant stores the chosen implementation under this key in entry data. It has
+# no exported constant, and the authorization-code path writes it through Home
+# Assistant's own flow, so the device path has to write the same literal.
+_CONF_AUTH_IMPLEMENTATION = "auth_implementation"
+
 
 class OctopusEnergyJapanConfigFlow(
     config_entry_oauth2_flow.AbstractOAuth2FlowHandler,
@@ -62,6 +76,13 @@ class OctopusEnergyJapanConfigFlow(
 
     DOMAIN = DOMAIN
     VERSION = 2
+
+    # Device-flow state, held only for the duration of one flow.
+    _device_auth_domain: str | None = None
+    _device_metadata: OejpOAuthMetadata | None = None
+    _device_client: OejpDeviceAuthorizationClient | None = None
+    _device_authorization: DeviceAuthorization | None = None
+    _device_task: Task[dict[str, Any]] | None = None
 
     @property
     @override
@@ -83,7 +104,150 @@ class OctopusEnergyJapanConfigFlow(
         """
         return self.async_show_menu(
             step_id="user",
-            menu_options=[AUTH_METHOD_OAUTH, AUTH_METHOD_PASSWORD],
+            menu_options=[AUTH_METHOD_OAUTH, AUTH_METHOD_DEVICE, AUTH_METHOD_PASSWORD],
+        )
+
+    async def async_step_device(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> ConfigFlowResult:
+        """Sign in with the Device Authorization Grant.
+
+        This needs the same client ID as browser sign-in but no redirect URI, so it
+        does not depend on My Home Assistant. Once a client ID exists it is the
+        simplest of the three for a headless or remote Home Assistant.
+        """
+        implementations = await config_entry_oauth2_flow.async_get_implementations(
+            self.hass,
+            self.DOMAIN,
+        )
+        # A device-grant client is identified by its client ID alone, so only an
+        # implementation exposing one can be used. `AbstractOAuth2Implementation` does
+        # not declare `client_id`; the local PKCE implementation registered by
+        # `application_credentials.py` does, along with the provider metadata.
+        candidates: dict[str, tuple[str, OejpOAuthMetadata, str]] = {}
+        for domain, implementation in sorted(implementations.items()):
+            client_id = getattr(implementation, "client_id", None)
+            metadata = getattr(implementation, "metadata", None)
+            if isinstance(client_id, str) and client_id and isinstance(metadata, OejpOAuthMetadata):
+                candidates[domain] = (client_id, metadata, implementation.name)
+        if not candidates:
+            return self.async_abort(reason="missing_credentials")
+
+        if len(candidates) > 1:
+            if user_input is None or _CONF_AUTH_IMPLEMENTATION not in user_input:
+                return self.async_show_form(
+                    step_id=AUTH_METHOD_DEVICE,
+                    data_schema=vol.Schema(
+                        {
+                            vol.Required(_CONF_AUTH_IMPLEMENTATION): vol.In(
+                                {domain: name for domain, (_, _, name) in candidates.items()}
+                            )
+                        }
+                    ),
+                )
+            auth_domain = user_input[_CONF_AUTH_IMPLEMENTATION]
+        else:
+            auth_domain = next(iter(candidates))
+
+        client_id, device_metadata, _name = candidates[auth_domain]
+        if device_metadata.device_authorization_url is None:
+            return self.async_abort(reason="device_grant_unavailable")
+
+        self._device_auth_domain = auth_domain
+        self._device_metadata = device_metadata
+        self._device_client = OejpDeviceAuthorizationClient(
+            async_get_clientsession(self.hass),
+            device_authorization_url=device_metadata.device_authorization_url,
+            token_url=device_metadata.token_url,
+        )
+        try:
+            self._device_authorization = await self._device_client.async_start(
+                client_id,
+                device_metadata.scopes,
+            )
+        except DeviceAuthorizationTransientError:
+            return self.async_abort(reason="cannot_connect")
+        except DeviceAuthorizationError:
+            return self.async_abort(reason="device_grant_unavailable")
+
+        self._device_task = self.hass.async_create_task(
+            self._device_client.async_wait_for_token(
+                client_id,
+                self._device_authorization,
+            )
+        )
+        return await self.async_step_device_authorize()
+
+    async def async_step_device_authorize(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> ConfigFlowResult:
+        """Show the user code while polling the provider for a token."""
+        authorization = self._device_authorization
+        task = self._device_task
+        if authorization is None or task is None:
+            return self.async_abort(reason="device_grant_unavailable")
+        if not task.done():
+            return self.async_show_progress(
+                step_id="device_authorize",
+                progress_action="wait_for_device",
+                progress_task=task,
+                description_placeholders={
+                    "user_code": authorization.user_code,
+                    "url": authorization.verification_uri_complete
+                    or authorization.verification_uri,
+                },
+            )
+        return self.async_show_progress_done(next_step_id="device_finish")
+
+    async def async_step_device_finish(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> ConfigFlowResult:
+        """Turn the polled token into an entry, or explain why there is none."""
+        task = self._device_task
+        metadata = self._device_metadata
+        auth_domain = self._device_auth_domain
+        self._device_task = None
+        if task is None or metadata is None or auth_domain is None:
+            return self.async_abort(reason="device_grant_unavailable")
+        try:
+            token = task.result()
+        except DeviceAuthorizationDeniedError:
+            return self.async_abort(reason="user_rejected_authorize")
+        except DeviceAuthorizationExpiredError:
+            return self.async_abort(reason="device_code_expired")
+        except DeviceAuthorizationError:
+            return self.async_abort(reason="cannot_connect")
+
+        # The device grant returns `expires_in`, while Home Assistant's OAuth session
+        # refreshes on `expires_at`. The authorization-code path gets this from Home
+        # Assistant's own token request; this path has to supply it.
+        token = {**token, "expires_at": time() + float(token["expires_in"])}
+
+        scheme = metadata.authorization_scheme.value
+        access_token = token["access_token"]
+        try:
+            subject = await async_get_viewer_identity(
+                OejpGraphQLClient(async_get_clientsession(self.hass)),
+                f"{scheme} {access_token}" if scheme else access_token,
+            )
+        except OejpAuthenticationError:
+            return self.async_abort(reason="oauth_unauthorized")
+        except _TRANSIENT_ERRORS:
+            return self.async_abort(reason="cannot_connect")
+        except OejpError:
+            return self.async_abort(reason="oauth_identity_unavailable")
+
+        return await self._async_create_or_update(
+            subject,
+            {
+                CONF_AUTH_METHOD: AUTH_METHOD_DEVICE,
+                _CONF_AUTH_IMPLEMENTATION: auth_domain,
+                "token": token,
+                "oauth_issuer": metadata.issuer,
+            },
         )
 
     async def async_step_oauth(

@@ -10,7 +10,7 @@ your own data.
 You choose a sign-in method when you add the integration, and it is the one thing
 that changes what is stored about you.
 
-| | Octopus Energy Japan account (OAuth) | Email and password |
+| | Account or device code (OAuth) | Email and password |
 |---|---|---|
 | Where you sign in | on the OEJP website | in Home Assistant |
 | Your password | never requested, received, or stored | **stored in Home Assistant** |
