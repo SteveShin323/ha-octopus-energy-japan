@@ -174,10 +174,23 @@ fetched in the background afterwards.
 
 ## Energy Dashboard
 
-Add the integration's statistics under **Settings → Dashboards → Energy → Grid
-consumption**, and pick the OEJP statistic for the supply point, not a period
-sensor. The period sensors are for display; the statistics are the correction-safe
-source.
+**Settings → Dashboards → Energy → Grid consumption → Add consumption**, then pick the
+statistic named after your supply point, for example `OEJP supply point 1-1 Import
+energy`. If OEJP reports an export direction, add `… Export energy` under **Return to
+grid**.
+
+Pick the **statistic**, not a period sensor. The period sensors are for display; the
+statistics are the correction-safe source, and they are what Home Assistant can rewrite
+when OEJP revises a reading.
+
+**Leave the cost field empty.** This integration publishes no cost statistic, and
+entering a fixed price per kWh there produces a figure no line of your bill supports —
+Japanese electricity is tiered and adds a daily standing charge, a monthly fuel-cost
+adjustment, a renewable levy, and tax.
+
+There is deliberately no cumulative meter sensor to choose instead. OEJP publishes
+30-minute totals hours late and revises them when a billing period closes; a cumulative
+sensor fed from that would lag or jump backwards, and the dashboard would record both.
 
 Details are in [`ENERGY_STATISTICS.md`](ENERGY_STATISTICS.md), and there is a
 Japanese page at [`ja/ENERGY_DASHBOARD.md`](ja/ENERGY_DASHBOARD.md).

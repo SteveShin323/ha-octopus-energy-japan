@@ -164,9 +164,11 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
     commercial_factory.assert_called_once()
     project_devices.assert_called_once_with(hass, entry, entry.runtime_data)
     forward.assert_awaited_once_with(entry, ["sensor", "binary_sensor"])
-    # Optional commercial operations are armed last so they never delay setup,
-    # entity creation, or the first consumption refresh.
-    assert events == ["refresh", "devices", "platforms", "background", "commercial"]
+    # Devices come before the first refresh, because the statistics that refresh
+    # publishes take their names from the supply-point devices — the Energy dashboard
+    # picker shows that name and nothing else. Optional commercial operations stay last
+    # so they never delay setup, entity creation, or the first consumption refresh.
+    assert events == ["devices", "refresh", "platforms", "background", "commercial"]
 
 
 async def test_discovery_queries_generic_topology_sequentially() -> None:
@@ -1018,3 +1020,120 @@ async def test_setup_entry_maps_each_discovery_failure(
         pytest.raises(expected),
     ):
         await async_setup_entry(hass, entry)
+
+
+def _seed_storage(hass: HomeAssistant, keys: tuple[str, ...]) -> None:
+    """Create real files in the storage directory for the removal scan to find.
+
+    The test harness replaces `Store` with an in-memory double, so the scan has nothing
+    to discover unless the files exist. What is asserted below is therefore which keys
+    removal *selects*, which is where the logic lives; deleting the file itself is Home
+    Assistant's `Store.async_remove`.
+    """
+    from pathlib import Path
+
+    from homeassistant.helpers.storage import STORAGE_DIR
+
+    directory = Path(hass.config.path(STORAGE_DIR))
+    directory.mkdir(parents=True, exist_ok=True)
+    for key in keys:
+        (directory / key).write_text("{}", encoding="utf-8")
+
+
+async def _removed_keys(hass: HomeAssistant, entry: MockConfigEntry) -> list[str]:
+    removed: list[str] = []
+
+    async def record(self: object) -> None:
+        removed.append(self.key)  # type: ignore[attr-defined]
+
+    with patch("homeassistant.helpers.storage.Store.async_remove", record):
+        await hass.config_entries.async_remove(entry.entry_id)
+        await hass.async_block_till_done()
+    return removed
+
+
+async def test_removing_an_entry_deletes_the_readings_it_stored(hass: HomeAssistant) -> None:
+    """Removal is the user asking for their data to be gone, and the docs say it is.
+
+    Home Assistant deletes the entry's own data and nothing else. The ledger partitions
+    hold the account number, the supply-point number, and every stored reading, so they
+    have to be deleted here or they survive removal indefinitely.
+    """
+    entry = _password_entry()
+    entry.add_to_hass(hass)
+    scope = "supply-point-abc123"
+    mine = (
+        f"{DOMAIN}.ledger.{entry.entry_id}.{scope}.index",
+        f"{DOMAIN}.ledger.{entry.entry_id}.{scope}.2026-07",
+        f"{DOMAIN}.ledger.{entry.entry_id}.{scope}.2026-08",
+        f"{DOMAIN}.sync.{entry.entry_id}.{scope}",
+    )
+    someone_elses = f"{DOMAIN}.ledger.other-entry.{scope}.2026-08"
+    unrelated = "core.restore_state"
+    _seed_storage(hass, (*mine, someone_elses, unrelated, "octopus_energy_japan.identity"))
+
+    removed = await _removed_keys(hass, entry)
+
+    assert set(mine) <= set(removed)
+    assert someone_elses not in removed
+    assert unrelated not in removed
+    # Every month collected is deleted, however many there were.
+    assert sum(1 for key in removed if ".ledger." in key) == 3
+    # This was the last entry, so the shared secret goes too.
+    assert "octopus_energy_japan.identity" in removed
+
+
+async def test_removing_one_of_two_entries_keeps_the_shared_secret(
+    hass: HomeAssistant,
+) -> None:
+    """The secret makes device and statistic identities stable across entries.
+
+    Deleting it while another entry remains would rename that entry's entities and
+    orphan its Energy Dashboard statistics.
+    """
+    first = _password_entry()
+    first.add_to_hass(hass)
+    second = _password_entry()
+    second.add_to_hass(hass)
+    _seed_storage(
+        hass,
+        (f"{DOMAIN}.sync.{first.entry_id}.point", "octopus_energy_japan.identity"),
+    )
+
+    removed = await _removed_keys(hass, first)
+
+    assert f"{DOMAIN}.sync.{first.entry_id}.point" in removed
+    assert "octopus_energy_japan.identity" not in removed
+    assert second.entry_id in {
+        entry.entry_id for entry in hass.config_entries.async_entries(DOMAIN)
+    }
+
+
+async def test_removal_completes_when_a_store_cannot_be_deleted(
+    hass: HomeAssistant,
+) -> None:
+    """A file the integration cannot delete must not block removing the entry."""
+    entry = _password_entry()
+    entry.add_to_hass(hass)
+    _seed_storage(hass, (f"{DOMAIN}.sync.{entry.entry_id}.point",))
+
+    with patch(
+        "homeassistant.helpers.storage.Store.async_remove",
+        AsyncMock(side_effect=OSError("read-only")),
+    ):
+        await hass.config_entries.async_remove(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert not hass.config_entries.async_entries(DOMAIN)
+
+
+async def test_removal_tolerates_a_missing_storage_directory(hass: HomeAssistant) -> None:
+    """A fresh installation removed before it ever wrote anything."""
+    entry = _password_entry()
+    entry.add_to_hass(hass)
+
+    removed = await _removed_keys(hass, entry)
+
+    # Nothing of this entry's was stored, but it was the last entry, so the shared
+    # secret is still attempted.
+    assert all(entry.entry_id not in key for key in removed)

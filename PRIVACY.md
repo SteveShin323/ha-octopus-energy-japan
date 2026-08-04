@@ -43,7 +43,7 @@ Everything below lives in your Home Assistant's own storage.
 | Account numbers, supply-point numbers, meter and register identifiers | required to call the API and to join stored readings back to a supply point | yes |
 | Half-hourly readings, their version and quality, provider cost | totals and Energy Dashboard statistics that survive corrections | yes |
 | Synchronisation checkpoints | resuming background work after a restart | yes |
-| An installation-local secret | deriving stable private identities | yes |
+| An installation-local secret | deriving stable private identities | when the last entry is removed |
 | Energy Dashboard statistics | long-term energy history | **no**, see below |
 | Application credentials (client ID) | re-adding without retyping | **no**, see below |
 
@@ -87,6 +87,13 @@ please attach diagnostics rather than logs when reporting a problem.
 **Energy Dashboard statistics** stay in the Home Assistant recorder. Deleting an
 integration should not destroy your energy history. Remove them yourself under
 **Developer tools → Statistics**.
+
+The rows marked yes are deleted by removing the integration, not merely orphaned.
+Before this was implemented the stored readings, synchronisation checkpoints, and
+installation secret survived removal in Home Assistant's storage directory; if you
+removed an entry from a build before that fix, files named
+`octopus_energy_japan.ledger.*` and `octopus_energy_japan.sync.*` may still be present
+and can be deleted by hand.
 
 **Application credentials** stay so you can re-add the integration without
 retyping the client ID. Remove them under **Settings → Devices & services →
