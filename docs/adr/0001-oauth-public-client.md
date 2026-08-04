@@ -61,11 +61,9 @@ it asks an applicant to state a client type of "public or confidential" and list
 proven incomplete, because it omits the device-authorization endpoint that the same
 documentation describes and the live server answers. Both entries therefore read as
 metadata gaps rather than refusals, and no other approach is open to a HACS
-integration, so the decision stands. Both were submitted to OEJP as required specification with
-the application request, and what a reply must confirm is recorded in
-[`OAUTH_APPLICATION_STATUS.md`](../OAUTH_APPLICATION_STATUS.md). If a client secret
-turns out to be mandatory, this ADR must be superseded rather than worked around,
-because a distributed secret is not a secret.
+integration, so the decision stands. If a client secret turns out to be mandatory,
+this ADR must be superseded rather than worked around, because a distributed secret is
+not a secret.
 
 ## Redirect URI consequence, 2026-08-04
 

@@ -44,7 +44,7 @@ not by itself create an entity. Import completion cannot mark export history
 complete, and export completion cannot mark import history complete.
 
 The complete executable contract is
-[`RUNTIME_AND_ENTITIES.md`](../RUNTIME_AND_ENTITIES.md).
+[`ARCHITECTURE.md`](../ARCHITECTURE.md).
 
 ## Consequences
 

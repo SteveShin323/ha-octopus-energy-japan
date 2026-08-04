@@ -58,11 +58,11 @@ class OAuthMetadataUnavailableError(RuntimeError):
 # an absent endpoint, and recording `None` here made the implemented RFC 8628
 # client unconstructible.
 #
-# What neither source establishes is recorded in `docs/OAUTH_APPLICATION_STATUS.md`:
-# the discovery document advertises no `none` token-endpoint auth method and no
-# `code_challenge_methods_supported`, while the provider's documentation asks
-# applicants to choose "public or confidential" and documents "Authorization with
-# PKCE". The reply still has to confirm both for this application.
+# Neither source establishes two things this client depends on: the discovery document
+# advertises no `none` token-endpoint auth method and no
+# `code_challenge_methods_supported`, while the provider's documentation offers a public
+# client and documents authorization with PKCE. Both read as metadata gaps; see
+# `docs/adr/0001-oauth-public-client.md`.
 OEJP_AUTH_ISSUER: Final = "https://auth.oejp-kraken.energy/token/"
 
 READ_ONLY_SCOPES: Final = (

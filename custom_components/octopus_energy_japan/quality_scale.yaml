@@ -21,13 +21,13 @@ rules:
     comment: The integration exposes no conditions.
   docs-high-level-description:
     status: done
-    comment: docs/USER_GUIDE.md, section 'What it does', plus the README summary.
+    comment: README.md#what-it-does.
   docs-installation-instructions:
     status: done
-    comment: docs/USER_GUIDE.md#installation and docs/ja/README.md.
+    comment: README.md#installation and docs/ja/README.md.
   docs-removal-instructions:
     status: done
-    comment: docs/USER_GUIDE.md#removing-the-integration, including what deliberately survives.
+    comment: README.md#removing-the-integration, including what deliberately survives.
   docs-triggers:
     status: exempt
     comment: The integration exposes no triggers.
@@ -46,10 +46,10 @@ rules:
   config-entry-unloading: done
   docs-configuration-parameters:
     status: done
-    comment: docs/USER_GUIDE.md#configuration-parameters, including which method needs which field.
+    comment: README.md#configuration-parameters, including which method needs which field.
   docs-installation-parameters:
     status: done
-    comment: docs/USER_GUIDE.md#configuration-parameters. An Application Credentials client ID for the OAuth methods, or an email and password.
+    comment: README.md#configuration-parameters. An Application Credentials client ID for the OAuth methods, or an email and password.
   entity-unavailable: done
   integration-owner: done
   log-when-unavailable: done
@@ -68,25 +68,25 @@ rules:
     comment: The integration has no local network endpoint updated through Home Assistant discovery.
   docs-data-update:
     status: done
-    comment: docs/USER_GUIDE.md#how-data-updates, including provider delay and correction behaviour.
+    comment: README.md#how-data-updates, including provider delay and correction behaviour.
   docs-examples:
     status: done
-    comment: docs/USER_GUIDE.md#typical-uses.
+    comment: README.md#typical-uses.
   docs-known-limitations:
     status: done
-    comment: docs/USER_GUIDE.md#known-limitations, each with recorded evidence.
+    comment: README.md#known-limitations.
   docs-supported-devices:
     status: done
-    comment: docs/USER_GUIDE.md#what-it-supports. There is no hardware to pair.
+    comment: README.md#what-it-supports. There is no hardware to pair.
   docs-supported-functions:
     status: done
-    comment: docs/USER_GUIDE.md#entities.
+    comment: README.md#entities.
   docs-troubleshooting:
     status: done
-    comment: docs/USER_GUIDE.md#troubleshooting and docs/ja/README.md.
+    comment: README.md#troubleshooting and docs/ja/README.md.
   docs-use-cases:
     status: done
-    comment: docs/USER_GUIDE.md#typical-uses.
+    comment: README.md#typical-uses.
   dynamic-devices: done
   entity-category: done
   entity-device-class: done
@@ -107,7 +107,7 @@ rules:
       series, a lost reading capability, and a commercial permission gap. None is
       fixable in place because every condition is provider-side or storage-side, so
       no repair flow is offered. Reauthentication is left to Home Assistant's own
-      prompt. See docs/DIAGNOSTICS_AND_REPAIRS.md.
+      prompt. See docs/ARCHITECTURE.md.
   stale-devices:
     status: done
     comment: >-
