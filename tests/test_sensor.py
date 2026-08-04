@@ -15,12 +15,23 @@ from custom_components.octopus_energy_japan.aggregation import (
     SupplyPointAggregation,
 )
 from custom_components.octopus_energy_japan.api import (
+    AccountCommercialSnapshot,
+    AccountOverview,
+    AgreementSummary,
     CapabilitySnapshot,
+    CommercialAccess,
+    CommercialAvailability,
+    CommercialFeature,
     OejpAccount,
     OejpProperty,
     OejpSupplyPoint,
+    ProductSummary,
     ReadingDirection,
     ResourceLifecycle,
+)
+from custom_components.octopus_energy_japan.commercial_coordinator import (
+    OejpCommercialCoordinator,
+    OejpCommercialData,
 )
 from custom_components.octopus_energy_japan.const import DOMAIN
 from custom_components.octopus_energy_japan.coordinator import (
@@ -34,7 +45,9 @@ from custom_components.octopus_energy_japan.identity import (
 )
 from custom_components.octopus_energy_japan.runtime import OejpRuntimeData
 from custom_components.octopus_energy_japan.sensor import (
+    COMMERCIAL_DESCRIPTIONS,
     ENERGY_DESCRIPTIONS,
+    OejpAccountCommercialSensor,
     OejpConsumptionSensor,
     OejpSupplyPointStatusSensor,
     async_setup_entry,
@@ -149,6 +162,50 @@ def _description(key: str):
     return next(description for description in ENERGY_DESCRIPTIONS if description.key == key)
 
 
+def _commercial_description(key: str):
+    return next(description for description in COMMERCIAL_DESCRIPTIONS if description.key == key)
+
+
+def _commercial_coordinator(
+    *,
+    availability: CommercialAvailability = CommercialAvailability.AVAILABLE,
+) -> OejpCommercialCoordinator:
+    coordinator = Mock()
+    coordinator.last_update_success = True
+    coordinator.data = OejpCommercialData(
+        (
+            AccountCommercialSnapshot(
+                ACCOUNT_ID,
+                overview=AccountOverview(ACCOUNT_ID, "ACTIVE", 1234, 50, True, False),
+                agreements=(
+                    AgreementSummary(
+                        "agreement",
+                        NOW - timedelta(days=30),
+                        NOW + timedelta(days=30),
+                        None,
+                        None,
+                        True,
+                        ProductSummary(
+                            "product",
+                            "PRODUCT-CODE",
+                            "Octopus plan",
+                            None,
+                            "ELECTRICITY",
+                        ),
+                    ),
+                ),
+                access=tuple(
+                    CommercialAccess(feature, availability) for feature in CommercialFeature
+                ),
+                observed_at=NOW,
+            ),
+        ),
+        NOW,
+    )
+    coordinator.async_add_listener.return_value = Mock()
+    return cast("OejpCommercialCoordinator", coordinator)
+
+
 def test_consumption_sensors_project_typed_ledger_aggregates() -> None:
     coordinator = _coordinator()
     expected = {
@@ -176,6 +233,40 @@ def test_consumption_sensors_project_typed_ledger_aggregates() -> None:
         assert ACCOUNT_ID not in entity.unique_id
         assert SUPPLY_POINT_ID not in entity.unique_id
         assert entity.available
+
+
+def test_commercial_sensors_project_bounded_account_values_without_raw_ids() -> None:
+    coordinator = _commercial_coordinator()
+    expected = {
+        "account_status": "ACTIVE",
+        "current_product": "Octopus plan",
+        "agreement_end": NOW + timedelta(days=30),
+        "account_balance": 1234,
+        "overdue_balance": 50,
+    }
+
+    for key, value in expected.items():
+        entity = OejpAccountCommercialSensor(
+            coordinator,
+            SECRET,
+            ACCOUNT_ID,
+            _commercial_description(key),
+        )
+        assert entity.native_value == value
+        assert entity.translation_key == key
+        assert ACCOUNT_ID not in entity.unique_id
+        assert entity.available
+
+
+def test_commercial_sensor_is_unavailable_when_optional_permission_is_missing() -> None:
+    entity = OejpAccountCommercialSensor(
+        _commercial_coordinator(availability=CommercialAvailability.FORBIDDEN),
+        SECRET,
+        ACCOUNT_ID,
+        _commercial_description("account_balance"),
+    )
+
+    assert not entity.available
 
 
 def test_sensor_returns_unknown_when_direction_has_no_readings() -> None:

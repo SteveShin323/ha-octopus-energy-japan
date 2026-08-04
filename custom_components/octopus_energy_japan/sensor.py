@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from homeassistant.components.sensor import (
@@ -17,19 +17,27 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfEnergy, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import PlatformNotReady
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .aggregation import SupplyPointAggregation
-from .api import ReadingDirection, ResourceLifecycle
+from .api import (
+    AccountCommercialSnapshot,
+    CommercialAvailability,
+    CommercialFeature,
+    ReadingDirection,
+    ResourceLifecycle,
+)
+from .commercial_coordinator import OejpCommercialCoordinator
 from .coordinator import (
     OejpDataUpdateCoordinator,
     entity_directions,
     iter_supply_points,
 )
-from .entity import OejpSupplyPointEntity
+from .entity import OejpAccountEntity, OejpSupplyPointEntity
 from .runtime import OejpRuntimeData
 
-type SensorValue = Decimal | datetime | float | None
+type SensorValue = Decimal | datetime | float | str | int | None
 
 PARALLEL_UPDATES = 0
 
@@ -39,6 +47,14 @@ class OejpSensorEntityDescription(SensorEntityDescription):
     """Description with a typed aggregate value projection."""
 
     value_fn: Callable[[SupplyPointAggregation], SensorValue]
+
+
+@dataclass(frozen=True, kw_only=True)
+class OejpCommercialSensorEntityDescription(SensorEntityDescription):
+    """Description for one optional account-level commercial projection."""
+
+    feature: CommercialFeature
+    value_fn: Callable[[AccountCommercialSnapshot, datetime], SensorValue]
 
 
 ENERGY_DESCRIPTIONS: tuple[OejpSensorEntityDescription, ...] = (
@@ -101,6 +117,81 @@ ENERGY_DESCRIPTIONS: tuple[OejpSensorEntityDescription, ...] = (
 )
 
 
+COMMERCIAL_DESCRIPTIONS: tuple[OejpCommercialSensorEntityDescription, ...] = (
+    OejpCommercialSensorEntityDescription(
+        key="account_status",
+        feature=CommercialFeature.OVERVIEW,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda snapshot, _now: (
+            snapshot.overview.status if snapshot.overview is not None else None
+        ),
+    ),
+    OejpCommercialSensorEntityDescription(
+        key="current_product",
+        feature=CommercialFeature.AGREEMENTS,
+        value_fn=lambda snapshot, now: _current_product_name(snapshot, now),
+    ),
+    OejpCommercialSensorEntityDescription(
+        key="agreement_end",
+        feature=CommercialFeature.AGREEMENTS,
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda snapshot, now: _current_agreement_end(snapshot, now),
+    ),
+    OejpCommercialSensorEntityDescription(
+        key="account_balance",
+        feature=CommercialFeature.OVERVIEW,
+        device_class=SensorDeviceClass.MONETARY,
+        native_unit_of_measurement="JPY",
+        entity_registry_enabled_default=False,
+        value_fn=lambda snapshot, _now: (
+            snapshot.overview.balance_minor if snapshot.overview is not None else None
+        ),
+    ),
+    OejpCommercialSensorEntityDescription(
+        key="overdue_balance",
+        feature=CommercialFeature.OVERVIEW,
+        device_class=SensorDeviceClass.MONETARY,
+        native_unit_of_measurement="JPY",
+        entity_registry_enabled_default=False,
+        value_fn=lambda snapshot, _now: (
+            snapshot.overview.overdue_balance_minor if snapshot.overview is not None else None
+        ),
+    ),
+    OejpCommercialSensorEntityDescription(
+        key="latest_bill_amount",
+        feature=CommercialFeature.BILLING,
+        device_class=SensorDeviceClass.MONETARY,
+        native_unit_of_measurement="JPY",
+        entity_registry_enabled_default=False,
+        value_fn=lambda snapshot, _now: (
+            snapshot.latest_bill.gross_amount_minor if snapshot.latest_bill is not None else None
+        ),
+    ),
+    OejpCommercialSensorEntityDescription(
+        key="latest_bill_issued",
+        feature=CommercialFeature.BILLING,
+        entity_registry_enabled_default=False,
+        value_fn=lambda snapshot, _now: (
+            snapshot.latest_bill.issued_date.isoformat()
+            if snapshot.latest_bill is not None and snapshot.latest_bill.issued_date is not None
+            else None
+        ),
+    ),
+    OejpCommercialSensorEntityDescription(
+        key="latest_transaction_amount",
+        feature=CommercialFeature.BILLING,
+        device_class=SensorDeviceClass.MONETARY,
+        native_unit_of_measurement="JPY",
+        entity_registry_enabled_default=False,
+        value_fn=lambda snapshot, _now: (
+            snapshot.latest_transaction.amount_minor
+            if snapshot.latest_transaction is not None
+            else None
+        ),
+    ),
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -111,6 +202,7 @@ async def async_setup_entry(
     if not isinstance(runtime, OejpRuntimeData) or runtime.coordinator is None:
         raise PlatformNotReady("OEJP runtime coordinator is unavailable")
     coordinator = runtime.coordinator
+    commercial_coordinator = runtime.commercial_coordinator
     created: set[str] = set()
 
     @callback
@@ -150,8 +242,31 @@ async def async_setup_entry(
         if entities:
             async_add_entities(entities)
 
+    @callback
+    def add_commercial_entities() -> None:
+        if commercial_coordinator is None:
+            return
+        entities: list[SensorEntity] = []
+        for account in coordinator.accounts:
+            for description in COMMERCIAL_DESCRIPTIONS:
+                entity = OejpAccountCommercialSensor(
+                    commercial_coordinator,
+                    runtime.identity_secret,
+                    account.number,
+                    description,
+                )
+                entity_unique_id = _required_unique_id(entity)
+                if entity_unique_id not in created:
+                    created.add(entity_unique_id)
+                    entities.append(entity)
+        if entities:
+            async_add_entities(entities)
+
     add_discovered_entities()
+    add_commercial_entities()
     entry.async_on_unload(coordinator.async_add_listener(add_discovered_entities))
+    if commercial_coordinator is not None:
+        entry.async_on_unload(commercial_coordinator.async_add_listener(add_commercial_entities))
 
 
 def _required_unique_id(entity: SensorEntity) -> str:
@@ -230,3 +345,55 @@ class OejpSupplyPointStatusSensor(OejpSupplyPointEntity, SensorEntity):
             self._supply_point_id,
         )
         return lifecycle.value if lifecycle is not None else None
+
+
+class OejpAccountCommercialSensor(OejpAccountEntity, SensorEntity):
+    """One account-level optional commercial value."""
+
+    entity_description: OejpCommercialSensorEntityDescription
+
+    def __init__(
+        self,
+        coordinator: OejpCommercialCoordinator,
+        identity_secret: str,
+        account_id: str,
+        description: OejpCommercialSensorEntityDescription,
+    ) -> None:
+        self.entity_description = description
+        self._attr_translation_key = description.key
+        super().__init__(coordinator, identity_secret, account_id, description.key)
+
+    @property
+    def available(self) -> bool:
+        """Expose only data returned by the relevant optional operation."""
+        snapshot = self.account_snapshot
+        if snapshot is None or not super().available:
+            return False
+        return snapshot.feature_access(self.entity_description.feature).availability in {
+            CommercialAvailability.AVAILABLE,
+            CommercialAvailability.PARTIAL,
+        }
+
+    @property
+    def native_value(self) -> SensorValue:
+        """Return one bounded scalar without raw provider identifiers."""
+        snapshot = self.account_snapshot
+        if snapshot is None:
+            return None
+        observed_at = snapshot.observed_at or datetime.now(UTC)
+        return self.entity_description.value_fn(snapshot, observed_at)
+
+
+def _current_product_name(snapshot: AccountCommercialSnapshot, at: datetime) -> str | None:
+    agreement = snapshot.current_agreement(at)
+    if agreement is None or agreement.product is None:
+        return None
+    return agreement.product.display_name or agreement.product.full_name or agreement.product.code
+
+
+def _current_agreement_end(
+    snapshot: AccountCommercialSnapshot,
+    at: datetime,
+) -> datetime | None:
+    agreement = snapshot.current_agreement(at)
+    return agreement.valid_to if agreement is not None else None

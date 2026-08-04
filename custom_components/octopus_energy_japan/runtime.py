@@ -21,6 +21,7 @@ from .const import CONF_ENABLED_HISTORICAL_RESOURCES, DOMAIN
 from .identity import stable_account_identity, stable_supply_point_identity
 
 if TYPE_CHECKING:
+    from .commercial_coordinator import OejpCommercialCoordinator
     from .coordinator import OejpDataUpdateCoordinator
 
 
@@ -33,6 +34,7 @@ class OejpRuntimeData:
     capabilities: CapabilitySnapshot
     identity_secret: str
     coordinator: OejpDataUpdateCoordinator | None = None
+    commercial_coordinator: OejpCommercialCoordinator | None = None
 
     def historical_resource_options(self) -> dict[str, str]:
         """Return safe labels keyed by installation-local resource identities."""

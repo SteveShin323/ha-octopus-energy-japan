@@ -39,6 +39,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         OejpRateLimitError,
         OejpTransportError,
     )
+    from .commercial_coordinator import OejpCommercialCoordinator
     from .coordinator import OejpDataUpdateCoordinator
     from .identity import async_get_identity_secret
     from .oauth import OejpOAuthError, OejpPkceAuthSession
@@ -112,10 +113,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             identity_secret,
         ),
     )
+    commercial_coordinator = OejpCommercialCoordinator(
+        hass,
+        entry,
+        authenticated_client,
+        accounts,
+    )
     runtime.coordinator = coordinator
+    runtime.commercial_coordinator = commercial_coordinator
     entry.runtime_data = runtime
     try:
         await coordinator.async_config_entry_first_refresh()
+        commercial_coordinator.set_accounts(coordinator.accounts)
+        await commercial_coordinator.async_refresh()
+        entry.async_on_unload(
+            coordinator.async_add_listener(
+                lambda: commercial_coordinator.set_accounts(coordinator.accounts)
+            )
+        )
         async_project_discovered_devices(hass, entry, runtime)
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         await coordinator.async_start_background_sync()
@@ -126,6 +141,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
         except Exception:
             _LOGGER.exception("Unable to unload partially set up OEJP platforms")
+        await commercial_coordinator.async_shutdown()
         await coordinator.async_shutdown_runtime()
         entry.runtime_data = None
         raise
@@ -149,6 +165,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return False
     if isinstance(runtime, OejpRuntimeData) and runtime.coordinator is not None:
         await runtime.coordinator.async_shutdown_runtime()
+    if isinstance(runtime, OejpRuntimeData) and runtime.commercial_coordinator is not None:
+        await runtime.commercial_coordinator.async_shutdown()
     entry.runtime_data = None
     return True
 
