@@ -29,9 +29,19 @@
       "default": "[%key:common::config_flow::create_entry::authenticated%]"
     },
     "error": {
-      "cannot_connect": "接続できませんでした"
+      "cannot_connect": "接続できませんでした",
+      "invalid_auth": "そのメールアドレスとパスワードは Octopus Energy Japan に拒否されました",
+      "unknown": "Octopus Energy Japan から予期しない応答が返されました"
     },
     "step": {
+      "password": {
+        "title": "メールアドレスとパスワードでサインイン",
+        "description": "Octopus Energy Japan で使用しているメールアドレスとパスワードを入力してください。事業者のリフレッシュトークン（7日間）が切れたあとも再サインインできるよう、どちらも Home Assistant 内に保存されます。あとでアカウントサインインに切り替えると、保存されたパスワードは削除されます。",
+        "data": {
+          "email": "メールアドレス",
+          "password": "パスワード"
+        }
+      },
       "reauth_confirm": {
         "description": "Octopus Energy Japan に進み、アクセスを更新してください。",
         "title": "Octopus Energy Japan に再接続"
@@ -41,6 +51,14 @@
         "title": "過去の OEJP リソースを管理",
         "data": {
           "enabled_historical_resources": "有効にする過去のリソース"
+        }
+      },
+      "user": {
+        "title": "サインイン方法を選択",
+        "description": "**Octopus Energy Japan アカウント（推奨）** は OEJP のサイトでサインインします。この連携がパスワードを受け取ることはありません。OAuth クライアント ID が必要ですが、OEJP からはまだ発行されていません。\n\n**メールアドレスとパスワード** は事業者の従来のログインを使います。現在は利用できますが、OEJP は公開 API スキーマからこれらの項目をすでに削除しており、予告なく受け付けなくなる可能性があります。事業者のリフレッシュトークンは7日間しか有効でなく、他に更新する手段がないため、パスワードは Home Assistant 内に保存されます。",
+        "menu_options": {
+          "oauth": "Octopus Energy Japan アカウント（推奨）",
+          "password": "メールアドレスとパスワード"
         }
       }
     }

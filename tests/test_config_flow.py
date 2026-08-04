@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -15,6 +16,7 @@ from custom_components.octopus_energy_japan.api import (
     OejpProperty,
     OejpRateLimitError,
     OejpSupplyPoint,
+    OejpToken,
     OejpTransportError,
     ResourceLifecycle,
 )
@@ -28,6 +30,7 @@ from custom_components.octopus_energy_japan.identity import (
     stable_login_identity,
 )
 from custom_components.octopus_energy_japan.oauth_metadata import (
+    OEJP_AUTH_ISSUER,
     AuthorizationHeaderScheme,
     OejpOAuthMetadata,
 )
@@ -67,6 +70,21 @@ def my_home_assistant_enabled(hass: HomeAssistant) -> None:
     and the flow refuses to start. That refusal has its own test below.
     """
     hass.config.components.add("my")
+
+
+async def _choose_method(
+    hass: HomeAssistant,
+    result: dict[str, Any],
+    method: str,
+) -> dict[str, Any]:
+    """Advance past the login-method menu that now opens every flow."""
+    assert result["type"] is FlowResultType.MENU
+    assert result["step_id"] == "user"
+    assert result["menu_options"] == ["oauth", "password"]
+    return await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"next_step_id": method},
+    )
 
 
 class FakeOAuth2Implementation(config_entry_oauth2_flow.AbstractOAuth2Implementation):
@@ -128,6 +146,7 @@ async def _complete_oauth_flow(
             assert result["step_id"] == "reauth_confirm"
             result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
 
+        result = await _choose_method(hass, result, "oauth")
         assert result["type"] is FlowResultType.FORM
         assert result["step_id"] == "pick_implementation"
         result = await hass.config_entries.flow.async_configure(
@@ -152,7 +171,7 @@ async def test_oauth_flow_creates_one_login_scoped_entry(hass: HomeAssistant) ->
     assert result["data"]["oauth_issuer"] == METADATA.issuer
     assert result["result"].unique_id == stable_login_identity(
         IDENTITY_SECRET,
-        METADATA.issuer,
+        OEJP_AUTH_ISSUER,
         SUBJECT,
     )
     assert "email" not in result["data"]
@@ -171,7 +190,7 @@ async def test_same_oauth_login_is_not_duplicated(hass: HomeAssistant) -> None:
 async def test_reauth_updates_existing_entry_without_changing_identity(
     hass: HomeAssistant,
 ) -> None:
-    unique_id = stable_login_identity(IDENTITY_SECRET, METADATA.issuer, SUBJECT)
+    unique_id = stable_login_identity(IDENTITY_SECRET, OEJP_AUTH_ISSUER, SUBJECT)
     entry = MockConfigEntry(
         domain=DOMAIN,
         unique_id=unique_id,
@@ -250,6 +269,7 @@ async def test_identity_validation_errors_abort_safely(
             DOMAIN,
             context={"source": config_entries.SOURCE_USER},
         )
+        result = await _choose_method(hass, result, "oauth")
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {"implementation": "test"},
@@ -363,6 +383,7 @@ async def test_first_run_without_application_credentials_tells_the_user_where_to
         DOMAIN,
         context={"source": config_entries.SOURCE_USER},
     )
+    result = await _choose_method(hass, result, "oauth")
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "missing_credentials"
@@ -445,6 +466,7 @@ async def test_flow_refuses_to_start_without_my_home_assistant(
     if source == config_entries.SOURCE_REAUTH:
         assert result["step_id"] == "reauth_confirm"
         result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    result = await _choose_method(hass, result, "oauth")
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "my_home_assistant_required"
@@ -466,6 +488,7 @@ async def test_setup_requires_no_user_input_once_a_credential_exists(
         DOMAIN,
         context={"source": config_entries.SOURCE_USER},
     )
+    result = await _choose_method(hass, result, "oauth")
 
     # With one credential there is nothing to choose, so Home Assistant goes
     # straight to the provider-hosted sign-in. The user types nothing at all.
@@ -478,3 +501,263 @@ async def test_setup_requires_no_user_input_once_a_credential_exists(
         assert scope in result["url"]
     # Least privilege: the broad scope is never requested.
     assert "full-customer-access" not in result["url"]
+
+
+async def _complete_password_flow(
+    hass: HomeAssistant,
+    *,
+    source: str = config_entries.SOURCE_USER,
+    entry_id: str | None = None,
+    token: OejpToken | None = None,
+) -> dict[str, Any]:
+    context: dict[str, Any] = {"source": source}
+    if entry_id is not None:
+        context["entry_id"] = entry_id
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.config_flow.async_obtain_token",
+            AsyncMock(
+                return_value=token
+                or OejpToken(
+                    access_token="legacy-access",
+                    refresh_token="legacy-refresh",
+                    refresh_expires_at=datetime(2026, 8, 11, tzinfo=UTC),
+                )
+            ),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.config_flow.async_get_viewer_identity",
+            AsyncMock(return_value=SUBJECT),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.config_flow.async_get_identity_secret",
+            AsyncMock(return_value=IDENTITY_SECRET),
+        ),
+    ):
+        result = await hass.config_entries.flow.async_init(DOMAIN, context=context)
+        if source == config_entries.SOURCE_REAUTH:
+            result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+        result = await _choose_method(hass, result, "password")
+        assert result["type"] is FlowResultType.FORM
+        assert result["step_id"] == "password"
+        return await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"email": "person@example.test", "password": "correct horse"},
+        )
+
+
+async def test_password_login_creates_an_entry_holding_the_credential(
+    hass: HomeAssistant,
+) -> None:
+    result = await _complete_password_flow(hass)
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    data = result["data"]
+    assert data["auth_method"] == "password"
+    assert data["email"] == "person@example.test"
+    # The credential is stored deliberately: the provider's refresh token lasts
+    # seven days and renewing does not extend it, so nothing else can sign in again.
+    assert data["password"] == "correct horse"
+    assert data["access_token"] == "legacy-access"
+    assert data["refresh_token"] == "legacy-refresh"
+    assert data["refresh_expires_at"] == "2026-08-11T00:00:00+00:00"
+    # No OAuth implementation is involved, so nothing may imply one.
+    assert "auth_implementation" not in data
+    assert "token" not in data
+
+
+async def test_password_login_needs_no_my_home_assistant(hass: HomeAssistant) -> None:
+    """Only the redirect-based method depends on `my`; this one has no redirect."""
+    hass.config.components.remove("my")
+
+    result = await _complete_password_flow(hass)
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (
+            OejpAuthenticationError(
+                (
+                    GraphQLErrorDetail(
+                        message="GraphQL operation failed",
+                        error_type="VALIDATION",
+                        error_code="KT-CT-1138",
+                    ),
+                )
+            ),
+            "invalid_auth",
+        ),
+        (OejpTransportError("network failed"), "cannot_connect"),
+        (OejpInvalidResponseError("invalid"), "unknown"),
+    ],
+)
+async def test_password_login_reports_failures_on_the_form(
+    hass: HomeAssistant,
+    error: Exception,
+    expected: str,
+) -> None:
+    """The user must be able to correct a typo without restarting the flow."""
+    with patch(
+        "custom_components.octopus_energy_japan.config_flow.async_obtain_token",
+        AsyncMock(side_effect=error),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_USER},
+        )
+        result = await _choose_method(hass, result, "password")
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"email": "person@example.test", "password": "wrong"},
+        )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "password"
+    assert result["errors"] == {"base": expected}
+
+
+async def test_every_method_identifies_the_same_login_identically(
+    hass: HomeAssistant,
+) -> None:
+    """This equality is what makes in-place promotion to OAuth possible.
+
+    The identity is scoped to the provider's issuer rather than to the method, so
+    one OEJP login owns one entry however it authenticated. Without this, adding
+    OAuth later would create a second entry and orphan the stored history.
+    """
+    oauth = await _complete_oauth_flow(hass)
+    assert oauth["type"] is FlowResultType.CREATE_ENTRY
+    oauth_unique_id = oauth["result"].unique_id
+
+    await hass.config_entries.async_remove(oauth["result"].entry_id)
+    password = await _complete_password_flow(hass)
+
+    assert password["type"] is FlowResultType.CREATE_ENTRY
+    assert password["result"].unique_id == oauth_unique_id
+    assert oauth_unique_id == stable_login_identity(
+        IDENTITY_SECRET,
+        OEJP_AUTH_ISSUER,
+        SUBJECT,
+    )
+
+
+async def test_promoting_a_password_entry_to_oauth_deletes_the_stored_password(
+    hass: HomeAssistant,
+) -> None:
+    """Reauthentication is the promotion path, and it must not leave the credential."""
+    created = await _complete_password_flow(hass)
+    entry = created["result"]
+    assert entry.data["password"] == "correct horse"
+
+    result = await _complete_oauth_flow(
+        hass,
+        source=config_entries.SOURCE_REAUTH,
+        source_data=dict(entry.data),
+        entry_id=entry.entry_id,
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert entry.data["auth_method"] == "oauth"
+    assert "password" not in entry.data
+    assert "email" not in entry.data
+    assert "access_token" not in entry.data
+    assert entry.data["token"]["access_token"] == "access"
+    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+
+
+async def test_moving_an_oauth_entry_to_a_password_login_drops_the_oauth_token(
+    hass: HomeAssistant,
+) -> None:
+    created = await _complete_oauth_flow(hass)
+    entry = created["result"]
+    assert entry.data["token"]["access_token"] == "access"
+
+    result = await _complete_password_flow(
+        hass,
+        source=config_entries.SOURCE_REAUTH,
+        entry_id=entry.entry_id,
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert entry.data["auth_method"] == "password"
+    assert "token" not in entry.data
+    assert entry.data["password"] == "correct horse"
+
+
+async def test_reauthenticating_with_the_same_method_keeps_the_other_entry_data(
+    hass: HomeAssistant,
+) -> None:
+    created = await _complete_password_flow(hass)
+    entry = created["result"]
+    hass.config_entries.async_update_entry(
+        entry,
+        data={**entry.data, "future_key": "preserved"},
+    )
+
+    result = await _complete_password_flow(
+        hass,
+        source=config_entries.SOURCE_REAUTH,
+        entry_id=entry.entry_id,
+        token=OejpToken(access_token="renewed", refresh_token="renewed-refresh"),
+    )
+
+    assert result["reason"] == "reauth_successful"
+    assert entry.data["future_key"] == "preserved"
+    assert entry.data["access_token"] == "renewed"
+
+
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [
+        (
+            OejpAuthenticationError(
+                (
+                    GraphQLErrorDetail(
+                        message="GraphQL operation failed",
+                        error_type="AUTHENTICATION",
+                    ),
+                )
+            ),
+            "oauth_unauthorized",
+        ),
+        (OejpTransportError("network failed"), "cannot_connect"),
+        (OejpInvalidResponseError("invalid"), "oauth_identity_unavailable"),
+    ],
+)
+async def test_password_login_aborts_when_the_viewer_cannot_be_identified(
+    hass: HomeAssistant,
+    error: Exception,
+    reason: str,
+) -> None:
+    """The credential worked but the account could not be identified.
+
+    This aborts rather than showing a form error, because retyping the password
+    cannot change the outcome.
+    """
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.config_flow.async_obtain_token",
+            AsyncMock(return_value=OejpToken(access_token="legacy-access")),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.config_flow.async_get_viewer_identity",
+            AsyncMock(side_effect=error),
+        ),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_USER},
+        )
+        result = await _choose_method(hass, result, "password")
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"email": "person@example.test", "password": "correct horse"},
+        )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == reason

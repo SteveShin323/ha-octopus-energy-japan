@@ -10,12 +10,33 @@ from .client import OejpGraphQLClient
 from .errors import OejpInvalidResponseError
 from .models import OejpAccount
 
+# `ObtainJSONWebTokenInput` accepts `email`/`password` and, separately, an existing
+# `refreshToken`, so the same mutation both logs in and renews. Measured against a
+# real account on 2026-08-04: the access token lives one hour, the refresh token
+# seven days, the refresh token is **not** rotated and its expiry is **not**
+# extended by a renewal, and the previous refresh token stays valid afterwards.
+# Renewal therefore buys at most seven days from the original login, which is why
+# the credential has to be stored for the password method to run unattended.
+#
+# `email` and `password` are no longer part of the introspected input fields — only
+# `APIKey`, `organizationSecretKey`, `preSignedKey`, `refreshToken`, and
+# `captchaResponse` are — yet the provider still honours them. A hidden-but-honoured
+# field can stop being honoured without a changelog entry, so
+# `OejpPasswordAuthSession` treats a rejected login as terminal rather than retrying.
 OBTAIN_TOKEN_MUTATION = """
 mutation ObtainToken($input: ObtainJSONWebTokenInput!) {
   obtainKrakenToken(input: $input) {
     token
     refreshToken
     refreshExpiresIn
+  }
+}
+"""
+
+INVALIDATE_REFRESH_TOKEN_MUTATION = """
+mutation InvalidateRefreshToken($input: InvalidateRefreshTokenInput!) {
+  invalidateRefreshToken(input: $input) {
+    token
   }
 }
 """
@@ -54,10 +75,43 @@ async def async_obtain_token(
     password: str,
 ) -> OejpToken:
     """Authenticate with OEJP and return a validated token response."""
-    data = await client.execute(
-        OBTAIN_TOKEN_MUTATION,
-        {"input": {"email": email, "password": password}},
+    return await _async_obtain_token(client, {"email": email, "password": password})
+
+
+async def async_renew_token(
+    client: OejpGraphQLClient,
+    refresh_token: str,
+) -> OejpToken:
+    """Renew an access token from a refresh token, without the password."""
+    if not refresh_token.strip():
+        raise ValueError("A refresh token is required")
+    return await _async_obtain_token(client, {"refreshToken": refresh_token})
+
+
+async def async_invalidate_refresh_token(
+    client: OejpGraphQLClient,
+    refresh_token: str,
+) -> None:
+    """Invalidate one refresh token.
+
+    This revokes only the token supplied. A renewal does not rotate the refresh
+    token, so an account can hold several valid ones at once, and invalidating this
+    one leaves the others alive. Invalidating every token for the user is a
+    different, broader operation that this integration never performs.
+    """
+    if not refresh_token.strip():
+        raise ValueError("A refresh token is required")
+    await client.execute(
+        INVALIDATE_REFRESH_TOKEN_MUTATION,
+        {"input": {"refreshToken": refresh_token}},
     )
+
+
+async def _async_obtain_token(
+    client: OejpGraphQLClient,
+    token_input: dict[str, str],
+) -> OejpToken:
+    data = await client.execute(OBTAIN_TOKEN_MUTATION, {"input": token_input})
     raw_token = data.get("obtainKrakenToken")
     if not isinstance(raw_token, dict):
         raise OejpInvalidResponseError("Token response was missing obtainKrakenToken")

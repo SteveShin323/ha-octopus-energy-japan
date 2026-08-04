@@ -9,3 +9,18 @@ CURRENCY_JPY = "JPY"
 DEFAULT_SCAN_INTERVAL_MINUTES = 30
 CONF_ACCOUNT_NUMBER = "account_number"
 CONF_ENABLED_HISTORICAL_RESOURCES = "enabled_historical_resources"
+
+# Which authentication method an entry was created with. Absent on entries created
+# before more than one method existed, which were all OAuth, so `AUTH_METHOD_OAUTH`
+# is the default when the key is missing.
+CONF_AUTH_METHOD = "auth_method"
+AUTH_METHOD_OAUTH = "oauth"
+AUTH_METHOD_PASSWORD = "password"
+AUTH_METHODS = (AUTH_METHOD_OAUTH, AUTH_METHOD_PASSWORD)
+
+# Password-method entry data. The credential is stored because the provider's
+# refresh token lasts seven days and renewing does not extend it, so nothing else
+# can produce a token afterwards. See `docs/adr/0008-password-authentication.md`.
+CONF_ACCESS_TOKEN = "access_token"
+CONF_REFRESH_TOKEN = "refresh_token"
+CONF_REFRESH_EXPIRES_AT = "refresh_expires_at"
