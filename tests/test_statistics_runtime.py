@@ -489,3 +489,27 @@ async def test_a_statistic_published_before_its_device_still_avoids_identifiers(
     assert name.startswith("OEJP ")
     assert "A-1" not in name
     assert "SP-1" not in name
+
+
+def test_the_energy_dashboard_cannot_price_an_external_statistic() -> None:
+    """Documented behaviour that decides how cost could ever be shown.
+
+    `homeassistant/components/energy/sensor.py` builds a cost sensor only when the
+    energy source is a valid entity id, and returns early otherwise. An external
+    statistic id is not one, so a price typed into the Energy dashboard is ignored rather
+    than applied — which means a cost statistic published by this integration is the only
+    possible route. The guides say so; this pins the fact they rely on.
+    """
+    from custom_components.octopus_energy_japan.api import ReadingDirection
+    from custom_components.octopus_energy_japan.statistics import StatisticKind
+    from custom_components.octopus_energy_japan.statistics_runtime import _statistic_id
+    from homeassistant.core import valid_entity_id
+
+    statistic_id = _statistic_id(
+        "supply-point-" + "ab" * 32,
+        ReadingDirection.IMPORT,
+        StatisticKind.ENERGY,
+    )
+
+    assert ":" in statistic_id
+    assert not valid_entity_id(statistic_id)

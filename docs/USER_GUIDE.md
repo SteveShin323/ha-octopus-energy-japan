@@ -189,10 +189,15 @@ Pick the **statistic**, not a period sensor. The period sensors are for display;
 statistics are the correction-safe source, and they are what Home Assistant can rewrite
 when OEJP revises a reading.
 
-**Leave the cost field empty.** This integration publishes no cost statistic, and
-entering a fixed price per kWh there produces a figure no line of your bill supports —
-Japanese electricity is tiered and adds a daily standing charge, a monthly fuel-cost
-adjustment, a renewable levy, and tax.
+**The cost fields do nothing here, whatever you enter.** Home Assistant computes cost
+by multiplying a *sensor* entity's energy by a price, and it skips that entirely when the
+energy source is an external statistic, which is what this integration publishes. So a
+price you type into the Energy dashboard is silently ignored rather than applied.
+
+The only way cost could appear is a cost statistic published by the integration, and
+there is none. Why is in [`CONTRACT_AND_BILLING.md`](CONTRACT_AND_BILLING.md): the
+provider's own per-interval estimate does not reproduce the billed tariff, and an account
+cannot read the tariff's unit prices to compute one.
 
 There is deliberately no cumulative meter sensor to choose instead. OEJP publishes
 30-minute totals hours late and revises them when a billing period closes; a cumulative
