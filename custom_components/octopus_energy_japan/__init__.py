@@ -21,6 +21,7 @@ PLATFORMS = ["sensor", "binary_sensor"]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Octopus Energy Japan from an OAuth config entry."""
+    from homeassistant.core import callback
     from homeassistant.exceptions import (
         ConfigEntryAuthFailed,
         ConfigEntryNotReady,
@@ -30,6 +31,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     from homeassistant.helpers import config_entry_oauth2_flow
     from homeassistant.helpers.aiohttp_client import async_get_clientsession
+    from homeassistant.util import dt as dt_util
 
     from .api import (
         AuthenticatedGraphQLClient,
@@ -42,6 +44,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .commercial_coordinator import OejpCommercialCoordinator
     from .coordinator import OejpDataUpdateCoordinator
     from .identity import async_get_identity_secret
+    from .issues import async_update_issues
     from .oauth import OejpOAuthError, OejpPkceAuthSession
     from .oauth_metadata import (
         OAuthMetadataUnavailableError,
@@ -131,6 +134,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
         )
         async_project_discovered_devices(hass, entry, runtime)
+
+        @callback
+        def refresh_issues() -> None:
+            commercial = commercial_coordinator.data
+            async_update_issues(
+                hass,
+                entry.entry_id,
+                coordinator.data,
+                commercial,
+                dt_util.utcnow(),
+            )
+
+        entry.async_on_unload(coordinator.async_add_listener(refresh_issues))
+        entry.async_on_unload(commercial_coordinator.async_add_listener(refresh_issues))
+        refresh_issues()
+
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         await coordinator.async_start_background_sync()
         # Optional commercial operations must never delay setup or compete with
@@ -178,11 +197,15 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Best-effort revoke OAuth authorization when an entry is removed."""
     from homeassistant.helpers import config_entry_oauth2_flow
 
+    from .issues import async_clear_issues
     from .oauth import OejpOAuthRevocationError, OejpPkceAuthSession
     from .oauth_metadata import (
         OAuthMetadataUnavailableError,
         require_oauth_metadata,
     )
+
+    # Repair issues outlive a reload on purpose, so removal is what clears them.
+    async_clear_issues(hass, entry.entry_id)
 
     try:
         implementation = await config_entry_oauth2_flow.async_get_config_entry_implementation(

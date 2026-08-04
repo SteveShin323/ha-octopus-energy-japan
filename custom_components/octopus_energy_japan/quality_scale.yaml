@@ -49,7 +49,7 @@ rules:
 
   # Gold
   devices: done
-  diagnostics: todo
+  diagnostics: done
   discovery:
     status: exempt
     comment: OEJP is an authenticated cloud service and cannot advertise user accounts to Home Assistant.
@@ -68,10 +68,22 @@ rules:
   entity-device-class: done
   entity-disabled-by-default: done
   entity-translations: done
-  exception-translations: todo
-  icon-translations: todo
+  exception-translations:
+    status: exempt
+    comment: >-
+      The integration is read-only, exposes no actions, and raises no user-facing
+      HomeAssistantError. Setup and authorization failures use Home Assistant's own
+      ConfigEntryNotReady and ConfigEntryAuthFailed, whose text Home Assistant owns.
+  icon-translations: done
   reconfiguration-flow: done
-  repair-issues: todo
+  repair-issues:
+    status: done
+    comment: >-
+      Four informational issues cover corrupt ledger partitions, a silent reading
+      series, a lost reading capability, and a commercial permission gap. None is
+      fixable in place because every condition is provider-side or storage-side, so
+      no repair flow is offered. Reauthentication is left to Home Assistant's own
+      prompt. See docs/DIAGNOSTICS_AND_REPAIRS.md.
   stale-devices:
     status: done
     comment: >-

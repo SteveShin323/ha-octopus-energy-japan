@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -12,6 +13,7 @@ from custom_components.octopus_energy_japan import (
     async_setup_entry,
     async_unload_entry,
 )
+from custom_components.octopus_energy_japan.aggregation import AggregationSnapshot
 from custom_components.octopus_energy_japan.api import (
     Capability,
     CapabilityAvailability,
@@ -27,6 +29,7 @@ from custom_components.octopus_energy_japan.api import (
     OejpSupplyPoint,
 )
 from custom_components.octopus_energy_japan.const import DOMAIN
+from custom_components.octopus_energy_japan.coordinator import OejpCoordinatorData
 from custom_components.octopus_energy_japan.oauth import (
     OejpOAuthError,
     OejpOAuthRevocationError,
@@ -48,6 +51,16 @@ METADATA = OejpOAuthMetadata(
     scopes=("openid",),
     authorization_scheme=AuthorizationHeaderScheme.BEARER,
 )
+
+
+def _empty_coordinator_data() -> OejpCoordinatorData:
+    """Minimal real coordinator data so issue evaluation runs as it does live."""
+    return OejpCoordinatorData(
+        accounts=(),
+        capabilities=CapabilitySnapshot(),
+        aggregation=AggregationSnapshot((), datetime(2026, 8, 4, tzinfo=UTC)),
+        present_supply_points=frozenset(),
+    )
 
 
 def _entry() -> MockConfigEntry:
@@ -73,9 +86,11 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
     auth = AsyncMock()
     coordinator = AsyncMock()
     coordinator.async_add_listener = Mock(return_value=Mock())
+    coordinator.data = _empty_coordinator_data()
     commercial_coordinator = AsyncMock()
     commercial_coordinator.async_add_listener = Mock(return_value=Mock())
     commercial_coordinator.set_accounts = Mock()
+    commercial_coordinator.data = None
     statistics_projector = AsyncMock()
     coordinator.async_config_entry_first_refresh.side_effect = lambda: events.append("refresh")
     coordinator.async_start_background_sync.side_effect = lambda: events.append("background")
@@ -447,6 +462,7 @@ async def test_platform_forward_failure_is_cleaned_without_masking_error(
     auth.async_get_authorization_header.return_value = "Bearer access"
     coordinator = AsyncMock()
     coordinator.async_add_listener = Mock(return_value=Mock())
+    coordinator.data = _empty_coordinator_data()
     forward_error = RuntimeError("platform failed")
     with (
         patch(

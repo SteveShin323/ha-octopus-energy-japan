@@ -141,5 +141,23 @@
         "name": "Export data available"
       }
     }
+  },
+  "issues": {
+    "capability_unavailable": {
+      "title": "Octopus Energy Japan is not serving a reading method",
+      "description": "These reading capabilities are unavailable for your account: {capabilities}. The integration falls back to whichever method still works, so consumption usually keeps recording. If every method is listed, no new readings can be collected."
+    },
+    "commercial_permission_missing": {
+      "title": "Octopus Energy Japan did not grant access to some account details",
+      "description": "Your authorization does not cover: {features}. Consumption, totals, and Energy Dashboard statistics are unaffected. The entities for the listed information stay unavailable."
+    },
+    "ledger_partitions_corrupt": {
+      "title": "Some stored Octopus Energy Japan history could not be read",
+      "description": "{count} month(s) of stored readings failed to load and were quarantined so the rest of your history stays usable. Recent readings continue to be recorded, but totals and Energy Dashboard statistics for the affected months may be incomplete. Removing and re-adding the integration re-downloads whatever Octopus Energy Japan still serves, which is roughly the last 30 days."
+    },
+    "readings_silent": {
+      "title": "Octopus Energy Japan has not sent new readings",
+      "description": "{count} reading series has produced nothing for more than {hours} hours. Half-hourly readings normally arrive several hours late, so a short gap is expected, but a longer silence usually means the meter data has not reached Octopus Energy Japan yet. No action is needed here; the integration keeps retrying and fills the gap once the data appears."
+    }
   }
 }

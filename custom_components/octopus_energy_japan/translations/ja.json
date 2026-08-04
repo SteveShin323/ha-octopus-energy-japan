@@ -141,5 +141,23 @@
       }
     }
   },
-  "title": "Octopus Energy Japan"
+  "title": "Octopus Energy Japan",
+  "issues": {
+    "capability_unavailable": {
+      "title": "Octopus Energy Japan が一部の取得方法を提供していません",
+      "description": "お客さまのアカウントでは次の取得方法が利用できません: {capabilities}。連携は利用可能な方法へ自動的に切り替えるため、通常は使用量の記録が続きます。すべてが挙げられている場合は、新しい使用量を取得できません。"
+    },
+    "commercial_permission_missing": {
+      "title": "Octopus Energy Japan が一部のアカウント情報へのアクセスを許可していません",
+      "description": "認可の範囲に次が含まれていません: {features}。使用量、集計、Energy Dashboard の統計には影響しません。該当する情報のエンティティは利用不可のままになります。"
+    },
+    "ledger_partitions_corrupt": {
+      "title": "保存されている Octopus Energy Japan の履歴を読み込めませんでした",
+      "description": "保存済みデータのうち {count} か月分を読み込めなかったため、残りの履歴を守るために切り離しました。直近の使用量は引き続き記録されますが、該当月の集計と Energy Dashboard の統計は不完全な可能性があります。連携を削除して再追加すると、Octopus Energy Japan が提供する範囲（およそ直近30日）を再取得します。"
+    },
+    "readings_silent": {
+      "title": "Octopus Energy Japan から新しい使用量が届いていません",
+      "description": "{count} 件の系列で {hours} 時間以上、新しい使用量が届いていません。30分値は数時間遅れて届くのが通常なので短い空白は正常ですが、それより長い場合は計量データが Octopus Energy Japan にまだ到着していないことが多いです。特に操作は不要で、データが届き次第、連携が自動的に埋めます。"
+    }
+  }
 }
