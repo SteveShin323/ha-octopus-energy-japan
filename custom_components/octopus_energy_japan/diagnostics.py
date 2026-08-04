@@ -1,0 +1,205 @@
+"""Privacy-preserving config-entry diagnostics."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import TYPE_CHECKING, Any
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import __version__ as HA_VERSION
+from homeassistant.core import HomeAssistant
+from homeassistant.loader import async_get_integration
+
+from .api import CapabilitySnapshot, ResourceLifecycle
+from .const import DOMAIN
+from .ledger import LEDGER_SCHEMA_VERSION
+
+if TYPE_CHECKING:
+    from .commercial_coordinator import OejpCommercialCoordinator
+    from .coordinator import OejpCoordinatorData, OejpDataUpdateCoordinator
+
+# Every value below is either a constant, a count, a boolean, an enumerated state,
+# an installation-local HMAC identity, or a UTC timestamp. Raw account numbers,
+# SPINs, supply-point and meter identifiers, addresses, names, email addresses,
+# tokens, reading values, provider cost, bill amounts, and provider message text
+# are never included. `docs/DIAGNOSTICS_AND_REPAIRS.md` is the controlling contract.
+
+
+def _timestamp(value: datetime | None) -> str | None:
+    return value.isoformat() if value is not None else None
+
+
+def _capabilities(capabilities: CapabilitySnapshot) -> list[dict[str, Any]]:
+    return [
+        {
+            "capability": status.capability.value,
+            "availability": status.availability.value,
+            "reason": status.reason,
+        }
+        for status in capabilities.statuses
+    ]
+
+
+def _resources(data: OejpCoordinatorData) -> dict[str, Any]:
+    supply_points = 0
+    historical_supply_points = 0
+    historical_accounts = 0
+    for account in data.accounts:
+        if account.lifecycle is ResourceLifecycle.HISTORICAL:
+            historical_accounts += 1
+        for property_ in account.properties:
+            for supply_point in property_.supply_points:
+                supply_points += 1
+                if supply_point.lifecycle is ResourceLifecycle.HISTORICAL:
+                    historical_supply_points += 1
+    return {
+        "accounts": len(data.accounts),
+        "historical_accounts": historical_accounts,
+        "supply_points": supply_points,
+        "historical_supply_points": historical_supply_points,
+        "present_supply_points": len(data.present_supply_points),
+        "enabled_supply_points": len(data.enabled_supply_points),
+    }
+
+
+def _directions(data: OejpCoordinatorData) -> list[dict[str, Any]]:
+    return [
+        {
+            "account": status.account_identity,
+            "supply_point": status.supply_point_identity,
+            "direction": status.direction.value,
+            "queryable": status.queryable,
+            "stale": status.stale,
+            "last_success_at": _timestamp(status.last_success_at),
+            "error_class": status.error_class.value if status.error_class else None,
+            "coverage_start_at": _timestamp(status.coverage_start_at),
+            "coverage_end_at": _timestamp(status.coverage_end_at),
+            "background_coverage_windows": len(status.background_coverage),
+        }
+        for status in data.direction_statuses
+    ]
+
+
+def _providers(data: OejpCoordinatorData) -> list[dict[str, Any]]:
+    return [
+        {
+            "account": observation.account_identity,
+            "supply_point": observation.supply_point_identity,
+            "direction": observation.direction.value,
+            "provider": observation.provider.value,
+            "fallback_reason": (
+                observation.fallback_reason.value if observation.fallback_reason else None
+            ),
+            "observed_at": _timestamp(observation.observed_at),
+        }
+        for observation in data.provider_observations
+    ]
+
+
+def _aggregation(data: OejpCoordinatorData) -> dict[str, Any]:
+    intervals = sum(
+        projection.this_month.interval_count + projection.last_month.interval_count
+        for projection in data.aggregation.supply_points
+    )
+    delays = [
+        projection.data_delay.total_seconds()
+        for projection in data.aggregation.supply_points
+        if projection.data_delay is not None
+    ]
+    return {
+        "generated_at": _timestamp(data.aggregation.generated_at),
+        "timezone": data.aggregation.timezone,
+        "projections": len(data.aggregation.supply_points),
+        "recent_intervals": intervals,
+        "max_data_delay_seconds": max(delays) if delays else None,
+    }
+
+
+def _commercial(coordinator: OejpCommercialCoordinator | None) -> dict[str, Any]:
+    if coordinator is None:
+        return {"configured": False}
+    snapshot = coordinator.data
+    return {
+        "configured": True,
+        "last_update_success": coordinator.last_update_success,
+        "observed_at": _timestamp(snapshot.observed_at if snapshot else None),
+        "accounts": [
+            {
+                "features": [
+                    {
+                        "feature": status.feature.value,
+                        "availability": status.availability.value,
+                        "error_codes": list(status.error_codes),
+                        "error_types": list(status.error_types),
+                        "error_paths": [list(path) for path in status.error_paths],
+                    }
+                    for status in account.access
+                ],
+                "has_overview": account.overview is not None,
+                "agreements": len(account.agreements),
+                "has_latest_bill": account.latest_bill is not None,
+                "has_latest_transaction": account.latest_transaction is not None,
+            }
+            for account in (snapshot.accounts if snapshot else ())
+        ],
+    }
+
+
+async def async_get_config_entry_diagnostics(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+) -> dict[str, Any]:
+    """Return a redacted snapshot suitable for a public issue report."""
+    from .runtime import OejpRuntimeData
+
+    integration = await async_get_integration(hass, DOMAIN)
+    report: dict[str, Any] = {
+        "integration": {
+            "domain": DOMAIN,
+            "version": integration.version and str(integration.version),
+            "home_assistant": HA_VERSION,
+            "ledger_schema_version": LEDGER_SCHEMA_VERSION,
+        },
+        "config_entry": {
+            "version": entry.version,
+            "minor_version": entry.minor_version,
+            "source": entry.source,
+            "has_stored_token": bool(entry.data.get("token")),
+            "has_auth_implementation": bool(entry.data.get("auth_implementation")),
+            "selected_historical_resources": len(
+                entry.options.get("enabled_historical_resources", []) or []
+            ),
+        },
+    }
+
+    runtime = entry.runtime_data
+    if not isinstance(runtime, OejpRuntimeData):
+        report["runtime"] = {"loaded": False}
+        return report
+
+    coordinator: OejpDataUpdateCoordinator | None = runtime.coordinator
+    if coordinator is None:
+        report["runtime"] = {"loaded": False, "capabilities": _capabilities(runtime.capabilities)}
+        return report
+
+    data = coordinator.data
+    report["runtime"] = {
+        "loaded": True,
+        "last_update_success": coordinator.last_update_success,
+        "last_exception": type(coordinator.last_exception).__name__
+        if coordinator.last_exception
+        else None,
+        "update_interval_seconds": (
+            coordinator.update_interval.total_seconds() if coordinator.update_interval else None
+        ),
+        "capabilities": _capabilities(data.capabilities),
+        "resources": _resources(data),
+        "corrections": data.correction_count,
+        "last_refresh_changes": data.last_refresh_change_count,
+        "corrupt_partitions": data.corrupt_partition_count,
+    }
+    report["directions"] = _directions(data)
+    report["providers"] = _providers(data)
+    report["aggregation"] = _aggregation(data)
+    report["commercial"] = _commercial(runtime.commercial_coordinator)
+    return report

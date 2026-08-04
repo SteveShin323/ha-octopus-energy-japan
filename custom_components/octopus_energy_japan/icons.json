@@ -1,0 +1,101 @@
+{
+  "entity": {
+    "sensor": {
+      "account_balance": {
+        "default": "mdi:wallet"
+      },
+      "account_status": {
+        "default": "mdi:account-check"
+      },
+      "agreement_end": {
+        "default": "mdi:calendar-end"
+      },
+      "agreement_start": {
+        "default": "mdi:calendar-start"
+      },
+      "current_product": {
+        "default": "mdi:file-document-outline"
+      },
+      "export_data_delay": {
+        "default": "mdi:timer-sand"
+      },
+      "export_last_month": {
+        "default": "mdi:solar-power"
+      },
+      "export_latest_interval": {
+        "default": "mdi:transmission-tower-export"
+      },
+      "export_latest_reading": {
+        "default": "mdi:clock-outline"
+      },
+      "export_this_month": {
+        "default": "mdi:solar-power"
+      },
+      "export_this_week": {
+        "default": "mdi:solar-power"
+      },
+      "export_today": {
+        "default": "mdi:solar-power"
+      },
+      "export_yesterday": {
+        "default": "mdi:solar-power"
+      },
+      "import_data_delay": {
+        "default": "mdi:timer-sand"
+      },
+      "import_last_month": {
+        "default": "mdi:lightning-bolt"
+      },
+      "import_latest_interval": {
+        "default": "mdi:transmission-tower-import"
+      },
+      "import_latest_reading": {
+        "default": "mdi:clock-outline"
+      },
+      "import_this_month": {
+        "default": "mdi:lightning-bolt"
+      },
+      "import_this_week": {
+        "default": "mdi:lightning-bolt"
+      },
+      "import_today": {
+        "default": "mdi:lightning-bolt"
+      },
+      "import_yesterday": {
+        "default": "mdi:lightning-bolt"
+      },
+      "latest_bill_amount": {
+        "default": "mdi:receipt-text"
+      },
+      "latest_bill_due": {
+        "default": "mdi:calendar-clock"
+      },
+      "latest_bill_issued": {
+        "default": "mdi:calendar-check"
+      },
+      "latest_transaction_amount": {
+        "default": "mdi:cash-multiple"
+      },
+      "overdue_balance": {
+        "default": "mdi:wallet-outline"
+      },
+      "supply_point_status": {
+        "default": "mdi:transmission-tower"
+      }
+    },
+    "binary_sensor": {
+      "import_data_available": {
+        "default": "mdi:database-check",
+        "state": {
+          "off": "mdi:database-off"
+        }
+      },
+      "export_data_available": {
+        "default": "mdi:database-check",
+        "state": {
+          "off": "mdi:database-off"
+        }
+      }
+    }
+  }
+}

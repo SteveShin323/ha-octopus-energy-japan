@@ -19,7 +19,9 @@ More specific active specifications control within their scope:
   statistics projection;
 - [`CONTRACT_AND_BILLING.md`](CONTRACT_AND_BILLING.md) controls PR 9 optional
   account, agreement, product, and billing behavior, and records the
-  provider-cost verification gate; and
+  provider-cost verification gate;
+- [`DIAGNOSTICS_AND_REPAIRS.md`](DIAGNOSTICS_AND_REPAIRS.md) controls PR 10
+  diagnostics content and repair-issue behavior; and
 - [`PR7_DELIVERY_PLAN.md`](PR7_DELIVERY_PLAN.md) records the completed PR #14
   branch and child-PR procedure without changing runtime behavior.
 
@@ -58,7 +60,7 @@ Current implementation status:
 | PR 1–7: foundation through runtime/entities | Implemented and validated |
 | PR 8: Energy statistics | Implemented and validated |
 | PR 9: contract, tariff, and billing | Implemented and validated, except provider cost and tariff rate projection |
-| PR 10: diagnostics and Repairs | Planned |
+| PR 10: diagnostics and Repairs | Implemented and validated |
 | PR 11: release documentation and packaging | Planned |
 | Provider-issued cost and tariff rate projection | Awaiting provider metadata or probe |
 | OAuth endpoints, issuer, scopes, and header scheme | Confirmed from the provider |
