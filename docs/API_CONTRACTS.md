@@ -583,3 +583,61 @@ or diagnostics.
 Run the fixed local probes described in
 [`FIXTURE_REDACTION.md`](FIXTURE_REDACTION.md) before changing any GraphQL
 contract.
+
+## What is readable and deliberately not surfaced
+
+A field-by-field probe of every reachable type against a real account on
+2026-08-04 found far more readable data than this integration publishes. Coverage
+was scoped on purpose, and the reasons are recorded here so the decision can be
+checked and overruled field by field rather than taken on trust.
+
+**About the person, not the supply.** `AccountUser` and `Account` expose
+`isDeceased`, `isInHardship`, `hasFamilyIssues`, `specialCircumstances`,
+`pronouns`, `preferredName`, `landline`, `mobile`, `email`, `consents`,
+`paymentMethods`, and `directDebitInstructions`, among others. An entity state
+lands in the recorder database, appears in cloud backups, is exposed to voice
+assistants, and is visible to anyone with dashboard access. No reading of "all
+obtainable data" for an *energy* integration requires publishing these, so none
+of them is read.
+
+**An affordance for a mutation this integration does not perform.**
+`canApplyAmperageChange`, `canUpdateMoveInDate`, `canUpdateMoveOutDate`,
+`canRequestRefund`, `canBeWithdrawn`, `acceptsPayments`, `newAmperageOptions`,
+and `earliestAmperageChangeDate` describe actions available in the provider's own
+app. This integration is read-only, so surfacing them would only prompt the
+question of how to act on them. (`newAmperageOptions` is still read once, by the
+probe, because a set difference over it independently identified the contracted
+amperage — see the standing-charge discussion above.)
+
+**Already published, under another name.** `account.payments` returns the same
+event as the ledger transaction that is published: measured on the same account,
+the same date and the same amount, differing only in `uuid` versus `id`. Its
+extra fields, `transactionType` and `surchargeAmount`, describe a payment
+instrument rather than energy.
+
+**Measured to be unmaintained.** `ElectricitySupplyPoint.nextReadingDate` and
+`nextNextReadingDate` are readable and populated, and on 2026-08-04 both were in
+the past — one 47 days earlier, the pair exactly a month apart, and inconsistent
+with `readingDateDayOfMonth` on the same supply point. They look like a snapshot
+computed once and never refreshed. A sensor named "next meter reading" showing a
+date weeks gone would be reported as a bug, so only `readingDateDayOfMonth` is
+published, as a diagnostic. If the provider begins maintaining the two dates,
+they become worth publishing and this paragraph is the record of why they were
+not.
+
+**Undecidable on the account available.** `LedgerType.balance`,
+`LedgerType.amountOwedByCustomer`, `Account.balance`, and
+`Account.overdueBalance` all returned the same value, and that value was zero, so
+the agreement between them proves nothing. The structural fact that does decide
+it is `affectsAccountBalance: true` on the account's only ledger: the ledger
+balance is a component of the account balance already published. Two further
+sensors are therefore not added. Should a multi-ledger account appear, the
+per-ledger balance would become a distinct fact and this reasoning would need
+revisiting.
+
+**Not worth an entity's cost.** `StatementBillingDocumentType.pdfUrl` is a signed
+URL to the bill document. It would very likely exceed the 255-character limit on
+a Home Assistant state, and it would be written to the recorder and to backups.
+`scheduledPaymentDate` equalled `dueDate` on every statement measured, and
+`isFinal` and `documentDebtPosition` were both null. `totalCredits` was zero.
+None of these is refused; each is simply unproven or redundant today.

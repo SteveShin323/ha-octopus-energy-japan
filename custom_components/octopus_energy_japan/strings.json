@@ -94,32 +94,23 @@
       "current_product": {
         "name": "Current product"
       },
-      "import_latest_interval": {
-        "name": "Import latest reported interval consumption"
+      "export_data_delay": {
+        "name": "Export data delay"
       },
-      "import_today": {
-        "name": "Import consumption today"
-      },
-      "import_yesterday": {
-        "name": "Import consumption yesterday"
-      },
-      "import_this_week": {
-        "name": "Import consumption this week"
-      },
-      "import_this_month": {
-        "name": "Import consumption this month"
-      },
-      "import_last_month": {
-        "name": "Import consumption last month"
-      },
-      "import_latest_reading": {
-        "name": "Import latest reading timestamp"
-      },
-      "import_data_delay": {
-        "name": "Import data delay"
+      "export_last_month": {
+        "name": "Export energy last month"
       },
       "export_latest_interval": {
         "name": "Export latest reported interval energy"
+      },
+      "export_latest_reading": {
+        "name": "Export latest reading timestamp"
+      },
+      "export_this_month": {
+        "name": "Export energy this month"
+      },
+      "export_this_week": {
+        "name": "Export energy this week"
       },
       "export_today": {
         "name": "Export energy today"
@@ -127,20 +118,29 @@
       "export_yesterday": {
         "name": "Export energy yesterday"
       },
-      "export_this_week": {
-        "name": "Export energy this week"
+      "import_data_delay": {
+        "name": "Import data delay"
       },
-      "export_this_month": {
-        "name": "Export energy this month"
+      "import_last_month": {
+        "name": "Import consumption last month"
       },
-      "export_last_month": {
-        "name": "Export energy last month"
+      "import_latest_interval": {
+        "name": "Import latest reported interval consumption"
       },
-      "export_latest_reading": {
-        "name": "Export latest reading timestamp"
+      "import_latest_reading": {
+        "name": "Import latest reading timestamp"
       },
-      "export_data_delay": {
-        "name": "Export data delay"
+      "import_this_month": {
+        "name": "Import consumption this month"
+      },
+      "import_this_week": {
+        "name": "Import consumption this week"
+      },
+      "import_today": {
+        "name": "Import consumption today"
+      },
+      "import_yesterday": {
+        "name": "Import consumption yesterday"
       },
       "latest_bill_amount": {
         "name": "Latest bill amount"
@@ -156,6 +156,12 @@
       },
       "overdue_balance": {
         "name": "Overdue balance"
+      },
+      "reading_day_of_month": {
+        "name": "Meter reading day"
+      },
+      "supply_point_address": {
+        "name": "Address"
       },
       "supply_point_status": {
         "name": "Status",

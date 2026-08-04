@@ -141,6 +141,17 @@ Enabled by default:
 | Data delay | how far behind the newest interval is |
 | Status | whether the supply point is active or ended |
 | Data available | whether readings are currently arriving |
+| Meter reading day | the day of the month OEJP reads this meter on |
+
+Disabled by default: **Address** — the address OEJP holds for this supply point's
+property. It is there so that with more than one property you can tell which device
+is which. It is off until you turn it on because an entity's state is written to the
+recorder database and included in backups; see
+[`PRIVACY.md`](../PRIVACY.md#what-never-appears-in-the-user-interface).
+
+There is no "next meter reading" entity. OEJP does expose two such dates, and on a
+real account both were weeks in the past and disagreed with the reading day above, so
+publishing them would mean showing you a stale date labelled "next".
 
 A calendar total reports **unknown** until the whole period is covered, rather than
 a number that is quietly too low. A partly-synchronised day is not a smaller day.

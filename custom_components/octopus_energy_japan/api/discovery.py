@@ -37,10 +37,13 @@ query ViewerResourceDiscovery {
       ... on Account {
         properties {
           id
+          address
+          postcode
           electricitySupplyPoints {
             id
             spin
             status
+            readingDateDayOfMonth
             meters {
               serialNumber
               capacity
@@ -325,6 +328,8 @@ def _parse_property(value: object, account_number: str) -> OejpProperty:
     return OejpProperty(
         id=property_id,
         supply_points=tuple(points[key] for key in sorted(points)),
+        address=_optional_string(raw.get("address")),
+        postcode=_optional_string(raw.get("postcode")),
     )
 
 
@@ -357,6 +362,7 @@ def _parse_supply_point(
         lifecycle=lifecycle_from_status(status),
         property_id=property_id,
         spin=spin,
+        reading_day_of_month=_reading_day(raw.get("readingDateDayOfMonth")),
         meters=tuple(meters[key] for key in sorted(meters)),
     )
 
@@ -485,6 +491,18 @@ def _required_identifier(
 
 def _optional_string(value: object) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _reading_day(value: object) -> int | None:
+    """Return the meter-reading day of the month, or None if it is not a usable day.
+
+    A value outside 1 to 31 is dropped rather than published. It would be a schema change or a
+    provider fault, and a "reading day" of 0 or 40 is worse than no reading day: an
+    automation would act on it.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if 1 <= value <= 31 else None
 
 
 def _optional_scalar_string(value: object) -> str | None:

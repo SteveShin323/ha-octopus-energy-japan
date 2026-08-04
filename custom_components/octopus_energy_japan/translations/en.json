@@ -164,6 +164,12 @@
       "overdue_balance": {
         "name": "Overdue balance"
       },
+      "reading_day_of_month": {
+        "name": "Meter reading day"
+      },
+      "supply_point_address": {
+        "name": "Address"
+      },
       "supply_point_status": {
         "name": "Status",
         "state": {
