@@ -105,25 +105,32 @@ query AccountCommercialBilling($accountNumber: String!) {
         }
       }
     }
-    transactions(first: 1, orderBy: POSTED_DATE_DESC) {
-      edges {
-        node {
-          __typename
-          id
-          postedDate
-          createdAt
-          amount
-          isHeld
-          isIssued
-          isReversed
-          title
-          reasonCode
+    ledgers {
+      transactions(first: 1, orderBy: POSTED_DATE_DESC) {
+        edges {
+          node {
+            __typename
+            id
+            postedDate
+            createdAt
+            amount
+            isHeld
+            isIssued
+            isReversed
+            title
+            reasonCode
+          }
         }
       }
     }
   }
 }
 """
+# Transactions are read from the ledger, not from `account.transactions`. Measured against
+# a real account on 2026-08-04: `account.transactions` returned an empty connection while
+# `ledgers[].transactions` returned three — a payment, a charge, and a credit, with posted
+# dates. The latest-transaction sensor was therefore permanently empty for accounts whose
+# activity lives on the ledger, which appears to be the normal arrangement.
 
 
 class CommercialFeature(StrEnum):
@@ -412,17 +419,54 @@ def parse_account_billing(
     """Parse only the newest bill and transaction summaries."""
     account = _account(data, expected_account_id, "billing")
     bills = _required_mapping(account.get("bills"), "Billing response was missing bills")
-    transactions = _required_mapping(
-        account.get("transactions"),
-        "Billing response was missing transactions",
-    )
     bill_nodes = _connection_nodes(bills, "Bill")
-    transaction_nodes = _connection_nodes(transactions, "Transaction")
-    if len(bill_nodes) > 1 or len(transaction_nodes) > 1:
+    if len(bill_nodes) > 1:
         raise OejpInvalidResponseError("Billing response exceeded the requested result limit")
     return (
         _parse_bill(bill_nodes[0]) if bill_nodes else None,
-        _parse_transaction(transaction_nodes[0]) if transaction_nodes else None,
+        _latest_ledger_transaction(account),
+    )
+
+
+def _latest_ledger_transaction(account: Mapping[str, Any]) -> TransactionSummary | None:
+    """Return the newest transaction across the account's ledgers.
+
+    An account may hold more than one ledger, and each is asked for its own newest
+    transaction, so the newest overall is chosen here. A ledger with no posted date sorts
+    last rather than being dropped: it is still a transaction the customer can see.
+
+    A nulled `ledgers` is tolerated rather than raised on. That is the shape of a partial
+    response, which the billing access record already reports, and refusing it would
+    discard the bill that arrived in the same response over a secondary field.
+    """
+    ledgers = account.get("ledgers")
+    if ledgers is None:
+        return None
+    latest: TransactionSummary | None = None
+    for value in _required_list(ledgers, "Billing response returned malformed ledgers"):
+        ledger = _required_mapping(value, "Billing response contained a malformed ledger")
+        transactions = ledger.get("transactions")
+        if transactions is None:
+            continue
+        nodes = _connection_nodes(
+            _required_mapping(transactions, "Billing response returned malformed transactions"),
+            "Transaction",
+        )
+        if len(nodes) > 1:
+            raise OejpInvalidResponseError("Billing response exceeded the requested result limit")
+        if not nodes:
+            continue
+        candidate = _parse_transaction(nodes[0])
+        if latest is None or _transaction_order(candidate) > _transaction_order(latest):
+            latest = candidate
+    return latest
+
+
+def _transaction_order(transaction: TransactionSummary) -> tuple[date, datetime]:
+    """Sort key placing a transaction with no dates behind any that has them."""
+    return (
+        transaction.posted_date or date.min,
+        transaction.created_at or datetime.min.replace(tzinfo=UTC),
     )
 
 

@@ -390,7 +390,20 @@ balances. `AccountCommercialAgreements` reads `marketSupplyAgreements` with its
 product and rate connection and follows `endCursor` pagination.
 `AccountCommercialBilling` reads the single newest `bills` node, using inline
 fragments for `StatementType`, `PeriodBasedDocumentType`, and `InvoiceType`, plus
-the single newest `transactions` node.
+the single newest transaction **from each of the account's ledgers**.
+
+**Transactions live on the ledger, not on the account.** `Account.transactions`
+exists, is readable, and returns an empty connection. `LedgerType.transactions`
+returns the customer's actual activity. Measured on 2026-08-04 against a real
+account: `account.transactions` gave zero edges while the single ledger gave three
+— a payment, a charge and a credit, each with a posted date. The integration read
+the account-level field until then, so the latest-transaction sensor was
+permanently empty. `tests/test_api_commercial.py` pins this so the more
+direct-looking field is not restored. An account may hold several ledgers, so each
+is asked for its own newest node and the newest overall is published; a nulled
+`ledgers` is reported as no transaction rather than as an error, because that is
+the shape of a partial response and refusing it would discard the bill that
+arrived with it.
 
 These documents were validated by schema introspection against a real account on
 2026-08-04, which corrected three mistakes in the originally documented shape.

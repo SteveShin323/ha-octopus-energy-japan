@@ -104,24 +104,28 @@ def _billing() -> dict[str, object]:
                     }
                 ]
             },
-            "transactions": {
-                "edges": [
-                    {
-                        "node": {
-                            "__typename": "Payment",
-                            "id": "transaction-1",
-                            "postedDate": "2026-07-10",
-                            "createdAt": "2026-07-10T01:02:03Z",
-                            "amount": -8765,
-                            "isHeld": False,
-                            "isIssued": True,
-                            "isReversed": False,
-                            "title": "provider text is intentionally ignored",
-                            "reasonCode": "PAYMENT",
-                        }
+            "ledgers": [
+                {
+                    "transactions": {
+                        "edges": [
+                            {
+                                "node": {
+                                    "__typename": "Payment",
+                                    "id": "transaction-1",
+                                    "postedDate": "2026-07-10",
+                                    "createdAt": "2026-07-10T01:02:03Z",
+                                    "amount": -8765,
+                                    "isHeld": False,
+                                    "isIssued": True,
+                                    "isReversed": False,
+                                    "title": "provider text is intentionally ignored",
+                                    "reasonCode": "PAYMENT",
+                                }
+                            }
+                        ]
                     }
-                ]
-            },
+                }
+            ],
         }
     }
 
@@ -502,7 +506,127 @@ def test_billing_rejects_conflicting_or_excess_results() -> None:
         parse_account_billing(conflicting, ACCOUNT)
 
     excess = deepcopy(_billing())
-    edges = excess["account"]["transactions"]["edges"]  # type: ignore[index]
+    ledger = excess["account"]["ledgers"][0]  # type: ignore[index]
+    edges = ledger["transactions"]["edges"]
     edges.append(deepcopy(edges[0]))
     with pytest.raises(OejpInvalidResponseError, match="result limit"):
         parse_account_billing(excess, ACCOUNT)
+
+
+def test_transactions_are_read_from_the_ledger_not_from_the_account() -> None:
+    """The account-level connection is empty on a real account; the ledger's is not.
+
+    Measured on 2026-08-04: `account.transactions` returned zero edges while
+    `ledgers[].transactions` returned a payment, a charge and a credit. Reading the
+    account-level field looks more direct and is what this integration shipped, which left
+    the latest-transaction sensor permanently empty. This test fails if the query or the
+    parser moves back, so the reason is not lost.
+    """
+    assert "ledgers {" in ACCOUNT_BILLING_QUERY
+    # The account-level field must not be selected at all: a populated one would mask the
+    # ledger read during development and hide the regression.
+    account_level = ACCOUNT_BILLING_QUERY.split("ledgers {")[0]
+    assert "transactions(" not in account_level
+
+    decoy = deepcopy(_billing())
+    decoy["account"]["transactions"] = decoy["account"].pop("ledgers")[0][  # type: ignore[index]
+        "transactions"
+    ]
+
+    assert parse_account_billing(decoy, ACCOUNT)[1] is None
+
+
+def test_the_newest_transaction_across_several_ledgers_wins() -> None:
+    """An account may hold more than one ledger, each answering with its own newest."""
+    payload = deepcopy(_billing())
+    ledgers = payload["account"]["ledgers"]  # type: ignore[index]
+    older = deepcopy(ledgers[0])
+    older["transactions"]["edges"][0]["node"] |= {
+        "id": "transaction-0",
+        "postedDate": "2026-05-01",
+        "createdAt": "2026-05-01T00:00:00Z",
+    }
+    # Newest second in one ordering and first in the other, so neither list position wins.
+    for arrangement in ([older, ledgers[0]], [ledgers[0], older]):
+        payload["account"]["ledgers"] = arrangement  # type: ignore[index]
+        transaction = parse_account_billing(deepcopy(payload), ACCOUNT)[1]
+        assert transaction is not None
+        assert transaction.id == "transaction-1"
+
+
+def test_a_transaction_without_dates_loses_to_one_with_them() -> None:
+    payload = deepcopy(_billing())
+    dateless = deepcopy(payload["account"]["ledgers"][0])  # type: ignore[index]
+    dateless["transactions"]["edges"][0]["node"] |= {
+        "id": "transaction-undated",
+        "postedDate": None,
+        "createdAt": None,
+    }
+    payload["account"]["ledgers"] = [dateless, payload["account"]["ledgers"][0]]  # type: ignore[index]
+
+    transaction = parse_account_billing(payload, ACCOUNT)[1]
+
+    assert transaction is not None
+    assert transaction.id == "transaction-1"
+
+
+def test_a_dateless_transaction_is_still_reported_when_it_is_the_only_one() -> None:
+    """Dropping it would lose a transaction the customer can see in the provider's app."""
+    payload = deepcopy(_billing())
+    node = payload["account"]["ledgers"][0]["transactions"]["edges"][0]["node"]  # type: ignore[index]
+    node |= {"postedDate": None, "createdAt": None}
+
+    transaction = parse_account_billing(payload, ACCOUNT)[1]
+
+    assert transaction is not None
+    assert transaction.posted_date is None
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected"),
+    [
+        (lambda account: account.update(ledgers=None), None),
+        (lambda account: account.update(ledgers=[]), None),
+        (lambda account: account["ledgers"][0].update(transactions=None), None),
+    ],
+    ids=["nulled-ledgers", "no-ledgers", "nulled-transactions"],
+)
+def test_a_partial_billing_response_keeps_the_bill_and_reports_no_transaction(
+    mutate: object,
+    expected: None,
+) -> None:
+    """A nulled sub-selection is the shape of a partial response, not a broken one.
+
+    Raising here would discard the bill that arrived in the same response over a secondary
+    field; the billing access record already tells the user the response was partial.
+    """
+    payload = deepcopy(_billing())
+    mutate(payload["account"])  # type: ignore[operator, index]
+
+    bill, transaction = parse_account_billing(payload, ACCOUNT)
+
+    assert bill is not None
+    assert transaction is expected
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (lambda account: account.update(ledgers={"not": "a list"}), "malformed ledgers"),
+        (lambda account: account.update(ledgers=["not a mapping"]), "malformed ledger"),
+        (
+            lambda account: account["ledgers"][0].update(transactions=["not a mapping"]),
+            "malformed transactions",
+        ),
+    ],
+    ids=["ledgers-not-a-list", "ledger-not-a-mapping", "transactions-not-a-mapping"],
+)
+def test_a_malformed_ledger_shape_is_rejected_rather_than_ignored(
+    mutate: object,
+    message: str,
+) -> None:
+    payload = deepcopy(_billing())
+    mutate(payload["account"])  # type: ignore[operator, index]
+
+    with pytest.raises(OejpInvalidResponseError, match=message):
+        parse_account_billing(payload, ACCOUNT)
