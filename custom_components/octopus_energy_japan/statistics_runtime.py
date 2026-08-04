@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import datetime
 from typing import Protocol
@@ -31,6 +32,16 @@ type StatisticsPublisher = Callable[
     [HomeAssistant, StatisticMetaData, tuple[StatisticData, ...]],
     None,
 ]
+
+_LOGGER = logging.getLogger(__name__)
+
+# The manifest lists `recorder` under `after_dependencies`, which orders setup when the
+# recorder is going to be loaded but does not require it. A configuration without
+# `recorder:` therefore reaches this module with no instance, and asking for one raised
+# `KeyError: recorder_instance` — observed against a real account on 2026-08-04 on an
+# instance without the recorder. Consumption entities do not need it; only Energy
+# Dashboard statistics do, so those are skipped rather than allowed to fail the refresh.
+_RECORDER_DOMAIN = "recorder"
 
 
 class StatisticsProjector(Protocol):
@@ -64,6 +75,7 @@ class HomeAssistantStatisticsProjector:
         self._identity_secret = identity_secret
         self._include_official_cost = include_official_cost
         self._publisher = publisher
+        self._warned_about_recorder = False
 
     async def async_project_supply_point(
         self,
@@ -76,6 +88,8 @@ class HomeAssistantStatisticsProjector:
         reset_directions: frozenset[ReadingDirection] = frozenset(),
     ) -> None:
         """Recalculate sums and replace the affected recorder projection."""
+        if not self._recorder_available():
+            return
         if not ledger.known_partitions:
             if reset_directions:
                 self._clear_directions(
@@ -151,6 +165,25 @@ class HomeAssistantStatisticsProjector:
         # Clear and subsequent imports use the same Recorder FIFO queue. Waiting
         # for a callback would unnecessarily block if Recorder is stopping.
         get_instance(self._hass).async_clear_statistics(statistic_ids)
+
+    def _recorder_available(self) -> bool:
+        """Report whether statistics can be written at all.
+
+        Warned once per projector, so a reload logs it again but a refresh does not.
+        Repeating it every thirty minutes would fill the log for a configuration choice
+        the user made deliberately.
+        """
+        if _RECORDER_DOMAIN in self._hass.config.components:
+            return True
+        if not self._warned_about_recorder:
+            self._warned_about_recorder = True
+            _LOGGER.warning(
+                "The Home Assistant recorder is not enabled, so Octopus Energy Japan "
+                "cannot publish Energy Dashboard statistics. Consumption sensors and "
+                "calendar totals are unaffected. Add `recorder:` to configuration.yaml "
+                "to enable them"
+            )
+        return False
 
 
 def _metadata(
