@@ -128,6 +128,13 @@ def async_project_discovered_devices(
             manufacturer="Octopus Energy Japan",
             model="Electricity account",
             name=f"OEJP account {account_number}",
+            # The one place a provider identifier is shown, on purpose. Names and
+            # entity ids stay ordinal so they can be screenshotted and pasted into an
+            # issue, but a customer with more than one account still has to be able to
+            # tell which is which, and Home Assistant's device page is where a device's
+            # own serial belongs. It never enters an entity id, a state, an attribute,
+            # or the diagnostics download.
+            serial_number=account.number,
         )
         _sync_device_disabled(
             registry,
@@ -164,6 +171,11 @@ def async_project_discovered_devices(
                 manufacturer="Octopus Energy Japan",
                 model="Electricity supply point",
                 name=f"OEJP supply point {account_number}-{supply_point_number}",
+                # The supply-point number (供給地点特定番号) as OEJP prints it on a
+                # bill, so a household with two points can match a device to a
+                # contract. `spin` is the customer-facing one; the internal id is the
+                # fallback when the provider omits it.
+                serial_number=supply_point.spin or supply_point.id,
                 via_device=(DOMAIN, account_identity),
             )
             _sync_device_disabled(
