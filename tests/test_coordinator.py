@@ -56,6 +56,7 @@ from custom_components.octopus_energy_japan.coordinator import (
     DirectionErrorClass,
     DirectionSyncStatus,
     OejpDataUpdateCoordinator,
+    _previous_local_month_start,
     _StatisticsPending,
     _SupplyPointRuntime,
     enabled_supply_points,
@@ -1724,3 +1725,95 @@ def test_coordinator_exposes_discovery_and_rejects_naive_clock(
 
     with pytest.raises(ValueError, match="timezone-aware"):
         coordinator._utc_now()
+
+
+@pytest.mark.parametrize(
+    ("moment", "expected"),
+    [
+        # Mid-month and month start resolve to the same previous month.
+        (datetime(2026, 3, 15, 3, tzinfo=UTC), datetime(2026, 1, 31, 15, tzinfo=UTC)),
+        (datetime(2026, 2, 28, 15, tzinfo=UTC), datetime(2026, 1, 31, 15, tzinfo=UTC)),
+        # 2026-01-15 in Tokyo: the branch that has to cross a year.
+        (datetime(2026, 1, 15, 3, tzinfo=UTC), datetime(2025, 11, 30, 15, tzinfo=UTC)),
+        # 2025-12-31 16:00 UTC is already 2026-01-01 in Tokyo, so the year crosses even
+        # though the UTC date is still December.
+        (datetime(2025, 12, 31, 16, tzinfo=UTC), datetime(2025, 11, 30, 15, tzinfo=UTC)),
+        # One hour earlier is still December in Tokyo.
+        (datetime(2025, 12, 31, 14, tzinfo=UTC), datetime(2025, 10, 31, 15, tzinfo=UTC)),
+    ],
+    ids=["march", "february", "january", "new-year-in-tokyo", "still-december-in-tokyo"],
+)
+def test_the_previous_month_start_is_a_tokyo_month_and_crosses_the_year(
+    moment: datetime,
+    expected: datetime,
+) -> None:
+    """A January reconciliation window has to reach back into the previous year.
+
+    Every result is a Tokyo month start expressed in UTC, which is 15:00 on the last day of
+    the month before. Getting the year wrong would silently reconcile the wrong month, and
+    only in January.
+    """
+    assert _previous_local_month_start(moment) == expected
+
+
+async def test_a_month_pair_roll_supersedes_the_previous_initial_obligations(
+    hass: HomeAssistant,
+) -> None:
+    """Scheduling twice across a month-pair boundary must not leave the old windows queued.
+
+    They describe months the rolled checkpoint no longer tracks, so leaving them enqueued
+    would spend requests re-reading a period the new pair already covers. The rolled
+    checkpoint also carries no initial obligations of its own, so the planner's have to be
+    registered or the new month pair would have nothing to fetch.
+    """
+    coordinator = _coordinator(hass)
+    point = _point()
+    _install_state(coordinator, point, router=AsyncMock())
+    # Nothing is enqueued for a direction that has never been queryable — the poll
+    # establishes that first — so one is seeded the way a successful poll would leave it.
+    coordinator._direction_statuses[(ACCOUNT_ID, SUPPLY_POINT_ID, ReadingDirection.IMPORT)] = (
+        DirectionSyncStatus(
+            account_identity=stable_account_identity(SECRET, ACCOUNT_ID),
+            supply_point_identity=stable_supply_point_identity(
+                SECRET,
+                ACCOUNT_ID,
+                SUPPLY_POINT_ID,
+            ),
+            direction=ReadingDirection.IMPORT,
+            queryable=True,
+        )
+    )
+
+    await coordinator._async_schedule_background_work(NOW)
+
+    first_pair = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)].checkpoint
+    initial_reasons = {
+        BackgroundSyncReason.INITIAL_CURRENT_MONTH,
+        BackgroundSyncReason.INITIAL_PREVIOUS_MONTH,
+    }
+    superseded = {
+        generation.obligation.generation
+        for generation in first_pair.generations
+        if generation.obligation.reason in initial_reasons
+    }
+    assert superseded, "the first scheduling pass should plan initial windows"
+    assert superseded <= {
+        obligation.generation
+        for item in coordinator._background_queue.snapshot()
+        for obligation in item.obligations
+    }
+
+    # Two months later is a different month pair, which is what triggers the roll.
+    await coordinator._async_schedule_background_work(NOW + timedelta(days=62))
+
+    rolled = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)].checkpoint
+    assert rolled.month_pair_generation != first_pair.month_pair_generation
+    queued = {
+        obligation.generation
+        for item in coordinator._background_queue.snapshot()
+        for obligation in item.obligations
+    }
+    assert not superseded & queued, "the superseded initial obligations should be gone"
+    assert any(
+        generation.obligation.reason in initial_reasons for generation in rolled.generations
+    ), "the rolled pair should have initial windows of its own"

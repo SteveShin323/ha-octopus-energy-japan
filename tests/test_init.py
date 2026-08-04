@@ -163,7 +163,23 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
     # published from the tariff the commercial coordinator reads on its slower cadence.
     projector_factory.assert_called_once()
     assert projector_factory.call_args.args == (hass, "01" * 32)
-    assert callable(projector_factory.call_args.kwargs["tariff_lookup"])
+    # Calling it is the point. A lookup that is merely callable would also have been
+    # captured had it read the wrong coordinator or the wrong attribute, and the closure is
+    # what feeds prices to the cost projector.
+    tariff_lookup = projector_factory.call_args.kwargs["tariff_lookup"]
+    assert callable(tariff_lookup)
+    # `data` was None throughout setup, and the closure still resolves afterwards — which
+    # is the indirection's whole purpose, since the tariff arrives on a twelve-hour cadence
+    # while statistics project every thirty minutes.
+    sentinel = object()
+    commercial_coordinator.data = Mock()
+    commercial_coordinator.data.tariff = Mock(return_value=sentinel)
+    assert tariff_lookup("A-1", "SP-1") is sentinel
+    commercial_coordinator.data.tariff.assert_called_once_with("A-1", "SP-1")
+    # Before the first commercial refresh there is no data, and a cost series must simply
+    # not appear rather than raising inside statistics projection.
+    commercial_coordinator.data = None
+    assert tariff_lookup("A-1", "SP-1") is None
     assert coordinator_factory.call_args.kwargs["statistics_projector"] is statistics_projector
     commercial_factory.assert_called_once()
     project_devices.assert_called_once_with(hass, entry, entry.runtime_data)
