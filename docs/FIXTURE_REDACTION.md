@@ -72,7 +72,14 @@ Set an override only to reach a second account or supply point:
 export OEJP_PROBE_ACCOUNT_NUMBER=... OEJP_PROBE_SUPPLY_POINT_SPIN=...
 ```
 
-`--hours` sets a reading window ending now; it defaults to 48.
+`--hours` sets the window length and defaults to 48. `--ending` moves the window
+off the present, which is how a per-response result cap is told apart from a
+provider history horizon:
+
+```bash
+python scripts/oejp_probe.py legacy_half_hourly_readings /tmp/old.json \
+  --ending 2026-06-25T00:00:00Z --hours 168
+```
 
 | Operation | Target | Window |
 |---|---|---|

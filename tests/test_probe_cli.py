@@ -61,6 +61,21 @@ def test_probe_window_is_bounded_and_ends_now() -> None:
         build_context(hours=0, now=NOW)
 
 
+def test_probe_window_can_be_moved_off_the_present() -> None:
+    """Asking for a historical range separates a result cap from a history horizon."""
+    with patch.dict("os.environ", {}, clear=True):
+        context = build_context(hours=168, now=NOW, ending="2026-06-25T00:00:00Z")
+
+    assert context.graphql_end() == "2026-06-25T00:00:00Z"
+    assert context.graphql_start() == "2026-06-18T00:00:00Z"
+
+    with (
+        patch.dict("os.environ", {}, clear=True),
+        pytest.raises(ValueError, match="timezone-aware"),
+    ):
+        build_context(hours=168, now=NOW, ending="2026-06-25T00:00:00")
+
+
 def test_probe_reads_local_only_targets_from_the_environment() -> None:
     context = _context(**{ACCOUNT_NUMBER_ENV: "PRIVATE-ACCOUNT", SUPPLY_POINT_ENV: "PRIVATE-SPIN"})
 
