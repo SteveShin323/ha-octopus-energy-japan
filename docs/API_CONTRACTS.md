@@ -417,6 +417,59 @@ query without `rates` returns no error at all, resolves the product, and moves t
 `agreements` capability from `partial` to `available`. `ACCOUNT_AGREEMENTS_QUERY`
 therefore omits it, and a test asserts it stays omitted.
 
+**But the tariff itself is readable, through a different query.** Three paths to rate
+data exist and they do not share permissions. Measured 2026-08-04 with an
+email/password account-user token:
+
+| Path | Result |
+|---|---|
+| `marketSupplyAgreements → product.rates` | `AUTHORIZATION/KT-CT-1111` |
+| `agreementRates(agreementId:)` | `AUTHORIZATION/KT-CT-1111` |
+| `availableProducts(marketName:)` | `AUTHORIZATION/KT-CT-1111` |
+| **`tariffSummary(gridOperatorCode:, productCode:)`** | **permitted** |
+
+`tariffSummary` is a catalogue query rather than an account-scoped one, which is
+apparently why it is allowed. It returns the complete stepped tariff:
+
+```
+TariffSummary
+  productParams: GenericScalar   # product_type, version, is_green, amperage_min/max, …
+  tiers: [TariffTier]
+    contractCapacityPattern: NON_TIERED | TIERED_LOW | TIERED_HIGH | OEPC
+    consumptionRates: [ConsumptionChargeRate]
+      pricePerUnitIncTax, stepStart, stepEnd, band
+    standingRates: StandingChargeValues
+      amperage: [StandingChargeRate]   # pricePerUnitIncTax, label, unitType
+      kva:      [StandingChargeRate]
+```
+
+On a real account this returned three consumption steps with boundaries at 120 and
+300 kWh, tax-inclusive prices per kWh, and a standing charge in `YEN_DAY` for each of
+the seven contract amperages from 10 A to 60 A. `productParams.product_type` was
+`stepped_rates_product` and `version` matched the published tariff document.
+
+Both arguments are derivable from data the integration already holds:
+
+- `productCode` comes from the active agreement's `product.code`; and
+- `gridOperatorCode` is **the first two digits of the SPIN**. A Japanese
+  供給地点特定番号 is 22 digits and opens with the utility code, and the returned
+  `band` values embed the same code — `CONSUMPTION_STEPPED_<operator>_<step>`. Verified
+  against a real supply point: its SPIN prefix, passed as `gridOperatorCode`, returned
+  the tariff whose bands carried that same prefix.
+
+What is still **not** reachable for an account user:
+
+- the **contracted amperage**, so which standing-charge row applies is unknown.
+  `meters { capacity }` returned nothing on the account tested;
+- the monthly **fuel-cost adjustment**. `FuelCostAdjustmentRate` exists as a type with
+  no root field, and `productEligibleStatus` only describes switching to a fixed-FCA
+  product; and
+- the annual **renewable-energy levy**. `RenewableEnergyLevyRate` is likewise a type
+  with no reachable field.
+
+So an energy charge can be computed exactly from provider data, a standing charge needs
+one number from the customer, and two per-kWh adjustments remain unavailable.
+
 **Bill fragments.** `bills` returns `BillConnectionTypeConnection` over
 `BillInterface`, implemented by `StatementType`, `PreKrakenBillType`,
 `PeriodBasedDocumentType`, `CollectiveBillType`, and `InvoiceType`. Those
