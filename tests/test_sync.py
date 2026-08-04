@@ -61,7 +61,7 @@ def test_every_planned_window_fits_inside_one_provider_response() -> None:
     the requested window and are absent from the response, so a chunk larger than
     one response can return would discard valid local history.
     """
-    provider_response_intervals = 1476
+    provider_response_intervals = 1488
     half_hour = timedelta(minutes=30)
     planner = SyncWindowPlanner()
 
@@ -69,7 +69,6 @@ def test_every_planned_window_fits_inside_one_provider_response() -> None:
         *planner.poll(NOW),
         *planner.initial(NOW),
         *planner.reconciliation(NOW),
-        *planner.long_backfill(NOW, months=13),
     )
 
     assert planned
@@ -77,22 +76,6 @@ def test_every_planned_window_fits_inside_one_provider_response() -> None:
         intervals = (window.end_at - window.start_at) / half_hour
         assert intervals <= provider_response_intervals, window
     assert MAX_QUERY_WINDOW / half_hour <= provider_response_intervals
-
-
-def test_long_backfill_is_bounded_to_requested_local_months() -> None:
-    planner = SyncWindowPlanner()
-    one_month = planner.long_backfill(NOW, months=1)
-    thirteen_months = planner.long_backfill(NOW)
-
-    assert one_month[0].start_at == datetime(2026, 6, 30, 15, tzinfo=UTC)
-    assert thirteen_months[0].start_at == datetime(2025, 6, 30, 15, tzinfo=UTC)
-    assert thirteen_months[-1].end_at == NOW
-    assert all(window.reason is SyncReason.LONG_BACKFILL for window in thirteen_months)
-
-    with pytest.raises(ValueError, match="between 1 and 13"):
-        planner.long_backfill(NOW, months=0)
-    with pytest.raises(ValueError, match="between 1 and 13"):
-        planner.long_backfill(NOW, months=14)
 
 
 def test_custom_chunk_limit_and_window_invariants() -> None:

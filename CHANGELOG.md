@@ -52,6 +52,10 @@ email and password login works today and is selectable at setup.
   the 31-day figure is a per-response cap of 1488 intervals that silently keeps the
   newest and drops the oldest. The scoped contract had this right and the user
   documentation contradicted it;
+- an unreachable long-backfill planner was removed from `sync.py`, together with the
+  background reason and priority nothing produced, and the two design documents that
+  described it as an available feature. Why a long backfill is deliberately absent is
+  recorded in [`docs/LEDGER_AND_AGGREGATION.md`](docs/LEDGER_AND_AGGREGATION.md);
 - `OejpDeviceAuthSession` was a subclass with a docstring and no body, implying a
   capability that did not exist. Device-grant tokens come from the same token endpoint
   and refresh identically, so `OejpPkceAuthSession` serves them unchanged;

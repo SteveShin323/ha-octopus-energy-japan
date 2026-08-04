@@ -166,7 +166,6 @@ The fixed plan is:
 | Initial month backfill | background queue; previous and current JST month excluding the blocking 72-hour window |
 | Daily reconciliation | background queue; previous and current JST month |
 | Query chunk | no more than 7 days |
-| Optional long backfill | background queue; up to 13 months |
 | Discovery | 24 hours |
 | Contract/tariff | 12 hours in its later coordinator |
 | Billing | 12 hours in its later coordinator |
@@ -198,11 +197,30 @@ An authoritative snapshot deletes every stored interval that lies inside the
 from whether anything was returned. A response narrower than its request would
 therefore delete valid local history.
 
-OEJP caps one `halfHourlyReadings` response at roughly 1476 half-hour intervals,
-about 30.75 days, and narrows the window silently when a request exceeds it. It is
-a per-response result cap, not a history horizon: two explicit seven-day windows
-starting at the supply-start date each returned all 336 intervals, so history well
-outside the cap is served normally when the request fits.
+OEJP caps one `halfHourlyReadings` response at exactly 1488 half-hour intervals,
+which is 31 days, and beyond that keeps the newest intervals and silently drops the
+oldest. It is a per-response result cap, not a history horizon: seven-day windows
+walked back to the supply-start date each returned all 336 intervals, so history well
+outside the cap is served normally when the request fits. The measurements are in
+[`API_CONTRACTS.md`](API_CONTRACTS.md).
+
+### Why there is no long-history backfill
+
+All history since supply started is retrievable, so a backfill spanning months is
+possible in principle, and `sync.py` carried an unreachable planner for one until it
+was removed. It is deliberately not implemented.
+
+The obstacle is not the request planning but the checkpoint. Initial and daily
+obligations each have a defined retirement — initial generations are discarded when
+the month pair rolls, daily ones are superseded by the next day's. A one-off backfill
+generation has neither, so it would persist in every supply point's checkpoint
+indefinitely and be re-enqueued on each schedule pass. Designing that retirement is
+the work, and it touches the most safety-critical component here: a mistake in
+checkpoint bookkeeping loses or duplicates stored history rather than merely failing.
+
+Half-built machinery that looks finished is worse than none, so the planner is gone
+rather than left to imply a capability. Local history still grows indefinitely from
+the current and previous month a first install collects.
 
 `MAX_QUERY_WINDOW` is seven days, or 336 half-hour intervals, so every planned
 chunk sits far below the cap and reconciliation is safe today. The invariant is
