@@ -50,7 +50,7 @@ are not guessed.
 
 When introspection confirms that `Query.supplyPoint` and
 `SupplyPointType.devices` are available, each discovered electricity supply
-point is queried by `externalIdentifier` and the `ELECTRICITY` market. Generic
+point is queried by `externalIdentifier` and the `JPN_ELECTRICITY` market. Generic
 devices use `deviceIdentifier`; their registers use `registerIdentifier`.
 
 Generic discovery is optional. An authorization or schema capability failure
@@ -185,26 +185,35 @@ permanently, which is why consumption still worked while import/export
 separation, device and register scopes, and reading quality metadata never did.
 `ELECTRICITY_MARKET_NAME` in `api/models.py` is now the single definition.
 
-## Legacy readings truncate history silently
+## Legacy readings cap one response and narrow the window silently
 
-Confirmed against a real account on 2026-08-04. A `halfHourlyReadings` request for
-a 1160-hour window returned 1476 intervals spanning **30.7 days**, beginning well
-after the requested start. There was no error, no warning, and no pagination
-marker: the provider simply narrowed the window.
+Measured on a real account 2026-08-04. A `halfHourlyReadings` request for a
+1160-hour window returned 1476 intervals spanning 30.75 days, beginning well after
+the requested start, with no error, no warning, and no pagination marker.
 
-The returned block had no duplicate intervals and no gaps, so the truncation is a
-history horizon rather than a page limit.
+It is a **result cap, not a history horizon**. Two explicit seven-day windows
+beginning at the supply-start date each returned their full 336 intervals, so
+older history is served normally when the request fits inside the cap. The
+returned blocks had no duplicate intervals and no gaps.
 
-This has a direct consequence for ledger authority. `_legacy_authoritative_series`
-derives the authoritative series from capabilities alone, so a request that
-returns nothing is still authoritative for its window, and
-`merge_authoritative_snapshot` deletes every stored interval inside a requested
-window that the response did not contain. A reconciliation window reaching past
-the provider horizon therefore deletes valid local history. This is recorded as a
-release blocker in [`LEDGER_AND_AGGREGATION.md`](LEDGER_AND_AGGREGATION.md); it is
-not fixed by the contract corrections in this document.
+`MAX_QUERY_WINDOW` is seven days, so the integration never approaches the cap. The
+consequence for ledger authority, and the invariant that keeps it safe, are
+recorded in [`LEDGER_AND_AGGREGATION.md`](LEDGER_AND_AGGREGATION.md).
 
-The horizon of the generic `SupplyPointType.readings` API has not been measured.
+## Only the legacy API carries provider cost
+
+`SupplyPointType.readings` returns `intervalStart`, `intervalEnd`, `value`,
+`units`, and `qualities`. There is **no cost field**. Provider-issued
+`costEstimate` exists only on the legacy `halfHourlyReadings` and
+`intervalReadings` operations.
+
+The generic API is the preferred provider, so any future provider-cost feature
+depends on the legacy operations that the fallback policy deliberately restricts.
+That coupling has to be resolved before provider cost is published.
+
+Generic readings paginate at the requested `first` value and report
+`hasNextPage` with an `endCursor`, walking backwards from the window end, so a
+seven-day window needs four pages at 99 per page.
 
 ## Reading version marks the billing lifecycle
 

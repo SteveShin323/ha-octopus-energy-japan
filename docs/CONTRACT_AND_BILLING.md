@@ -150,6 +150,7 @@ required evidence is:
 | Interval coverage | **met** | the same probe showed a `costEstimate` and a `version` on every returned interval |
 | Currency and denomination | **met** | reconciled against a real invoice: the implied unit price fell inside the invoice's own per-kWh band, so values are whole yen |
 | Correction semantics | **partly met** | `version` was observed switching from `DAILY` to `MONTHLY` exactly at the billing-period boundary, so intervals are reissued when a period closes; a before-and-after comparison of one interval is still outstanding |
+| Generic provider parity | unmet | `SupplyPointType.readings` exposes no cost field at all, so provider cost is only reachable through the legacy operations that the fallback policy restricts |
 | OAuth permission for cost fields | unmet | OEJP scope confirmation; the probe result above was obtained with the legacy login, not OAuth |
 
 Three items are now closed and one is partly closed. Reading-level provider cost
@@ -165,10 +166,22 @@ daily charge, which was 8.5 percent of the invoice on its own, so summing
 from this API because the provider serves a shorter history than one closed
 billing period plus the open one.
 
+Reconciling the readings against that invoice showed what `costEstimate` does
+cover. Retained intervals summed to 366.0 kWh of the invoice's 397.00 kWh, and
+their cost summed to a figure that extrapolates to roughly the invoice total minus
+the fixed daily standing charge. `costEstimate` therefore appears to be the bill
+without the standing charge, which is consistent with a per-interval value being
+structurally unable to carry a daily fixed amount.
+
 Publishing it as the Energy Dashboard cost would therefore present a figure that
 does not match the customer's bill while carrying provider authority. If it is
 published later it must be named and documented as a provider estimate of the
 energy charge, never as the bill.
+
+A second obstacle appeared with it. The generic reading API carries no cost field,
+so provider cost is only available from the legacy operations, which the fallback
+policy restricts to observed capability gaps. Publishing provider cost would mean
+querying legacy operations outside that policy, which needs its own decision.
 
 The OAuth item also cannot close until OEJP issues the application, because
 account-user OAuth permission may differ from the legacy login's.

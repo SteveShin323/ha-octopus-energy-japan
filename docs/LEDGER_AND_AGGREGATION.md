@@ -188,34 +188,24 @@ authorization, validation, malformed-response, identifier, and ledger-invariant
 failures are not retried as transient work. Installation-local startup
 staggering applies only to the first background item.
 
-## Release blocker: provider horizon versus requested authority
+## Request windows must stay under the provider result cap
 
-Status: open, found on a real account 2026-08-04
+Measured on a real account 2026-08-04.
 
 An authoritative snapshot deletes every stored interval that lies inside the
-**requested** window and is absent from the response. `_legacy_authoritative_series`
-derives authority from capabilities, not from whether anything was returned, so an
-empty response is authoritative for its whole window.
+**requested** window and is absent from the response, and
+`_legacy_authoritative_series` derives authority from capabilities rather than
+from whether anything was returned. A response narrower than its request would
+therefore delete valid local history.
 
-OEJP truncates `halfHourlyReadings` to roughly a 30-day horizon without an error or
-a pagination marker, as recorded in [`API_CONTRACTS.md`](API_CONTRACTS.md). The
-daily reconciliation plans from the start of the previous JST month to now, so once
-stored history ages past the provider horizon the next reconciliation covering it
-receives nothing, treats that as authoritative, and deletes it.
+OEJP caps one `halfHourlyReadings` response at roughly 1476 half-hour intervals,
+about 30.75 days, and narrows the window silently when a request exceeds it. It is
+a per-response result cap, not a history horizon: two explicit seven-day windows
+starting at the supply-start date each returned all 336 intervals, so history well
+outside the cap is served normally when the request fits.
 
-The consequence is that the ledger can never retain more history than the provider
-serves, which defeats its purpose: outliving provider retention so long-term
-statistics stay stable. Statistics are then re-projected from the truncated ledger.
-
-Resolving this requires a decision, not a patch, because each option trades a
-different guarantee:
-
-- derive the deletable range from the intervals actually returned, which stops
-  honouring a genuine provider deletion at the edge of a window;
-- treat an empty response as non-authoritative, which never removes a window the
-  provider has fully withdrawn; or
-- record an observed provider horizon and refuse to plan or delete beyond it, which
-  adds state that must itself be corrected when the provider changes.
-
-The horizon of the generic `SupplyPointType.readings` API must be measured first,
-because the generic provider is preferred and its horizon may differ.
+`MAX_QUERY_WINDOW` is seven days, or 336 half-hour intervals, so every planned
+chunk sits far below the cap and reconciliation is safe today. The invariant is
+what matters, and it is now asserted by a regression test: **no planned window may
+request more intervals than one provider response can return.** Raising
+`MAX_QUERY_WINDOW` past the cap would silently start deleting history.
