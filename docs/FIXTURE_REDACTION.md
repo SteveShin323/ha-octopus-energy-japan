@@ -46,8 +46,12 @@ export OEJP_EMAIL OEJP_PASSWORD
 Do not place credentials in shell history, command-line arguments, `.env`
 files, issue reports, or repository files. The commands above read values
 interactively so the values are not part of the command line, and unset them
-immediately after the probe. The Home Assistant config flow and runtime never
-use this legacy login path.
+immediately after the probe.
+
+The config flow now offers this same login to users as one of three methods, so it is
+no longer probe-only; see [ADR 0008](adr/0008-password-authentication.md). The
+credentials described here are the developer's own, kept out of the repository and out
+of CI regardless.
 
 The fixed discovery probes used to validate the current customer-visible schema
 are:
