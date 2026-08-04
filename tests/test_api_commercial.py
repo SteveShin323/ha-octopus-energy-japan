@@ -781,3 +781,14 @@ def test_a_ledger_with_no_transactions_is_skipped_rather_than_ending_the_search(
 
     assert transaction is not None
     assert transaction.id == "transaction-1"
+
+
+def test_a_statement_without_an_id_is_not_matched_to_the_bill() -> None:
+    """`str(None)` is the truthy string "None", which must not be compared to an id."""
+    payload = _period_billing()
+    payload["account"]["ledgers"][0]["statements"]["edges"][0]["node"]["id"] = None  # type: ignore[index]
+
+    bill, _ = parse_account_billing(payload, ACCOUNT)
+
+    assert bill is not None
+    assert bill.due_date is None

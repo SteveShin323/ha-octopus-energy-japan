@@ -457,7 +457,10 @@ def _with_statement_due_date(bill: BillSummary, account: Mapping[str, Any]) -> B
     different billing period is worse than none.
     """
     for statement in _iter_statements(account):
-        if _optional_string(str(statement.get("id"))) != bill.id:
+        identifier = statement.get("id")
+        # `str(None)` is the truthy string "None", so an absent id is rejected explicitly
+        # rather than compared.
+        if identifier is None or str(identifier) != bill.id:
             continue
         due_date = _optional_date(statement.get("dueDate"), "Statement dueDate")
         if due_date is not None:
