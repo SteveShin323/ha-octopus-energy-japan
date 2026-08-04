@@ -1,0 +1,58 @@
+name: Feature request
+description: Ask for something the integration does not do yet. 機能の要望。
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Some things are deliberately absent. Please check
+        [known limitations](https://github.com/SteveShin323/ha-octopus-energy-japan/blob/main/docs/USER_GUIDE.md#known-limitations)
+        first — electricity cost, tariff unit prices, and `kWh × unit price`
+        estimates are excluded on purpose, with the evidence recorded.
+
+        意図的に提供していない機能があります。まず
+        [制限事項](https://github.com/SteveShin323/ha-octopus-energy-japan/blob/main/docs/ja/README.md#制限事項)
+        をご確認ください。
+
+        The integration is read-only. It will not submit meter readings, change a
+        tariff, or make a payment. 本連携は読み取り専用です。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: >-
+        Describe the goal rather than the implementation. 実装案よりも、達成したい
+        ことを書いてください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: today
+    attributes:
+      label: What you do today instead
+      description: 現在どうしているか。
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - A new entity / 新しいエンティティ
+        - Different behaviour for an existing entity / 既存エンティティの挙動
+        - Setup or configuration / セットアップ・設定
+        - Documentation / ドキュメント
+        - Something else / その他
+    validations:
+      required: true
+
+  - type: textarea
+    id: provider-data
+    attributes:
+      label: Where would the data come from
+      description: >-
+        Optional. If you know the OEJP API field or where it appears in the OEJP
+        app, say so — that is usually the difference between possible and not.
+        任意。OEJP のどの項目に相当するか分かれば書いてください。

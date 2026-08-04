@@ -27,6 +27,7 @@ test = [
   "ruff>=0.11",
   "mypy>=1.15",
   "aiohttp>=3.11",
+  "PyYAML>=6.0",
   "pytest-homeassistant-custom-component>=0.13.338,<0.14",
 ]
 
