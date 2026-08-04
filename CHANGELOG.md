@@ -42,6 +42,16 @@ email and password login works today and is selectable at setup.
   and the user would meet the provider's unregistered-redirect error part-way
   through sign-in, with nothing naming this integration as the cause.
 
+### Added
+
+- **electricity cost on the Energy Dashboard.** The tariff is read from the agreement in
+  force — the stepped prices with their kWh boundaries, the daily standing charge, the
+  monthly fuel-cost adjustment and the annual renewable levy — and an hourly cost statistic
+  is published for `stat_cost`. Nothing is entered by the user and no unit price is assumed.
+  Home Assistant's own energy validator accepts it, which is asserted with a real recorder.
+  Measured at 104% of one real bill, for the two reasons recorded in
+  [`docs/ENERGY_STATISTICS.md`](docs/ENERGY_STATISTICS.md);
+
 ### Fixed
 
 - documentation said to leave the Energy dashboard's cost field empty because a fixed
