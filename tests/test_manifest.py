@@ -63,26 +63,33 @@ def test_shipped_component_contains_every_required_file() -> None:
         "quality_scale.yaml",
         "translations/en.json",
         "translations/ja.json",
+        "brand/icon.png",
+        "brand/logo.png",
         "diagnostics.py",
         "issues.py",
     ):
         assert (component / required).is_file(), required
 
 
-def test_the_shipped_component_carries_no_brand_image() -> None:
-    """Home Assistant serves brand images from brands.home-assistant.io, not from here.
+def test_the_brand_images_are_where_hacs_looks_for_them() -> None:
+    """HACS reads these two from inside the component, and fails the build without them.
 
-    They lived inside the component and were asserted as required shipped files, which
-    put 120 KB into every install for something the integration never reads.
+    Home Assistant itself serves brand images from `brands.home-assistant.io`, which makes
+    an in-component copy look redundant — it is not. HACS validation checks
+    `custom_components/<domain>/brand/icon.png` first and falls back to querying the brands
+    repository, and this integration is not listed there yet, so moving these out failed
+    the `hacs` check with "does not provide brand assets and is not listed in the Home
+    Assistant brands repository".
     """
-    component = Path("custom_components/octopus_energy_japan")
+    brand = Path("custom_components/octopus_energy_japan/brand")
 
-    assert not (component / "brand").exists()
-    assert not list(component.rglob("*.png"))
+    assert (brand / "icon.png").is_file()
+    assert (brand / "logo.png").is_file()
 
 
 # What `home-assistant/brands` requires. A submission with a wrong size is rejected, and
 # the only place that is discovered is the pull request, so it is checked here instead.
+BRAND = Path("custom_components/octopus_energy_japan/brand")
 BRAND_IMAGES = {
     "icon.png": (256, 256),
     "icon@2x.png": (512, 512),
@@ -106,7 +113,7 @@ def test_every_brand_image_matches_what_the_brands_repository_accepts(
     name: str,
     expected: tuple[int | None, int],
 ) -> None:
-    path = Path("brand") / name
+    path = BRAND / name
     assert path.is_file(), name
 
     width, height, colour_type = _png_header(path)
@@ -123,8 +130,8 @@ def test_every_brand_image_matches_what_the_brands_repository_accepts(
 def test_the_two_logo_widths_are_consistent_with_each_other() -> None:
     """A 2x asset that is not twice the size renders blurred rather than sharp."""
     for base in ("logo", "dark_logo"):
-        single_width, single_height, _ = _png_header(Path("brand") / f"{base}.png")
-        double_width, double_height, _ = _png_header(Path("brand") / f"{base}@2x.png")
+        single_width, single_height, _ = _png_header(BRAND / f"{base}.png")
+        double_width, double_height, _ = _png_header(BRAND / f"{base}@2x.png")
 
         assert double_height == single_height * 2
         # Odd single widths cannot double exactly, so one pixel of rounding is allowed.

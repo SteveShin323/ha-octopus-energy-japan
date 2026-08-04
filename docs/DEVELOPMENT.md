@@ -19,6 +19,12 @@ mypy custom_components/octopus_energy_japan
 pytest --cov
 ```
 
+Re-run the install itself after adding a **top-level directory**. `pyproject.toml` uses
+setuptools' flat layout, so a new one at the repository root is discovered as a second
+top-level package and the build refuses with "Multiple top-level packages discovered in a
+flat-layout". Nothing else catches that: an already-installed environment keeps working, so
+it fails first in CI.
+
 Coverage must be at least 95% line and branch overall. Authentication, ledger,
 statistics, and storage-migration modules must be fully covered. `manifest.json` and
 `pyproject.toml` must agree on the version; a test asserts it.
@@ -94,10 +100,23 @@ No release is tagged unless:
   calls something planned when it is implemented blocks the release; and
 - `CHANGELOG.md` has an entry for the version.
 
-The integration's icon and logo live in [`brand/`](../brand/), sized for
-`home-assistant/brands` and pinned by a test. Submitting them there is the one
-outstanding `quality_scale.yaml` rule and needs this repository to be public first; the
-directory's own README has the steps.
+## Brand images
+
+`custom_components/octopus_energy_japan/brand/` holds the six images
+`home-assistant/brands` requires — `icon`, `logo`, and `dark_logo`, each with its `@2x` —
+at the sizes that repository accepts. A test pins every dimension, because a submission
+with the wrong one is rejected and the pull request against another repository is the only
+place that would otherwise surface it.
+
+They sit **inside** the component even though Home Assistant serves brand images from
+`brands.home-assistant.io`. HACS validation looks for
+`custom_components/<domain>/brand/icon.png` first and falls back to querying the brands
+repository; this integration is not listed there yet, so the in-component copy is what
+keeps the `hacs` check passing.
+
+Submitting them — copy the directory to `custom_integrations/octopus_energy_japan/` in a
+fork of `home-assistant/brands` — is the one outstanding `quality_scale.yaml` rule and
+needs this repository to be public first.
 
 Tag `vMAJOR.MINOR.PATCH` on `main` and publish a GitHub release whose notes are the
 changelog entry. HACS installs the `custom_components/octopus_energy_japan` directory

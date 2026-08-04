@@ -1,6 +1,6 @@
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../../brand/dark_logo.png">
-  <img src="../../brand/logo.png" alt="Octopus Energy Japan" height="72">
+  <source media="(prefers-color-scheme: dark)" srcset="../../custom_components/octopus_energy_japan/brand/dark_logo.png">
+  <img src="../../custom_components/octopus_energy_japan/brand/logo.png" alt="Octopus Energy Japan" height="72">
 </picture>
 
 # Octopus Energy Japan 連携（Home Assistant）
