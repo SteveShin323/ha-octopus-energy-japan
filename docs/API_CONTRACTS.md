@@ -50,7 +50,7 @@ are not guessed.
 
 When introspection confirms that `Query.supplyPoint` and
 `SupplyPointType.devices` are available, each discovered electricity supply
-point is queried by `externalIdentifier` and the `ELECTRICITY` market. Generic
+point is queried by `externalIdentifier` and the `JPN_ELECTRICITY` market. Generic
 devices use `deviceIdentifier`; their registers use `registerIdentifier`.
 
 Generic discovery is optional. An authorization or schema capability failure
@@ -161,6 +161,130 @@ that ordering the integration would treat an expired or revoked authorization as
 an unsupported schema and mark the capability permanently unavailable instead of
 requesting reauthentication.
 
+## Market name requires a territory prefix
+
+`Query.supplyPoint(externalIdentifier: String!, marketName: String!)` validates
+the market name as a plain string, not an enum, so introspection cannot enumerate
+the accepted values. Confirmed empirically on 2026-08-04:
+
+| Value | Result |
+|---|---|
+| `JPN_ELECTRICITY` | accepted, resolved the supply point |
+| `ELECTRICITY` | rejected, `KT-CT-4723` |
+| `JP_ELECTRICITY` | rejected, `KT-CT-4723` |
+| `JAPAN_ELECTRICITY` | rejected, `KT-CT-4723` |
+| `JPN_GAS` | reached authorization (`KT-CT-1111`), not a format error |
+
+`JPN_GAS` failing on authorization rather than format is what confirms the
+`TERRITORY_MARKETNAME` pattern rather than a single magic string.
+
+Before this was confirmed the integration sent `ELECTRICITY`, so every generic
+readings and generic device request failed validation. The failure classified as
+an unsupported capability and the runtime fell back to legacy readings
+permanently, which is why consumption still worked while import/export
+separation, device and register scopes, and reading quality metadata never did.
+`ELECTRICITY_MARKET_NAME` in `api/models.py` is now the single definition.
+
+## Legacy readings cap one response and narrow the window silently
+
+Measured on a real account 2026-08-04. A `halfHourlyReadings` request for a
+1160-hour window returned 1476 intervals spanning 30.75 days, beginning well after
+the requested start, with no error, no warning, and no pagination marker.
+
+It is a **result cap, not a history horizon**. Two explicit seven-day windows
+beginning at the supply-start date each returned their full 336 intervals, so
+older history is served normally when the request fits inside the cap. The
+returned blocks had no duplicate intervals and no gaps.
+
+`MAX_QUERY_WINDOW` is seven days, so the integration never approaches the cap. The
+consequence for ledger authority, and the invariant that keeps it safe, are
+recorded in [`LEDGER_AND_AGGREGATION.md`](LEDGER_AND_AGGREGATION.md).
+
+## Only the legacy API carries provider cost
+
+`SupplyPointType.readings` returns `intervalStart`, `intervalEnd`, `value`,
+`units`, and `qualities`. There is **no cost field**. Provider-issued
+`costEstimate` exists only on the legacy `halfHourlyReadings` and
+`intervalReadings` operations.
+
+The generic API is the preferred provider, so any future provider-cost feature
+depends on the legacy operations that the fallback policy deliberately restricts.
+That coupling has to be resolved before provider cost is published.
+
+Generic readings paginate at the requested `first` value and report
+`hasNextPage` with an `endCursor`, walking backwards from the window end, so a
+seven-day window needs four pages at 99 per page.
+
+## Reading version marks the billing lifecycle
+
+The same probe returned two `version` values, and the boundary is exact:
+
+| Version | Observed window (JST) |
+|---|---|
+| `MONTHLY` | up to and including the final interval of the closed billing period |
+| `DAILY` | from the first interval of the open billing period onward |
+
+`MONTHLY` covered the closed billing period and stopped at JST midnight after its
+last day; `DAILY` began there. `version` therefore distinguishes a provisional
+daily estimate from a figure finalized when the period is billed, so an interval's
+value and cost can be reissued after the fact. That is the correction the interval
+ledger exists to absorb, now observed rather than assumed.
+
+The version boundary sits at JST midnight, while the invoiced period runs a few
+hours further to the meter read, so the two are close but not identical.
+
+## Provider cost is denominated in yen and excludes fixed charges
+
+`costEstimate` was reconciled against a real invoice for the same supply point.
+
+The implied unit price landed at 31.14 JPY per kWh for the closed period, inside
+the 24.4 to 34.7 JPY per kWh band the invoice itself spans. A sub-yen minor unit
+would have implied roughly 0.31, and a hundred-yen unit roughly 3114, so the
+denomination is **whole yen with two decimal places**. Integer monetary fields
+such as `balance`, `overdueBalance`, and `grossTotal` are whole yen for the same
+reason: JPY has no circulating sub-unit.
+
+`costEstimate` is **not** the billed amount, and its formula does not reproduce
+the billed tariff. Reconstructing it over one gap-free billing period, against the
+published tariff definition for the customer's menu, gives:
+
+```text
+costEstimate per kWh = marginal energy rate + a constant of about 8.47 JPY
+```
+
+where the marginal energy rate steps from the tariff's **first**-tier price to its
+**second**-tier price at 300 kWh of cumulative period usage. Two independent checks
+confirm the reading:
+
+- the observed step is within 0.5 percent of the tariff's 120 kWh step and nothing
+  like its 300 kWh step; and
+- solving for the constant on that tier pair gives the same value from both bands,
+  while the second and third tiers give inconsistent values.
+
+So the provider applies the tariff's first tier progression at the wrong threshold,
+skips the 120 kWh boundary entirely, and never reaches the third tier. The constant
+also exceeds the tariff's fuel-cost adjustment plus renewable levy by about 1.10
+JPY per kWh, and the fixed daily standing charge cannot appear in a per-interval
+value at all.
+
+Summed interval **values**, by contrast, reconcile: they reach the invoiced kWh once
+the window is extended past JST midnight to the meter-read time, which is where the
+billing period actually ends.
+
+`costEstimate` is therefore a provider estimate computed from its own simplified
+rate model. It must never be presented as the customer's cost.
+
+## Billing periods end at the meter read, not at midnight
+
+The invoiced period boundary is a meter-read instant a few hours after JST
+midnight, as the tariff definition states. Summed intervals match the invoiced kWh
+only when the window is extended to it.
+
+Calendar projections deliberately use Asia/Tokyo day, week, and month boundaries
+instead, so a monthly total will never equal an invoiced period. That is a
+presentation choice, not a defect, and it is another reason period sensors are not
+Energy Dashboard authority.
+
 ## Optional commercial operations
 
 Account status, agreements, and billing are three separate optional documents,
@@ -171,12 +295,43 @@ product and rate connection and follows `endCursor` pagination.
 fragments for `StatementType`, `PeriodBasedDocumentType`, and `InvoiceType`, plus
 the single newest `transactions` node.
 
-These documents have **not** been validated against the live schema. Unlike the
-reading contracts above, they were derived from the published OEJP schema
-documentation only. The `rates` shape, the bill fragment coverage, and the
-denomination of every monetary field must be confirmed by the redacting local
-probe before alpha release. The consequences of that gap, and the projections
-withheld because of it, are recorded in
+These documents were validated by schema introspection against a real account on
+2026-08-04, which corrected three mistakes in the originally documented shape.
+
+**Type names.** The account type is `Account`, not `AccountType`; `viewer` returns
+`AccountUser`; `viewer.accounts` returns `[AccountInterface]`, so account fields
+beyond the interface require `... on Account`.
+
+**Rates.** `SupplyProductType.rates` returns `[ApplicableRateType!]!`, whose real
+fields are `sourceSystem`, `name`, `pricePerUnit`, `unit`, `unitDisplay`,
+`variantProfile`, `rateId`, `overridePrice`, `currency`, `category`,
+`validityPeriod`, and `isSalesTax`. None of `gridOperatorCode`,
+`regionOfOperation`, `band`, `validFrom`, `validTo`, `unitType`, or
+`durationMonths` exists. Rate attribution is expressed through `category` and
+`variantProfile`; `variantProfile` is `JSONString`/`GenericScalar`, so it is
+opaque provider JSON rather than a typed contract.
+
+**Bill fragments.** `bills` returns `BillConnectionTypeConnection` over
+`BillInterface`, implemented by `StatementType`, `PreKrakenBillType`,
+`PeriodBasedDocumentType`, `CollectiveBillType`, and `InvoiceType`. Those
+implementations disagree on nullability and on the total type:
+
+| Field | `PeriodBasedDocumentType` | `InvoiceType` | `PreKrakenBillType` |
+|---|---|---|---|
+| `isHeld` | `Boolean!` | `Boolean` | absent |
+| `isAnnulled` | `Boolean!` | `Boolean!` | absent |
+| `totalCharges` | `StatementTotalType` | `InvoiceTotalType` | absent |
+| `grossAmount` | absent | `Int` | `BigInt` |
+
+GraphQL rejects one shared response name whose shapes differ, so the query aliases
+these per fragment. `StatementType` carries `paymentDueDate`, `status`, and
+`heldStatus` rather than `isHeld`.
+
+Transactions return the `TransactionType` interface, implemented by `Charge`,
+`Payment`, `Refund`, and `Credit`. Every field the integration selects exists on
+the interface itself, so no transaction fragment is required.
+
+The remaining unverified items are recorded in
 [`CONTRACT_AND_BILLING.md`](CONTRACT_AND_BILLING.md).
 
 Each operation runs through the optional execution path. A per-operation

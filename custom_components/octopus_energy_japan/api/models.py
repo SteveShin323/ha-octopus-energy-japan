@@ -6,6 +6,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Final
+
+# OEJP requires TERRITORY_MARKETNAME, not a bare market name. Confirmed against a
+# real account on 2026-08-04: `JPN_ELECTRICITY` resolved a supply point, while
+# `ELECTRICITY`, `JP_ELECTRICITY`, and `JAPAN_ELECTRICITY` were all rejected with
+# `KT-CT-4723`, and `JPN_GAS` reached an authorization boundary instead of a
+# format error.
+ELECTRICITY_MARKET_NAME: Final = "JPN_ELECTRICITY"
 
 
 class ResourceLifecycle(StrEnum):

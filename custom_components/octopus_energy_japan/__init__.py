@@ -216,7 +216,9 @@ async def _async_discover_state(
         OejpAuthenticationError,
         OejpAuthorizationError,
         OejpError,
+        OejpGraphQLError,
         OejpQueryValidationError,
+        OejpRateLimitError,
         async_detect_capabilities,
         async_discover_generic_devices,
         async_discover_resources,
@@ -265,6 +267,19 @@ async def _async_discover_state(
             (Capability.DEVICES, Capability.REGISTERS),
             CapabilityAvailability.UNSUPPORTED,
             "generic_device_schema_mismatch",
+        )
+    except OejpRateLimitError:
+        # Incomplete discovery, not an absent capability. Let setup retry rather
+        # than recording a permanent verdict from a temporary refusal.
+        raise
+    except OejpGraphQLError:
+        # An application-level refusal means this supply point does not expose
+        # generic devices. Confirmed on a real account: KT-CT-7899. Optional
+        # topology must never prevent the entry from setting up.
+        capabilities = capabilities.replace(
+            (Capability.DEVICES, Capability.REGISTERS),
+            CapabilityAvailability.UNSUPPORTED,
+            "generic_device_discovery_unavailable",
         )
     else:
         accounts = attach_generic_devices(

@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any, Final
 
 FIXTURE_SCHEMA_VERSION: Final = 1
-SANITIZER_VERSION: Final = 3
+SANITIZER_VERSION: Final = 4
 
 _PLACEHOLDER_PATTERN = re.compile(r"^<synthetic:[a-z_]+:[1-9][0-9]*>$")
 _EMAIL_PATTERN = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
@@ -101,12 +101,7 @@ class SyntheticFixtureSanitizer:
             sanitized: dict[str, Any] = {}
             for raw_key, item in value.items():
                 key = str(raw_key)
-                if (
-                    self.preserve_graphql_names
-                    and key == "name"
-                    and isinstance(item, str)
-                    and _GRAPHQL_NAME_PATTERN.fullmatch(item)
-                ):
+                if _is_public_schema_name(key, item, self.preserve_graphql_names):
                     sanitized[key] = item
                     continue
                 category = _category_for_key(
@@ -203,14 +198,13 @@ def assert_safe_fixture(
         if isinstance(value, str) and value in forbidden_values:
             raise UnsafeFixtureError(f"Fixture contains an original value at {path}")
 
-        key = _normalize_key(path.rsplit(".", maxsplit=1)[-1])
+        raw_key = path.rsplit(".", maxsplit=1)[-1]
+        key = _normalize_key(raw_key)
         category = _category_for_key(key)
-        public_schema_name = (
-            schema_capability_fixture
-            and path.startswith("$.response.")
-            and key == "name"
-            and isinstance(value, str)
-            and _GRAPHQL_NAME_PATTERN.fullmatch(value) is not None
+        public_schema_name = path.startswith("$.response.") and _is_public_schema_name(
+            raw_key,
+            value,
+            schema_capability_fixture,
         )
         if (
             category is not None
@@ -233,6 +227,18 @@ def assert_safe_fixture(
         )
         if (not is_query_digest and _looks_secret(value)) or _EMAIL_PATTERN.search(value):
             raise UnsafeFixtureError(f"Fixture contains credential-like data at {path}")
+
+
+def _is_public_schema_name(key: str, value: Any, preserve_field_names: bool) -> bool:
+    """Return whether one key holds a public GraphQL name rather than customer data.
+
+    `__typename` is the concrete type the provider resolved, so it is schema, not
+    identity, and parsers need it to select the right bill or transaction shape.
+    Introspected field names are preserved only for the capability document.
+    """
+    if not isinstance(value, str) or _GRAPHQL_NAME_PATTERN.fullmatch(value) is None:
+        return False
+    return key == "__typename" or (preserve_field_names and key == "name")
 
 
 def _walk_leaves(value: Any, path: str = "$") -> list[tuple[str, Any]]:
