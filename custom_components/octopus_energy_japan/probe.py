@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any, Final
 
 FIXTURE_SCHEMA_VERSION: Final = 1
-SANITIZER_VERSION: Final = 2
+SANITIZER_VERSION: Final = 3
 
 _PLACEHOLDER_PATTERN = re.compile(r"^<synthetic:[a-z_]+:[1-9][0-9]*>$")
 _EMAIL_PATTERN = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
@@ -109,7 +109,10 @@ class SyntheticFixtureSanitizer:
                 ):
                     sanitized[key] = item
                     continue
-                category = _category_for_key(key)
+                category = _category_for_key(
+                    key,
+                    container=isinstance(item, (Mapping, list, tuple)),
+                )
                 sanitized[key] = self.sanitize(item, forced_category=category)
             return sanitized
         if isinstance(value, list):
@@ -249,10 +252,21 @@ def _normalize_key(value: str) -> str:
     return re.sub(r"[^a-z0-9]", "", value.lower())
 
 
-def _category_for_key(value: str) -> str | None:
+def _category_for_key(value: str, *, container: bool = False) -> str | None:
+    """Return the sensitivity category for one response key.
+
+    A container key holds a nested object or list. Only the explicit table may
+    force a category onto a whole subtree, because the inferred rules below match
+    on substrings and would otherwise redact everything under a collection whose
+    plural name happens to contain a sensitive word. `electricitySupplyPoints`
+    matched `supplypoint` that way and replaced every reading timestamp, value,
+    cost, and version underneath it.
+    """
     key = _normalize_key(value)
     if category := _SENSITIVE_KEYS.get(key):
         return category
+    if container:
+        return None
     if "token" in key or "secret" in key:
         return "token"
     if "email" in key:
