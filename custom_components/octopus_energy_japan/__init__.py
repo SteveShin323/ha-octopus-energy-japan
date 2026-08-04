@@ -44,7 +44,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         OejpTransportError,
     )
     from .commercial_coordinator import OejpCommercialCoordinator
-    from .const import AUTH_METHOD_OAUTH, AUTH_METHOD_PASSWORD, CONF_AUTH_METHOD
+    from .const import (
+        AUTH_METHOD_OAUTH,
+        AUTH_METHOD_PASSWORD,
+        CONF_AUTH_METHOD,
+        OAUTH_AUTH_METHODS,
+    )
     from .coordinator import OejpDataUpdateCoordinator
     from .identity import async_get_identity_secret
     from .issues import async_update_issues
@@ -60,6 +65,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     client = OejpGraphQLClient(async_get_clientsession(hass))
     auth: AuthSession
     method = entry.data.get(CONF_AUTH_METHOD, AUTH_METHOD_OAUTH)
+
+    if method not in (AUTH_METHOD_PASSWORD, *OAUTH_AUTH_METHODS):
+        # A method this build does not implement, most likely a downgrade after an
+        # entry was created by a newer version. Failing here is honest; treating it as
+        # OAuth would silently use the wrong credentials.
+        raise ConfigEntryAuthFailed(f"Unsupported OEJP authentication method: {method}")
 
     if method == AUTH_METHOD_PASSWORD:
         email = entry.data.get(CONF_EMAIL)
@@ -232,7 +243,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Best-effort revoke the authorization this entry holds, when it is removed."""
     from homeassistant.helpers import config_entry_oauth2_flow
 
-    from .const import AUTH_METHOD_OAUTH, AUTH_METHOD_PASSWORD, CONF_AUTH_METHOD
+    from .const import AUTH_METHOD_OAUTH, CONF_AUTH_METHOD, OAUTH_AUTH_METHODS
     from .issues import async_clear_issues
     from .oauth import OejpOAuthRevocationError, OejpPkceAuthSession
     from .oauth_metadata import (
@@ -243,9 +254,10 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     # Repair issues outlive a reload on purpose, so removal is what clears them.
     async_clear_issues(hass, entry.entry_id)
 
-    if entry.data.get(CONF_AUTH_METHOD, AUTH_METHOD_OAUTH) == AUTH_METHOD_PASSWORD:
-        # There is nothing to revoke. `invalidateRefreshToken` is rejected for an
-        # account user with `AUTHORIZATION/KT-CT-1111`, confirmed live 2026-08-04.
+    if entry.data.get(CONF_AUTH_METHOD, AUTH_METHOD_OAUTH) not in OAUTH_AUTH_METHODS:
+        # Only an OAuth grant can be revoked. For the password method there is nothing
+        # to revoke: `invalidateRefreshToken` is rejected for an account user with
+        # `AUTHORIZATION/KT-CT-1111`, confirmed live 2026-08-04.
         # Home Assistant deletes the entry data, taking the local copy of the
         # credential and tokens with it, and the refresh token expires at the provider
         # within seven days of the sign-in that issued it.
