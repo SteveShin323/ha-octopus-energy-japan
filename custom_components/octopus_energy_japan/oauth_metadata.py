@@ -50,11 +50,19 @@ class OAuthMetadataUnavailableError(RuntimeError):
 # appears in the discovery document's `scopes_supported`. `full-customer-access` is
 # deliberately excluded.
 #
-# What the discovery document does NOT establish is recorded in
-# `docs/OAUTH_APPLICATION_STATUS.md`: it advertises no `none` token-endpoint auth
-# method and no `code_challenge_methods_supported`, so public-client and PKCE
-# support still require written confirmation, and no device-authorization endpoint
-# is advertised at all.
+# The device-authorization endpoint is NOT in the discovery document, but the
+# provider's own auth-server documentation lists `/device-authorization/` as one of
+# its four grant types, and the live endpoint answers a POST with
+# `invalid_request: Invalid client_id parameter value` rather than 404, confirmed on
+# 2026-08-04. Absence from the discovery document is therefore a metadata gap, not
+# an absent endpoint, and recording `None` here made the implemented RFC 8628
+# client unconstructible.
+#
+# What neither source establishes is recorded in `docs/OAUTH_APPLICATION_STATUS.md`:
+# the discovery document advertises no `none` token-endpoint auth method and no
+# `code_challenge_methods_supported`, while the provider's documentation asks
+# applicants to choose "public or confidential" and documents "Authorization with
+# PKCE". The reply still has to confirm both for this application.
 OEJP_AUTH_ISSUER: Final = "https://auth.oejp-kraken.energy/token/"
 
 READ_ONLY_SCOPES: Final = (
@@ -80,7 +88,7 @@ PRODUCTION_OAUTH_METADATA: OejpOAuthMetadata | None = OejpOAuthMetadata(
     token_url="https://auth.oejp-kraken.energy/token/",
     scopes=READ_ONLY_SCOPES,
     authorization_scheme=AuthorizationHeaderScheme.BEARER,
-    device_authorization_url=None,
+    device_authorization_url="https://auth.oejp-kraken.energy/device-authorization/",
     revocation_url="https://auth.oejp-kraken.energy/revoke-token/",
 )
 

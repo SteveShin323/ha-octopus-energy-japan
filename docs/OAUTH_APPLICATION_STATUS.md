@@ -1,8 +1,9 @@
 # OEJP OAuth application status
 
 Status: endpoints confirmed and all fourteen scopes advertised in the provider's
-published discovery document; a client ID, the scopes actually granted to this
-application, and written public-client approval are still pending
+published discovery document, and public client, PKCE, and the device grant all
+offered in the provider's own documentation; a client ID, the scopes actually
+granted to this application, and written public-client approval are still pending
 Last updated: 2026-08-04
 
 ## Implementation status
@@ -19,8 +20,15 @@ from another Kraken territory, and the module still fails closed if that metadat
 is ever removed.
 
 Device authorization remains implemented only at the transport and session
-boundary. It is not exposed in the setup UI because the discovery document
-advertises no device-authorization endpoint.
+boundary, and is not exposed in the setup UI. The reason is no longer that the
+endpoint is missing: the provider documents `/device-authorization/` and the live
+endpoint answers, so the URL is now recorded in `oauth_metadata.py`. It is not
+exposed because no client ID exists for any grant, and because the setup path
+should be chosen once, on evidence, rather than offering two unusable options.
+
+Device authorization is the better path for this integration once a client ID
+exists: it needs no redirect URI at all, which removes the My Home Assistant
+requirement described below.
 
 ## Submitted application request
 
@@ -105,10 +113,20 @@ registration.
 
 ## Response record
 
-The provider publishes an OpenID Connect discovery document at
-`https://auth.oejp-kraken.energy/.well-known/openid-configuration`. It was read on
-2026-08-04 and settles most of this table without waiting for a reply. Nothing
-below is inferred from another Kraken territory.
+Two provider sources settle most of this table without waiting for a reply, and
+nothing below is inferred from another Kraken territory:
+
+- the OpenID Connect **discovery document** at
+  `https://auth.oejp-kraken.energy/.well-known/openid-configuration`, read on
+  2026-08-04; and
+- the provider's own **auth-server documentation** at
+  `https://auth.oejp-kraken.energy`, read the same day, which documents four grant
+  types (authorization with PKCE, client credentials, device code, token exchange)
+  and asks an applicant to state a client type of "public or confidential".
+
+Where they disagree, the documentation plus a live probe wins over the discovery
+document, because the discovery document is demonstrably incomplete: it omits the
+device-authorization endpoint that both the documentation and the live server have.
 
 | Item | Confirmed value | Source |
 |---|---|---|
@@ -120,13 +138,16 @@ below is inferred from another Kraken territory.
 | JWKS URI | `https://auth.oejp-kraken.energy/.well-known/jwks.json` | discovery document |
 | Authorization Code response type | supported (`code`) | discovery document |
 | Required OAuth scopes advertised by the server | all fourteen appear in `scopes_supported` | discovery document |
+| ID token signing algorithms | `HS256` and `RS256` | discovery document; irrelevant here, no ID token is parsed |
 | Available claims | `sub` only | discovery document |
 | Required OAuth scopes granted to this application | Pending | advertised is not granted, see below |
-| GraphQL Authorization header scheme | `Bearer` accepted with a legacy token | live API: `Bearer`, `JWT`, and a bare token were all accepted; a missing header returned `KT-CT-1112`. Never tested with an OAuth access token |
-| Device authorization endpoint | **not advertised** | discovery document |
+| GraphQL Authorization header scheme | `Bearer` accepted with a legacy token | live API: `Bearer`, `JWT`, and a bare token were all accepted; a missing header returned `KT-CT-1112`. Never tested with an OAuth access token. The provider's documentation shows a bare token |
+| Device authorization endpoint | `https://auth.oejp-kraken.energy/device-authorization/` | provider documentation; live POST answered `invalid_request: Invalid client_id parameter value`, so the endpoint exists. **Absent from the discovery document** |
+| Device Authorization Grant offered | yes, as one of four documented grant types | provider documentation |
 | Shared public client ID may be published | Pending | asked; requires a written reply |
-| Public client without a secret | **not advertised, see below** | discovery document; implied by a "yes" to publication |
-| PKCE enabled | **not advertised, see below** | discovery document; requested as required specification |
+| Public client offered as a client type | yes, applicants choose "public or confidential" | provider documentation. `none` is still absent from `token_endpoint_auth_methods_supported`, see below |
+| PKCE offered | yes, "Authorization with PKCE" is a documented grant | provider documentation. No `code_challenge_methods_supported` entry, see below |
+| API key authentication | **not documented for customers** | the shared Kraken schema has `APIKey` input, a `view:api-key` scope, `AccountUser.liveSecretKey` (null on a real account), and `regenerateSecretKey` whose documented errors include `KT-CT-11100: API key authentication unavailable`. OEJP's own documentation defers all authentication to the auth server and never mentions a key. Not a supported path |
 | Same or separate client ID per grant | Pending | asked; requires a written reply |
 | Registered redirect URI | Pending | requested as `https://my.home-assistant.io/redirect/oauth` |
 | Access-token lifetime | Pending | requires the issued application |
@@ -136,31 +157,41 @@ below is inferred from another Kraken territory.
 | Legacy readings access under OAuth | Pending | legacy-login access is not evidence |
 | Billing and official-cost access under OAuth | Pending | `marketSupplyAgreements` is already forbidden to the legacy account user |
 
-## Two findings that challenge ADR 0001
+## Two gaps in the discovery document
 
 [ADR 0001](adr/0001-oauth-public-client.md) assumes a public client using
-Authorization Code with PKCE and no client secret. The discovery document does not
-support that assumption yet:
+Authorization Code with PKCE and no client secret. Two entries the discovery
+document does not contain would confirm that outright:
 
 1. `token_endpoint_auth_methods_supported` lists only `client_secret_post` and
    `client_secret_basic`. It does **not** list `none`, which is what a public
    client needs to call the token endpoint without a secret.
-2. There is no `code_challenge_methods_supported` entry, so PKCE is not
-   advertised. Many servers support PKCE without advertising it, so this is not
-   proof of absence, but it is not confirmation either.
+2. There is no `code_challenge_methods_supported` entry, so PKCE is not advertised.
 
-`id_token_signing_alg_values_supported` offers `HS256`, which a public client could
-not verify because it holds no shared secret. That does **not** need to be asked:
-the integration never parses or verifies an ID token. Login identity comes from the
-API with `viewer { id }`, so the signing algorithm is irrelevant to it. See
+Both read as gaps rather than refusals, for a reason stronger than "many servers
+support PKCE without advertising it". The provider's own documentation asks an
+applicant to choose a client type of **"public or confidential"** and lists
+**"Authorization with PKCE"** among its grant types. OEJP therefore offers exactly
+what this project requested, in its own words, and the discovery document is
+independently proven incomplete: it omits a device-authorization endpoint that the
+same documentation describes and the live server answers.
+
+`token_endpoint_auth_methods_supported` is also a property of the server as a whole,
+while client type is set per application at registration. A server that registers
+public clients need not advertise `none` globally.
+
+`id_token_signing_alg_values_supported` offers `HS256` and `RS256`. A public client
+could not verify `HS256`, holding no shared secret. That does **not** need to be
+asked: the integration never parses or verifies an ID token. Login identity comes
+from the API with `viewer { id }`, so the signing algorithm is irrelevant to it. See
 [ADR 0002](adr/0002-login-scoped-config-entry.md).
 
 Both were submitted with the application request, as required specification rather
 than as questions in their own right: it asks for a public client with no secret in
 Home Assistant or the repository, and for PKCE S256. Neither still needs asking.
-Both still need **confirming in the reply**, because a mandatory client secret
-cannot be satisfied by a HACS integration, and because silence on PKCE is not
-agreement.
+Both still need **confirming for this application in the reply**: what the provider
+offers in general is not yet what it has granted here, and a mandatory client secret
+cannot be satisfied by a HACS integration.
 
 What to check when a reply arrives, in order:
 
@@ -174,11 +205,12 @@ What to check when a reply arrives, in order:
    consent screen, and nothing in the repository would explain why. Reconcile the
    granted set against that constant before the first connection attempt.
 3. **Is PKCE `S256` accepted** on the authorization and token endpoints, even
-   though it is unadvertised.
-4. **Is the Device Authorization Grant available**, given no device endpoint is
-   advertised. This one is optional: device authorization is implemented only at
-   the transport boundary and is not exposed in the setup UI, so a refusal costs
-   the project nothing.
+   though it is unadvertised in the discovery document.
+4. **Was the Device Authorization Grant enabled on this application?** The endpoint
+   exists and the grant is documented, so this is about provisioning, not
+   availability. It is worth having: device flow needs no redirect URI, so it would
+   remove the My Home Assistant requirement entirely and make it the better setup
+   path of the two.
 
 Until 1 and 3 are settled, the integration ships the published endpoints and
 requests PKCE, but a user still cannot connect because no client ID exists.
