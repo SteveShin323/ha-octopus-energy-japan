@@ -117,29 +117,10 @@ ENERGY_DESCRIPTIONS: tuple[OejpSensorEntityDescription, ...] = (
 )
 
 
-# Provider-issued costs are only reported for fully covered calendar periods so
-# a partially synchronized day never reads as a cheaper one. These entities are
-# projections for display; the Energy Dashboard uses external statistics.
-COST_DESCRIPTIONS: tuple[OejpSensorEntityDescription, ...] = (
-    OejpSensorEntityDescription(
-        key="official_cost_today",
-        device_class=SensorDeviceClass.MONETARY,
-        native_unit_of_measurement=CURRENCY_JPY,
-        entity_registry_enabled_default=False,
-        value_fn=lambda value: value.today.official_cost if value.today.complete else None,
-    ),
-    OejpSensorEntityDescription(
-        key="official_cost_this_month",
-        device_class=SensorDeviceClass.MONETARY,
-        native_unit_of_measurement=CURRENCY_JPY,
-        entity_registry_enabled_default=False,
-        value_fn=lambda value: (
-            value.this_month.official_cost if value.this_month.complete else None
-        ),
-    ),
-)
-
-
+# Provider-issued cost is intentionally absent here. Every projection of OEJP
+# `costEstimate` stays unpublished until the currency, permission, interval
+# coverage, and correction semantics are confirmed. See
+# `docs/CONTRACT_AND_BILLING.md`.
 COMMERCIAL_DESCRIPTIONS: tuple[OejpCommercialSensorEntityDescription, ...] = (
     OejpCommercialSensorEntityDescription(
         key="account_status",
@@ -263,7 +244,7 @@ async def async_setup_entry(
                     account.number,
                     point.id,
                 ):
-                    for description in (*ENERGY_DESCRIPTIONS, *COST_DESCRIPTIONS):
+                    for description in ENERGY_DESCRIPTIONS:
                         entity = OejpConsumptionSensor(
                             coordinator,
                             runtime.identity_secret,

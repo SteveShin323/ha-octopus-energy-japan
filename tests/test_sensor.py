@@ -49,13 +49,13 @@ from custom_components.octopus_energy_japan.identity import (
 from custom_components.octopus_energy_japan.runtime import OejpRuntimeData
 from custom_components.octopus_energy_japan.sensor import (
     COMMERCIAL_DESCRIPTIONS,
-    COST_DESCRIPTIONS,
     ENERGY_DESCRIPTIONS,
     OejpAccountCommercialSensor,
     OejpConsumptionSensor,
     OejpSupplyPointStatusSensor,
     async_setup_entry,
 )
+from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import PlatformNotReady
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -107,10 +107,10 @@ def _aggregation() -> SupplyPointAggregation:
         supply_point_id=SUPPLY_POINT_ID,
         direction=ReadingDirection.IMPORT,
         latest=latest,
-        today=PeriodAggregate(Decimal("1.25"), Decimal("41"), complete=True),
+        today=PeriodAggregate(Decimal("1.25"), complete=True),
         yesterday=PeriodAggregate(Decimal("4.5"), complete=True),
         this_week=PeriodAggregate(Decimal("12.75"), complete=True),
-        this_month=PeriodAggregate(Decimal("48.25"), Decimal("1580"), complete=True),
+        this_month=PeriodAggregate(Decimal("48.25"), complete=True),
         last_month=PeriodAggregate(Decimal("120.5"), complete=True),
         latest_reading_end=latest.end_at,
         data_delay=timedelta(minutes=30),
@@ -164,11 +164,7 @@ def _coordinator(
 
 
 def _description(key: str):
-    return next(
-        description
-        for description in (*ENERGY_DESCRIPTIONS, *COST_DESCRIPTIONS)
-        if description.key == key
-    )
+    return next(description for description in ENERGY_DESCRIPTIONS if description.key == key)
 
 
 def _commercial_description(key: str):
@@ -321,49 +317,30 @@ def test_financial_commercial_entities_are_disabled_by_default() -> None:
         "latest_bill_due",
         "latest_transaction_amount",
     }
-    assert all(not description.entity_registry_enabled_default for description in COST_DESCRIPTIONS)
 
 
-def test_official_cost_sensors_report_only_fully_covered_periods() -> None:
-    coordinator = _coordinator()
-    expected = {
-        "official_cost_today": Decimal("41"),
-        "official_cost_this_month": Decimal("1580"),
+def test_commercial_values_match_their_declared_device_class() -> None:
+    """Home Assistant only validates these types when a state is written."""
+    coordinator = _commercial_coordinator()
+    required: dict[SensorDeviceClass | None, type | tuple[type, ...]] = {
+        SensorDeviceClass.DATE: date,
+        SensorDeviceClass.TIMESTAMP: datetime,
+        SensorDeviceClass.MONETARY: int,
     }
-    assert set(expected) == {description.key for description in COST_DESCRIPTIONS}
 
-    for key, value in expected.items():
-        entity = OejpConsumptionSensor(
-            coordinator,
-            SECRET,
-            ACCOUNT_ID,
-            SUPPLY_POINT_ID,
-            ReadingDirection.IMPORT,
-            _description(key),
-        )
-        assert entity.native_value == value
-
-    aggregate = _aggregation()
-    incomplete = replace(
-        aggregate,
-        today=replace(aggregate.today, complete=False),
-        this_month=replace(aggregate.this_month, complete=False),
-    )
-    coordinator.data = replace(
-        coordinator.data,
-        aggregation=AggregationSnapshot((incomplete,), NOW),
-    )
-
-    for key in expected:
-        entity = OejpConsumptionSensor(
-            coordinator,
-            SECRET,
-            ACCOUNT_ID,
-            SUPPLY_POINT_ID,
-            ReadingDirection.IMPORT,
-            _description(key),
-        )
-        assert entity.native_value is None
+    for description in COMMERCIAL_DESCRIPTIONS:
+        entity = OejpAccountCommercialSensor(coordinator, SECRET, ACCOUNT_ID, description)
+        value = entity.native_value
+        expected = required.get(description.device_class)
+        if expected is None:
+            assert isinstance(value, str)
+            continue
+        assert isinstance(value, expected)
+        if description.device_class is SensorDeviceClass.DATE:
+            # `datetime` subclasses `date`; the date device class rejects it.
+            assert not isinstance(value, datetime)
+        if description.device_class is SensorDeviceClass.TIMESTAMP:
+            assert cast("datetime", value).tzinfo is not None
 
 
 def test_commercial_sensor_is_unknown_for_an_account_without_a_snapshot() -> None:
@@ -545,7 +522,7 @@ async def test_sensor_platform_adds_each_entity_once(
     await async_setup_entry(hass, entry, add_entities)
 
     first_entities = add_entities.call_args.args[0]
-    assert len(first_entities) == len(ENERGY_DESCRIPTIONS) + len(COST_DESCRIPTIONS) + 1
+    assert len(first_entities) == len(ENERGY_DESCRIPTIONS) + 1
     listener = cast("Mock", coordinator.async_add_listener).call_args.args[0]
     listener()
     assert add_entities.call_count == 1
@@ -663,4 +640,4 @@ async def test_direction_entities_are_added_dynamically_exactly_once(
     listener()
 
     assert add_entities.call_count == 2
-    assert len(add_entities.call_args.args[0]) == len(ENERGY_DESCRIPTIONS) + len(COST_DESCRIPTIONS)
+    assert len(add_entities.call_args.args[0]) == len(ENERGY_DESCRIPTIONS)

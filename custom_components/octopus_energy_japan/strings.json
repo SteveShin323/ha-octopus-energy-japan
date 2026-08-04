@@ -85,12 +85,6 @@
       "import_data_delay": {
         "name": "Import data delay"
       },
-      "import_official_cost_today": {
-        "name": "Import official cost today"
-      },
-      "import_official_cost_this_month": {
-        "name": "Import official cost this month"
-      },
       "export_latest_interval": {
         "name": "Export latest reported interval energy"
       },
@@ -114,12 +108,6 @@
       },
       "export_data_delay": {
         "name": "Export data delay"
-      },
-      "export_official_cost_today": {
-        "name": "Export official amount today"
-      },
-      "export_official_cost_this_month": {
-        "name": "Export official amount this month"
       },
       "latest_bill_amount": {
         "name": "Latest bill amount"

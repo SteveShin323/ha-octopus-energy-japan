@@ -24,7 +24,9 @@ Japan (OEJP).
 | Correction-aware ledger and JST aggregation | Implemented |
 | Home Assistant runtime and entities | Implemented and validated |
 | Energy Dashboard statistics | Implemented and validated |
-| Tariff and billing summaries | Planned |
+| Account, contract, and billing summaries | Implemented and validated |
+| Provider-issued cost and tariff rates | Blocked on provider verification |
+| Diagnostics and Repairs | Planned |
 | Supported installation | Not available yet |
 
 The badges above report the status of the `main` branch. The Validate workflow
@@ -50,7 +52,9 @@ The current normative architecture and implementation plan is:
 - [`docs/LEDGER_AND_AGGREGATION.md`](docs/LEDGER_AND_AGGREGATION.md)
 - [`docs/RUNTIME_AND_ENTITIES.md`](docs/RUNTIME_AND_ENTITIES.md)
 - [`docs/ENERGY_STATISTICS.md`](docs/ENERGY_STATISTICS.md)
+- [`docs/CONTRACT_AND_BILLING.md`](docs/CONTRACT_AND_BILLING.md)
 - [`docs/ja/ENERGY_DASHBOARD.md`](docs/ja/ENERGY_DASHBOARD.md)
+- [`docs/ja/CONTRACT_AND_BILLING.md`](docs/ja/CONTRACT_AND_BILLING.md)
 - [`docs/PR7_DELIVERY_PLAN.md`](docs/PR7_DELIVERY_PLAN.md)
 - [`docs/PR7_COMPLETION_AUDIT.md`](docs/PR7_COMPLETION_AUDIT.md)
 - [`docs/adr/`](docs/adr/)
@@ -97,6 +101,13 @@ Energy Dashboard statistics are implemented, but cannot be used through a
 supported installation until that OAuth release gate is satisfied. Their exact
 identity, correction, deletion, and privacy behavior is documented in
 [`docs/ENERGY_STATISTICS.md`](docs/ENERGY_STATISTICS.md).
+
+Account, contract, and billing summaries are implemented on the same terms.
+Provider-issued cost and tariff rate components are deliberately not exposed as
+entities or statistics because their permission, currency, coverage, and
+correction semantics are still unverified. That gate, and the evidence that
+would close it, is recorded in
+[`docs/CONTRACT_AND_BILLING.md`](docs/CONTRACT_AND_BILLING.md).
 
 ## Development
 

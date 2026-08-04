@@ -80,12 +80,6 @@
       "export_latest_reading": {
         "name": "最新売電データ日時"
       },
-      "export_official_cost_this_month": {
-        "name": "今月の売電公式金額"
-      },
-      "export_official_cost_today": {
-        "name": "今日の売電公式金額"
-      },
       "export_this_month": {
         "name": "今月の売電量"
       },
@@ -109,12 +103,6 @@
       },
       "import_latest_reading": {
         "name": "最新使用量データ日時"
-      },
-      "import_official_cost_this_month": {
-        "name": "今月の公式料金"
-      },
-      "import_official_cost_today": {
-        "name": "今日の公式料金"
       },
       "import_this_month": {
         "name": "今月の使用量"
