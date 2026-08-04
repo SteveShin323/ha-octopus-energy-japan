@@ -16,6 +16,45 @@ projections. They are not the Energy Dashboard source of truth. The Energy
 Dashboard consumes correction-aware external statistics rebuilt from the
 persistent interval ledger.
 
+## 1a. Connecting them in the Energy dashboard
+
+**Settings → Dashboards → Energy → Grid consumption → Add consumption**, then pick the
+statistic named after the supply point — for example `OEJP supply point 1-1 Import
+energy`. Export goes under **Return to grid** as `… Export energy`, when OEJP reports an
+export direction.
+
+Pick the **statistic**, not a period sensor. The period sensors are display
+conveniences; the statistics are the correction-safe series.
+
+Home Assistant's own energy validator accepts these as they are, with no issues, for
+both directions. What it checks, and what this integration therefore guarantees:
+
+| Requirement | How it is met |
+|---|---|
+| The statistic exists | published on every refresh from the ledger |
+| `has_sum` | true; each row carries a cumulative `sum` |
+| An energy unit it can convert | `kWh`, with the energy unit class |
+| External statistic id | `octopus_energy_japan:sp_<digest>_<direction>_energy` |
+
+Leave **cost** empty. This integration publishes no cost statistic, for the reasons in
+[`CONTRACT_AND_BILLING.md`](CONTRACT_AND_BILLING.md). Entering a fixed price per kWh
+there produces a number that no line of a Japanese bill supports, because the tariff is
+tiered and carries a daily standing charge, a monthly fuel-cost adjustment, a renewable
+levy, and tax.
+
+There is no `total_increasing` meter sensor to select instead, by design. OEJP publishes
+30-minute totals several hours late and revises them when a billing period closes. A
+cumulative sensor fed from delayed, revisable data would either lag or jump backwards,
+and the Energy dashboard would record both. External statistics can be rewritten in
+place, which is what makes a correction safe.
+
+### The name shown in the picker
+
+The picker shows the statistic name and nothing else, so it follows the supply-point
+device: one label, whatever the number of supply points. It contains no account number,
+supply-point number, or address. Two supply points appear as `OEJP supply point 1-1` and
+`OEJP supply point 1-2`, matching their devices.
+
 ## 2. Published series
 
 The integration publishes one energy series for each discovered supply point

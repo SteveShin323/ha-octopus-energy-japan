@@ -44,6 +44,12 @@ email and password login works today and is selectable at setup.
 
 ### Fixed
 
+- Energy Dashboard statistics were named after an identity digest, which is the only
+  thing the Energy picker shows, so a household with two supply points could not tell
+  them apart. They now take the supply-point device's name — `OEJP supply point 1-1
+  Import energy` — and devices are created before the first refresh so the first
+  publication already carries it. Home Assistant's own energy validator accepts both
+  directions with no issues, which is now asserted rather than assumed;
 - removing the integration left its stored readings, synchronisation checkpoints, and
   installation secret in Home Assistant's storage directory. Those files hold the
   account number, the supply-point number, and every collected interval, and both the

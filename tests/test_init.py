@@ -164,9 +164,11 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
     commercial_factory.assert_called_once()
     project_devices.assert_called_once_with(hass, entry, entry.runtime_data)
     forward.assert_awaited_once_with(entry, ["sensor", "binary_sensor"])
-    # Optional commercial operations are armed last so they never delay setup,
-    # entity creation, or the first consumption refresh.
-    assert events == ["refresh", "devices", "platforms", "background", "commercial"]
+    # Devices come before the first refresh, because the statistics that refresh
+    # publishes take their names from the supply-point devices — the Energy dashboard
+    # picker shows that name and nothing else. Optional commercial operations stay last
+    # so they never delay setup, entity creation, or the first consumption refresh.
+    assert events == ["devices", "refresh", "platforms", "background", "commercial"]
 
 
 async def test_discovery_queries_generic_topology_sequentially() -> None:

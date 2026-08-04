@@ -172,6 +172,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     runtime.commercial_coordinator = commercial_coordinator
     entry.runtime_data = runtime
     try:
+        # Devices first: the statistics published during the first refresh take their
+        # names from the supply-point devices, so those have to exist by then or the
+        # Energy dashboard shows an identity digest until the next refresh.
+        async_project_discovered_devices(hass, entry, runtime)
         await coordinator.async_config_entry_first_refresh()
         commercial_coordinator.set_accounts(coordinator.accounts)
         entry.async_on_unload(
@@ -179,7 +183,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 lambda: commercial_coordinator.set_accounts(coordinator.accounts)
             )
         )
-        async_project_discovered_devices(hass, entry, runtime)
 
         @callback
         def refresh_issues() -> None:
