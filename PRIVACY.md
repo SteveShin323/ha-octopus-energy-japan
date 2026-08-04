@@ -92,11 +92,15 @@ integration should not destroy your energy history. Remove them yourself under
 retyping the client ID. Remove them under **Settings → Devices & services →
 Application credentials**.
 
-Removing an entry that used email and password also asks OEJP to invalidate the
-refresh token that entry held. Renewing does not rotate refresh tokens, so an account
-can hold more than one valid at a time and this invalidates only the one stored here.
-Invalidating every token issued to your user is a broader action the integration does
-not take on your behalf.
+**Removing an email and password entry cannot revoke its token at the provider.**
+OEJP does not permit an account user to invalidate a refresh token: the mutation
+exists, and calling it as the signed-in user is rejected as unauthorised. Removal
+deletes Home Assistant's copy of your email, password, and tokens, and the refresh
+token then expires on OEJP's side within seven days of the sign-in that issued it.
+An OAuth entry *is* revoked, at the provider's OAuth revocation endpoint, which is a
+separate mechanism.
+
+If you want the credential to stop working immediately, change your OEJP password.
 
 ## Development data
 

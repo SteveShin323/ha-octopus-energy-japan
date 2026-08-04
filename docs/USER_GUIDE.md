@@ -235,10 +235,14 @@ at [`ja/DIAGNOSTICS.md`](ja/DIAGNOSTICS.md).
 
 ## Removing the integration
 
-**Settings → Devices & services → Octopus Energy Japan → Delete.** The integration
-asks OEJP to revoke what that entry holds — its OAuth grant, or its refresh token — and
-deletes its stored readings, sync checkpoints, installation secret, and any stored
+**Settings → Devices & services → Octopus Energy Japan → Delete.** This deletes the
+entry's stored readings, sync checkpoints, installation secret, and any stored
 credential.
+
+An account entry also asks OEJP to revoke its authorization. An email and password
+entry cannot: OEJP does not let an account user invalidate a refresh token, so that
+token expires on the provider's side within seven days instead. To cut it off at once,
+change your OEJP password.
 
 Two things survive on purpose:
 
