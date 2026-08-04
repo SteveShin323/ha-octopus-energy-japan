@@ -168,6 +168,46 @@ def test_future_sensitive_key_shapes_are_redacted() -> None:
     )
 
 
+def test_customer_money_is_redacted_from_commercial_probe_output() -> None:
+    fixture = build_contract_fixture(
+        "account_billing",
+        "query AccountCommercialBilling { account { number } }",
+        {
+            "account": {
+                "number": "PRIVATE-ACCOUNT",
+                "balance": 12345,
+                "overdueBalance": 6789,
+                "bills": {
+                    "edges": [
+                        {
+                            "node": {
+                                "id": "bill-private",
+                                "totalCharges": {"grossTotal": 8640},
+                                "grossAmount": 8640,
+                                "issuedDate": "2026-07-03",
+                                "status": "CLOSED",
+                            }
+                        }
+                    ]
+                },
+                "transactions": {"edges": [{"node": {"id": "tx", "amount": -8640}}]},
+            }
+        },
+        source="authorized-local-read-only-probe",
+    )
+
+    account = fixture["response"]["account"]
+    bill = account["bills"]["edges"][0]["node"]
+    assert account["balance"].startswith("<synthetic:amount:")
+    assert account["overdueBalance"].startswith("<synthetic:amount:")
+    assert bill["totalCharges"]["grossTotal"].startswith("<synthetic:amount:")
+    assert bill["grossAmount"].startswith("<synthetic:amount:")
+    assert account["transactions"]["edges"][0]["node"]["amount"].startswith("<synthetic:amount:")
+    # Shape-bearing, non-financial provider values stay readable for contract work.
+    assert bill["issuedDate"] == "2026-07-03"
+    assert bill["status"] == "CLOSED"
+
+
 def test_schema_capability_fixture_preserves_only_graphql_field_names() -> None:
     fixture = build_contract_fixture(
         "schema_capabilities",
