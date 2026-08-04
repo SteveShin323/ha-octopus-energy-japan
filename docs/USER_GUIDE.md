@@ -39,8 +39,8 @@ with whatever OEJP exposes for your account.
   battery, or a home-assistant-measured circuit;
 - automate on consumption, for example a notification when today's use passes a
   threshold;
-- keep long-term history. OEJP serves roughly the last 30 days; the integration
-  stores what it has already collected, so your history keeps growing past that.
+- keep long-term history. OEJP serves every interval since your supply started;
+  the integration stores what it collects, so your history keeps growing.
 
 It is **not** a billing tool. See [known limitations](#known-limitations).
 
@@ -159,8 +159,11 @@ with no reliable way to tell which one applies to your supply point.
 energy pricing, a fixed daily charge, a monthly fuel-cost adjustment, a renewable
 levy, and tax. One unit price cannot reproduce it.
 
-**Roughly 30 days of provider history.** A first install starts with about a month.
-Local history grows from there.
+**A first install starts with the current and previous month.** That is the
+integration's own initial sync, not a limit on what OEJP serves: measured on a real
+account, every interval since supply started is still retrievable. One response is
+capped at 1488 intervals, which is 31 days of half-hourly data, and the integration
+requests seven days at a time to stay well inside it.
 
 **Calendar totals are not billing periods.** Your bill runs to a meter-read time a
 few hours after midnight; the integration's months are Asia/Tokyo calendar months.
@@ -212,8 +215,8 @@ Two things survive on purpose:
   re-entering the client ID. Remove them under **Settings → Devices & services →
   Application credentials**.
 
-Re-adding starts a fresh local history and downloads whatever OEJP still serves,
-roughly the last 30 days.
+Re-adding starts a fresh local history and downloads the current and previous
+month again.
 
 ## Privacy
 

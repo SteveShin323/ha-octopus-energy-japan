@@ -32,6 +32,14 @@ Energy Japan issues an OAuth client ID; see
 
 ### Fixed
 
+- `devices` and `registers` were queried without the `first` argument the
+  provider's GraphQL guide requires on every paginated field. A conformance test
+  now scans every shipped query, so a connection added later cannot omit it;
+- user documentation claimed OEJP serves "roughly the last 30 days" of history.
+  Measured on a real account, every interval since supply started is retrievable;
+  the 31-day figure is a per-response cap of 1488 intervals that silently keeps the
+  newest and drops the oldest. The scoped contract had this right and the user
+  documentation contradicted it;
 - the device-authorization endpoint was recorded as absent, which left the
   implemented RFC 8628 client unconstructible. The provider documents
   `/device-authorization/` and the live endpoint answers a POST with
