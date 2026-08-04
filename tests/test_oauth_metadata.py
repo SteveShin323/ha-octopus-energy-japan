@@ -55,8 +55,17 @@ def test_authorization_scheme_is_the_one_the_api_accepts() -> None:
     assert require_oauth_metadata().authorization_scheme is AuthorizationHeaderScheme.BEARER
 
 
-def test_device_authorization_is_not_claimed_because_it_is_not_advertised() -> None:
-    assert require_oauth_metadata().device_authorization_url is None
+def test_device_authorization_endpoint_is_the_one_the_provider_documents() -> None:
+    """The discovery document omits it, but the endpoint is documented and live.
+
+    Recording `None` here left the implemented RFC 8628 client unconstructible. On
+    2026-08-04 a POST to this URL answered `invalid_request: Invalid client_id
+    parameter value`, so the endpoint exists and only the client ID is missing.
+    """
+    assert (
+        require_oauth_metadata().device_authorization_url
+        == "https://auth.oejp-kraken.energy/device-authorization/"
+    )
 
 
 def test_requested_scopes_are_least_privilege_and_all_advertised() -> None:

@@ -30,6 +30,14 @@ Energy Japan issues an OAuth client ID; see
   and the user would meet the provider's unregistered-redirect error part-way
   through sign-in, with nothing naming this integration as the cause.
 
+### Fixed
+
+- the device-authorization endpoint was recorded as absent, which left the
+  implemented RFC 8628 client unconstructible. The provider documents
+  `/device-authorization/` and the live endpoint answers a POST with
+  `invalid_request: Invalid client_id parameter value`, so it exists and only the
+  client ID is missing. Its absence from the discovery document is a metadata gap.
+
 ### Provider behaviour confirmed against a real account
 
 - the market name must carry a territory prefix. `JPN_ELECTRICITY` is accepted and
