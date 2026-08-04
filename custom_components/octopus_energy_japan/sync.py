@@ -16,7 +16,6 @@ MAX_QUERY_WINDOW = timedelta(days=7)
 DISCOVERY_INTERVAL = timedelta(hours=24)
 CONTRACT_INTERVAL = timedelta(hours=12)
 BILLING_INTERVAL = timedelta(hours=12)
-MAX_BACKFILL_MONTHS = 13
 MAX_BACKOFF = timedelta(hours=1)
 
 
@@ -26,7 +25,6 @@ class SyncReason(StrEnum):
     POLL = "poll"
     INITIAL = "initial"
     DAILY_RECONCILIATION = "daily_reconciliation"
-    LONG_BACKFILL = "long_backfill"
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,26 +116,6 @@ class SyncWindowPlanner:
             end,
             SyncReason.DAILY_RECONCILIATION,
         )
-
-    def long_backfill(
-        self,
-        now: datetime,
-        *,
-        months: int = MAX_BACKFILL_MONTHS,
-    ) -> tuple[SyncWindow, ...]:
-        """Plan an explicitly requested, rate-aware history backfill."""
-        if months <= 0 or months > MAX_BACKFILL_MONTHS:
-            raise ValueError("Long backfill months must be between 1 and 13")
-        end = _utc(now)
-        local_month = end.astimezone(self._timezone).replace(
-            day=1,
-            hour=0,
-            minute=0,
-            second=0,
-            microsecond=0,
-        )
-        start = _shift_month(local_month, -(months - 1)).astimezone(UTC)
-        return self._chunk(start, end, SyncReason.LONG_BACKFILL)
 
     def _chunk(
         self,
