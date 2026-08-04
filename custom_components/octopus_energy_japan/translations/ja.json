@@ -53,6 +53,21 @@
       }
     },
     "sensor": {
+      "account_balance": {
+        "name": "アカウント残高"
+      },
+      "account_status": {
+        "name": "アカウント状態"
+      },
+      "agreement_end": {
+        "name": "現在の契約終了日時"
+      },
+      "agreement_start": {
+        "name": "現在の契約開始日時"
+      },
+      "current_product": {
+        "name": "現在の料金プラン"
+      },
       "export_data_delay": {
         "name": "売電データ遅延"
       },
@@ -100,6 +115,21 @@
       },
       "import_yesterday": {
         "name": "昨日の使用量"
+      },
+      "latest_bill_amount": {
+        "name": "最新請求額"
+      },
+      "latest_bill_due": {
+        "name": "最新請求の支払期日"
+      },
+      "latest_bill_issued": {
+        "name": "最新請求書発行日"
+      },
+      "latest_transaction_amount": {
+        "name": "最新取引額"
+      },
+      "overdue_balance": {
+        "name": "延滞残高"
       },
       "supply_point_status": {
         "name": "状態",

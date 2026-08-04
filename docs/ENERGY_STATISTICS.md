@@ -35,10 +35,13 @@ lifetime register. That is valid for Home Assistant external statistics because
 the baseline remains deterministic and later rows preserve continuity.
 
 The pure projector also models provider-issued official cost. Runtime cost
-publication is deliberately disabled until PR 9 verifies the OAuth permission,
-currency, interval coverage, and correction semantics from provider-confirmed
-metadata or a scanner-approved probe. User-entered flat-rate estimates are not
-published.
+publication is deliberately disabled until the OAuth permission, currency,
+interval coverage, and correction semantics are verified from provider-confirmed
+metadata or a scanner-approved probe. PR 9 reviewed that gate and recorded all
+four items as still unmet, so publication remains disabled; the gate and the
+evidence that would close it are tracked in
+[`CONTRACT_AND_BILLING.md`](CONTRACT_AND_BILLING.md). User-entered flat-rate
+estimates are not published.
 
 ## 3. Stable private identity
 

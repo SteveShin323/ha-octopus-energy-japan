@@ -16,7 +16,10 @@ More specific active specifications control within their scope:
 - [`RUNTIME_AND_ENTITIES.md`](RUNTIME_AND_ENTITIES.md) controls PR 7 runtime and
   entity behavior;
 - [`ENERGY_STATISTICS.md`](ENERGY_STATISTICS.md) controls PR 8 recorder
-  statistics projection; and
+  statistics projection;
+- [`CONTRACT_AND_BILLING.md`](CONTRACT_AND_BILLING.md) controls PR 9 optional
+  account, agreement, product, and billing behavior, and records the
+  provider-cost verification gate; and
 - [`PR7_DELIVERY_PLAN.md`](PR7_DELIVERY_PLAN.md) records the completed PR #14
   branch and child-PR procedure without changing runtime behavior.
 
@@ -54,9 +57,10 @@ Current implementation status:
 |---|---|
 | PR 1–7: foundation through runtime/entities | Implemented and validated |
 | PR 8: Energy statistics | Implemented and validated |
-| PR 9: contract, tariff, and billing | Planned |
+| PR 9: contract, tariff, and billing | Implemented and validated, except provider cost and tariff rate projection |
 | PR 10: diagnostics and Repairs | Planned |
 | PR 11: release documentation and packaging | Planned |
+| Provider-issued cost and tariff rate projection | Awaiting provider metadata or probe |
 | Production OAuth metadata and real-account release matrix | Awaiting OEJP |
 
 ## 2. Authentication
