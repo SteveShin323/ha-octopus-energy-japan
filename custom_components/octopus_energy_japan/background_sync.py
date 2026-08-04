@@ -22,7 +22,6 @@ class BackgroundSyncReason(StrEnum):
     DAILY_RECONCILIATION = "daily_reconciliation"
     INITIAL_CURRENT_MONTH = "initial_current_month"
     INITIAL_PREVIOUS_MONTH = "initial_previous_month"
-    LONG_BACKFILL = "long_backfill"
 
 
 class BackgroundSyncPriority(IntEnum):
@@ -31,14 +30,12 @@ class BackgroundSyncPriority(IntEnum):
     DAILY_RECONCILIATION = 10
     INITIAL_CURRENT_MONTH = 20
     INITIAL_PREVIOUS_MONTH = 30
-    LONG_BACKFILL = 40
 
 
 _PRIORITY = {
     BackgroundSyncReason.DAILY_RECONCILIATION: BackgroundSyncPriority.DAILY_RECONCILIATION,
     BackgroundSyncReason.INITIAL_CURRENT_MONTH: BackgroundSyncPriority.INITIAL_CURRENT_MONTH,
     BackgroundSyncReason.INITIAL_PREVIOUS_MONTH: BackgroundSyncPriority.INITIAL_PREVIOUS_MONTH,
-    BackgroundSyncReason.LONG_BACKFILL: BackgroundSyncPriority.LONG_BACKFILL,
 }
 
 

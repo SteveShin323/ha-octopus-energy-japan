@@ -295,7 +295,6 @@ The fixed PR 7 runtime is non-blocking beyond recent data:
 | Background GraphQL concurrency | one logical operation per entry |
 | Contract/tariff | 12 hours in later coordinator |
 | Billing | 12 hours in later coordinator |
-| Optional long backfill | background queue, up to 13 months |
 
 One worker per entry executes direction-specific request scopes with coalesced
 reason/generation obligations. Regular polls preempt the next background request.

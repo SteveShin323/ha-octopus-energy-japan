@@ -279,7 +279,7 @@ def test_checkpoint_rejects_invalid_schema_and_payload() -> None:
     with pytest.raises(ValueError, match="direction"):
         _scope(direction=ReadingDirection.UNKNOWN)
     with pytest.raises(ValueError, match="generation"):
-        SyncObligation(BackgroundSyncReason.LONG_BACKFILL, "")
+        SyncObligation(BackgroundSyncReason.DAILY_RECONCILIATION, "")
     with pytest.raises(ValueError, match="obligation"):
         BackgroundSyncItem(_scope(), frozenset())
 
