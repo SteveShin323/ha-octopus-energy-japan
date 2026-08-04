@@ -44,6 +44,10 @@ email and password login works today and is selectable at setup.
 
 ### Fixed
 
+- device pages now show the account number and the supply-point number
+  (供給地点特定番号) as their serial number. Hiding every provider identifier left a
+  customer with two supply points unable to tell which device was which; entity IDs,
+  names, states, attributes, and the diagnostics download still carry none;
 - Energy Dashboard statistics were named after an identity digest, which is the only
   thing the Energy picker shows, so a household with two supply points could not tell
   them apart. They now take the supply-point device's name — `OEJP supply point 1-1

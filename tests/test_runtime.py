@@ -117,17 +117,23 @@ async def test_device_projection_hides_provider_ids_and_disables_history(
     registry = dr.async_get(hass)
     devices = list(registry.devices.values())
     assert len(devices) == 5
-    assert all(
-        provider_id not in repr(device)
-        for provider_id in (
-            "ACTIVE-ACCOUNT",
-            "OLD-ACCOUNT",
-            "ACTIVE-SPIN",
-            "OLD-SPIN",
-            "OLD-ACCOUNT-SPIN",
-        )
-        for device in devices
+    provider_ids = (
+        "ACTIVE-ACCOUNT",
+        "OLD-ACCOUNT",
+        "ACTIVE-SPIN",
+        "OLD-SPIN",
+        "OLD-ACCOUNT-SPIN",
     )
+    # Names and identifiers stay ordinal, so a screenshot or a pasted automation never
+    # carries a contract number.
+    for device in devices:
+        for provider_id in provider_ids:
+            assert provider_id not in (device.name or "")
+            assert all(provider_id not in value for _, value in device.identifiers)
+    # The serial number is the deliberate exception: a customer with more than one
+    # account or supply point has to be able to tell which device is which, and Home
+    # Assistant's device page is where a serial belongs.
+    assert {device.serial_number for device in devices} >= {"ACTIVE-ACCOUNT", "ACTIVE-SPIN"}
 
     active_account = registry.async_get_device(
         identifiers={(DOMAIN, stable_account_identity(SECRET, "ACTIVE-ACCOUNT"))}
@@ -339,3 +345,94 @@ async def test_lifecycle_projection_preserves_user_disabled_choice(
     preserved = registry.async_get_device(identifiers={(DOMAIN, identity)})
     assert preserved is not None
     assert preserved.disabled_by is dr.DeviceEntryDisabler.USER
+
+
+async def test_the_device_page_carries_the_identifier_a_bill_shows(
+    hass: HomeAssistant,
+) -> None:
+    """A household with two supply points must be able to tell them apart.
+
+    Entity ids, entity names, and device names are ordinal so they can be screenshotted
+    and pasted into a public issue. That leaves nothing to match against a contract, so
+    the account number and the supply-point number (供給地点特定番号) go where Home
+    Assistant puts a device's own serial: the device page.
+    """
+    entry = MockConfigEntry(domain=DOMAIN)
+    entry.add_to_hass(hass)
+    runtime = _runtime()
+
+    async_project_discovered_devices(hass, entry, runtime)
+
+    registry = dr.async_get(hass)
+    account = registry.async_get_device(
+        identifiers={(DOMAIN, stable_account_identity(runtime.identity_secret, "ACTIVE-ACCOUNT"))}
+    )
+    supply_point = registry.async_get_device(
+        identifiers={
+            (
+                DOMAIN,
+                stable_supply_point_identity(
+                    runtime.identity_secret,
+                    "ACTIVE-ACCOUNT",
+                    "ACTIVE-SPIN",
+                ),
+            )
+        }
+    )
+
+    assert account is not None
+    assert account.serial_number == "ACTIVE-ACCOUNT"
+    assert supply_point is not None
+    assert supply_point.serial_number == "ACTIVE-SPIN"
+    # The ordinal name is still what appears everywhere else.
+    assert supply_point.name is not None
+    assert "ACTIVE-SPIN" not in supply_point.name
+
+
+async def test_a_supply_point_without_a_spin_falls_back_to_its_internal_id(
+    hass: HomeAssistant,
+) -> None:
+    """`spin` is the customer-facing number, but the provider may omit it."""
+    from custom_components.octopus_energy_japan.api import (
+        OejpAccount,
+        OejpProperty,
+        OejpSupplyPoint,
+        ResourceLifecycle,
+    )
+    from custom_components.octopus_energy_japan.runtime import OejpRuntimeData
+
+    entry = MockConfigEntry(domain=DOMAIN)
+    entry.add_to_hass(hass)
+    runtime = OejpRuntimeData(
+        auth=AsyncMock(),
+        accounts=(
+            OejpAccount(
+                number="A-1",
+                lifecycle=ResourceLifecycle.ACTIVE,
+                properties=(
+                    OejpProperty(
+                        id="P-1",
+                        supply_points=(
+                            OejpSupplyPoint(
+                                id="INTERNAL-ONLY",
+                                account_number="A-1",
+                                lifecycle=ResourceLifecycle.ACTIVE,
+                                spin=None,
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        capabilities=CapabilitySnapshot(),
+        identity_secret=SECRET,
+    )
+
+    async_project_discovered_devices(hass, entry, runtime)
+
+    supply_point = dr.async_get(hass).async_get_device(
+        identifiers={(DOMAIN, stable_supply_point_identity(SECRET, "A-1", "INTERNAL-ONLY"))}
+    )
+
+    assert supply_point is not None
+    assert supply_point.serial_number == "INTERNAL-ONLY"

@@ -120,7 +120,13 @@ new supply point starts reporting on its own.
 ## Entities
 
 Every entity belongs to a device: one per account, and one per supply point beneath
-it. Names contain no account number, supply-point number, or address.
+it. Names are ordinal — `OEJP supply point 1-1` — and contain no account number,
+supply-point number, or address, so a screenshot or a pasted automation carries none.
+
+**To tell which supply point a device is**, open the device page: it shows the
+supply-point number (供給地点特定番号) as its serial number, and the account device shows
+your account number. Those are the numbers OEJP prints on a bill. They stay off entity
+IDs, states, attributes, and the diagnostics download.
 
 ### Per supply point and direction
 
