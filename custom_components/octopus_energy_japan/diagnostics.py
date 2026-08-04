@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 # an installation-local HMAC identity, or a UTC timestamp. Raw account numbers,
 # SPINs, supply-point and meter identifiers, addresses, names, email addresses,
 # tokens, reading values, provider cost, bill amounts, and provider message text
-# are never included. `docs/DIAGNOSTICS_AND_REPAIRS.md` is the controlling contract.
+# are never included. `docs/ARCHITECTURE.md` is the controlling contract.
 
 
 def _timestamp(value: datetime | None) -> str | None:

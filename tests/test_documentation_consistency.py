@@ -77,7 +77,6 @@ def test_oauth_methods_are_the_ones_that_use_an_oauth_session() -> None:
 @pytest.mark.parametrize(
     "document",
     [
-        "docs/USER_GUIDE.md",
         "docs/ja/README.md",
         "PRIVACY.md",
         "README.md",
@@ -101,7 +100,7 @@ def test_user_facing_documents_do_not_claim_the_integration_cannot_be_connected(
 def test_the_password_method_is_documented_wherever_privacy_is_described() -> None:
     """Storing a credential is the one thing a reader must not have to discover."""
     privacy = (ROOT / "PRIVACY.md").read_text(encoding="utf-8")
-    guide = (ROOT / "docs" / "USER_GUIDE.md").read_text(encoding="utf-8")
+    guide = (ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "stored in Home Assistant" in privacy
     assert "0008-password-authentication.md" in privacy

@@ -1,97 +1,86 @@
 # Privacy
 
-This integration is read-only and runs entirely inside your Home Assistant. There
-is no developer-operated server, no analytics, and no external telemetry. Nothing
-about you is sent anywhere except to Octopus Energy Japan, on your behalf, to read
-your own data.
+This integration is read-only and runs entirely inside your Home Assistant. There is
+no developer-operated server, no analytics, and no telemetry. Nothing about you is
+sent anywhere except to Octopus Energy Japan, on your behalf, to read your own data.
 
 ## What differs by sign-in method
 
-You choose a sign-in method when you add the integration, and it is the one thing
-that changes what is stored about you.
+The sign-in method you choose is the one thing that changes what is stored about you.
 
-| | Account or device code (OAuth) | Email and password |
+| | Email and password | Device code or account (OAuth) |
 |---|---|---|
-| Where you sign in | on the OEJP website | in Home Assistant |
-| Your password | never requested, received, or stored | **stored in Home Assistant** |
-| What is stored to stay signed in | OAuth access and refresh tokens | your email, your password, and the provider's tokens |
+| Where you sign in | in Home Assistant | on the provider website |
+| Your password | **stored in Home Assistant** | never requested, received, or stored |
+| Stored to stay signed in | your email, your password, and the provider's tokens | access and refresh tokens |
 
-The password is stored because the provider's refresh token lasts seven days and
-renewing it does not extend that, so nothing else can sign in again afterwards. It is
-kept in the config entry, which is a plain-text file inside your Home Assistant
-configuration directory. It is never logged, never shown in a state or attribute, and
-never included in diagnostics.
+The password is stored because the refresh token lasts seven days and renewing it does
+not extend that, so nothing else can sign in again afterwards. It is kept in the config
+entry, a plain-text file inside your Home Assistant configuration directory. It is
+never logged, never shown in a state or attribute, and never included in diagnostics.
 
-If you later switch that entry to the account sign-in, the stored password is
-**deleted**, and your collected history is kept. The reasoning is recorded in
+Switching that entry to an OAuth method **deletes** the stored password and keeps your
+collected history. The reasoning is in
 [ADR 0008](docs/adr/0008-password-authentication.md).
 
 ## What leaves your Home Assistant
 
-Requests to `https://api.oejp-kraken.energy/v1/graphql/` and to
-`https://auth.oejp-kraken.energy/`, carrying your OAuth access token and the
-identifiers needed to read your own account. That is all.
+Requests to `https://api.oejp-kraken.energy/v1/graphql/` and
+`https://auth.oejp-kraken.energy/`, carrying your access token and the identifiers
+needed to read your own account. That is all.
 
 ## What is stored, and where
 
 Everything below lives in your Home Assistant's own storage.
 
-| Data | Purpose | Removed when the entry is deleted |
+| Data | Purpose | Deleted with the entry |
 |---|---|---|
-| OAuth access and refresh tokens | authenticating to OEJP | yes |
-| Your email and password, if you chose that sign-in method | signing in again once the provider's seven-day refresh token expires | yes |
-| Account numbers, supply-point numbers, meter and register identifiers | required to call the API and to join stored readings back to a supply point | yes |
-| Half-hourly readings, their version and quality, provider cost | totals and Energy Dashboard statistics that survive corrections | yes |
+| Access and refresh tokens | authenticating | yes |
+| Your email and password, with that sign-in method | signing in again after seven days | yes |
+| Account, supply point, meter, and register identifiers | calling the API and joining stored readings to a supply point | yes |
+| Half-hourly readings with version and quality | totals and statistics that survive corrections | yes |
+| Your tariff prices | computing the cost statistic | yes |
+| Property address and postcode | the optional Address entity | yes |
 | Synchronisation checkpoints | resuming background work after a restart | yes |
-| An installation-local secret | deriving stable private identities | when the last entry is removed |
+| An installation-local secret | deriving stable private identities | with the last entry |
 | Energy Dashboard statistics | long-term energy history | **no**, see below |
 | Application credentials (client ID) | re-adding without retyping | **no**, see below |
-
-With the account sign-in, your OEJP password is never requested, received, or
-stored, and sign-in happens on the OEJP website. With the email and password method
-it is stored, as described above.
 
 ## What never appears in the user interface
 
 Raw provider identifiers do not appear in entity names, entity IDs, unique IDs, device
 names, device identifiers, states, or attributes. Those are the places a value travels
-without you choosing to show it: a screenshot, an automation you paste into a forum, a
+without you choosing to show it: a screenshot, an automation pasted into a forum, a
 state history export.
 
-**One deliberate exception.** Each device page shows a serial number — the account
-number on an account, and the supply-point number (供給地点特定番号) on a supply point.
-Without it you could not tell which of two supply points a device is, which is the
-question the ordinal names cannot answer. It is a single field on a page you open
-yourself, it is never part of an entity ID or a state, and it is **not** in the
-diagnostics download.
+Devices and statistics are addressed by an HMAC of an installation-local secret and the
+provider identifier. It is stable inside one installation and cannot be correlated with
+the same identifier in another.
 
-**Your address, only if you turn it on.** The integration does now ask OEJP for the
-address of each property, because with more than one property nothing else tells you
-which supply point is which. It becomes an **Address** sensor that is **disabled by
-default**. Nothing publishes it unless you enable that entity yourself, and enabling it
-is a real choice: an entity's state is written to the recorder database, is included in
-cloud backups, and is readable by voice assistants and by anyone with dashboard access.
-The address is not used for any device or entity name, and it is **not** in the
-diagnostics download — a test asserts that, so a future change cannot quietly add it.
+**Two deliberate exceptions.**
 
-Devices and statistics are addressed by an HMAC derived from an
-installation-local secret plus the provider identifier. The result is stable inside
-one Home Assistant installation and cannot be correlated with the same OEJP
-identifier in a different installation.
+Each device page shows a serial number — your account number on an account device, the
+supply point number (供給地点特定番号) on a supply point. Without it you could not tell
+which of two supply points a device is. It is a single field on a page you open
+yourself, never part of an entity ID or a state, and not in diagnostics.
 
-Addresses and names are never used for device or entity names. Whole bill,
-transaction, payment, and reading collections are never placed in state attributes.
+The property **address** is available as an entity that is **disabled by default**,
+because with more than one property nothing else tells you which device is which.
+Enabling it is a real choice: an entity state is written to the recorder database,
+included in backups, and readable by voice assistants and anyone with dashboard access.
+The address is never used for a device or entity name and is not in diagnostics; a test
+asserts the latter.
+
+Whole bill, transaction, payment, and reading collections are never placed in state
+attributes.
 
 ## Diagnostics
 
 The diagnostics download is designed so you can attach it to a public issue without
-reading it first. It contains no token, email address, name, address, account
-number, supply-point number, meter identifier, reading value, provider cost,
-balance, or bill amount, and it reports failures by exception class name rather than
-message, because provider text is unbounded.
-
-The full contract is in
-[`docs/DIAGNOSTICS_AND_REPAIRS.md`](docs/DIAGNOSTICS_AND_REPAIRS.md).
+reading it first. It contains no token, email address, name, address, account number,
+supply point number, meter identifier, reading value, balance, or bill amount, and it
+reports failures by exception class name rather than message, because provider text is
+unbounded. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Logs
 
@@ -101,40 +90,32 @@ please attach diagnostics rather than logs when reporting a problem.
 
 ## What survives removal, and why
 
-**Energy Dashboard statistics** stay in the Home Assistant recorder. Deleting an
-integration should not destroy your energy history. Remove them yourself under
-**Developer tools → Statistics**.
+Deleting the entry deletes every row marked yes above, rather than orphaning it.
 
-The rows marked yes are deleted by removing the integration, not merely orphaned.
-Before this was implemented the stored readings, synchronisation checkpoints, and
-installation secret survived removal in Home Assistant's storage directory; if you
-removed an entry from a build before that fix, files named
-`octopus_energy_japan.ledger.*` and `octopus_energy_japan.sync.*` may still be present
-and can be deleted by hand.
+**Energy Dashboard statistics** stay in the recorder, because deleting an integration
+should not destroy your energy history. Remove them under **Developer tools →
+Statistics**. **Application credentials** stay so you can re-add without retyping the
+client ID; remove them under **Settings → Devices & services → Application
+credentials**.
 
-**Application credentials** stay so you can re-add the integration without
-retyping the client ID. Remove them under **Settings → Devices & services →
-Application credentials**.
+If you removed an entry from a build before deletion was implemented, files named
+`octopus_energy_japan.ledger.*` and `octopus_energy_japan.sync.*` may remain in your
+storage directory and can be deleted by hand.
 
-**Removing an email and password entry cannot revoke its token at the provider.**
-OEJP does not permit an account user to invalidate a refresh token: the mutation
-exists, and calling it as the signed-in user is rejected as unauthorised. Removal
-deletes Home Assistant's copy of your email, password, and tokens, and the refresh
-token then expires on OEJP's side within seven days of the sign-in that issued it.
-An OAuth entry *is* revoked, at the provider's OAuth revocation endpoint, which is a
-separate mechanism.
-
-If you want the credential to stop working immediately, change your OEJP password.
+**Removing an email and password entry cannot revoke its token.** An account user may
+not invalidate a refresh token, so it expires seven days after the sign-in that issued
+it. Removal deletes Home Assistant's copy of your email, password, and tokens. To cut
+access off immediately, change your password. An OAuth entry *is* revoked, through the
+provider's revocation endpoint.
 
 ## Development data
 
-No production credential is stored in this repository or in CI. Live API
-investigation uses a local, allow-listed, read-only probe that replaces customer
-values with synthetic placeholders before anything reaches disk, and a second
-scanner rejects a fixture that still contains one. The process is documented in
-[`docs/FIXTURE_REDACTION.md`](docs/FIXTURE_REDACTION.md).
+No production credential is stored in this repository or in CI. Live API investigation
+uses a local, allow-listed, read-only probe that replaces customer values with
+synthetic placeholders before anything reaches disk, and a scanner rejects a fixture
+that still contains one. See [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
 
 ## Reporting a privacy problem
 
-Please follow [`SECURITY.md`](SECURITY.md). Do not open a public issue containing
-your own account data.
+Follow [`SECURITY.md`](SECURITY.md). Do not open a public issue containing your own
+account data.

@@ -4,10 +4,8 @@ All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-No version has been released yet. The OAuth methods wait on a client ID from Octopus
-Energy Japan; see
-[`docs/OAUTH_APPLICATION_STATUS.md`](docs/OAUTH_APPLICATION_STATUS.md). The provider's
-email and password login works today and is selectable at setup.
+No version has been released yet. Sign-in with email and password works; the two
+OAuth methods need a published client ID.
 
 ## [Unreleased]
 
@@ -21,9 +19,8 @@ email and password login works today and is selectable at setup.
   once a client ID exists. One OEJP login owns one config entry
   under either method, so an entry can be promoted to OAuth in place — keeping its
   readings and statistics, and deleting the stored password. Removing such an entry
-  deletes the local credential but cannot revoke the token at OEJP, which does not
-  permit an account user to invalidate a refresh token; it expires there within seven
-  days. See [ADR 0008](docs/adr/0008-password-authentication.md);
+  deletes the local credential but cannot revoke the token, because an account user may
+  not invalidate a refresh token; it expires within seven days. See [ADR 0008](docs/adr/0008-password-authentication.md);
 - read-only OEJP integration: OAuth with PKCE, account and supply-point discovery,
   generic and legacy reading providers with an explicit fallback policy;
 - a persistent correction-aware interval ledger and Asia/Tokyo calendar aggregation;
@@ -50,7 +47,7 @@ email and password login works today and is selectable at setup.
   is published for `stat_cost`. Nothing is entered by the user and no unit price is assumed.
   Home Assistant's own energy validator accepts it, which is asserted with a real recorder.
   Measured at 104% of one real bill, for the two reasons recorded in
-  [`docs/ENERGY_STATISTICS.md`](docs/ENERGY_STATISTICS.md);
+  [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md);
 
 ### Fixed
 
@@ -101,7 +98,7 @@ email and password login works today and is selectable at setup.
 - an unreachable long-backfill planner was removed from `sync.py`, together with the
   background reason and priority nothing produced, and the two design documents that
   described it as an available feature. Why a long backfill is deliberately absent is
-  recorded in [`docs/LEDGER_AND_AGGREGATION.md`](docs/LEDGER_AND_AGGREGATION.md);
+  recorded in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md);
 - `OejpDeviceAuthSession` was a subclass with a docstring and no body, implying a
   capability that did not exist. Device-grant tokens come from the same token endpoint
   and refresh identically, so `OejpPkceAuthSession` serves them unchanged;

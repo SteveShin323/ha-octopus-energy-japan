@@ -29,7 +29,11 @@ if TYPE_CHECKING:
     from .commercial_coordinator import OejpCommercialData
     from .coordinator import OejpCoordinatorData
 
-DOCS_BASE: Final = "https://github.com/SteveShin323/ha-octopus-energy-japan/blob/main/docs/DIAGNOSTICS_AND_REPAIRS.md"
+# Each issue already carries its own translated title and description, so this link
+# only has to land somewhere useful. Troubleshooting is that place.
+DOCS_BASE: Final = (
+    "https://github.com/SteveShin323/ha-octopus-energy-japan/blob/main/README.md#troubleshooting"
+)
 
 # A direction that has not produced a reading for this long is reported. OEJP
 # publishes half-hourly readings with normal delays of several hours, and the
@@ -72,7 +76,7 @@ def _apply(
         severity=severity,
         translation_key=issue.value,
         translation_placeholders=placeholders,
-        learn_more_url=f"{DOCS_BASE}#{issue.value.replace('_', '-')}",
+        learn_more_url=DOCS_BASE,
     )
 
 
