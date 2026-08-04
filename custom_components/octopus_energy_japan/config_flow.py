@@ -31,6 +31,17 @@ from .runtime import (
 _LOGGER = logging.getLogger(__name__)
 _TRANSIENT_ERRORS = (OejpRateLimitError, OejpTransportError)
 
+# Home Assistant picks the OAuth redirect URI in
+# `config_entry_oauth2_flow.async_get_redirect_uri`: the shared
+# `https://my.home-assistant.io/redirect/oauth` when the `my` integration is
+# loaded, otherwise this instance's own `/auth/external/callback` URL. Only the
+# shared one was submitted to OEJP for registration, because one static URI is
+# what lets a single public client serve every installation. Without `my`, the
+# flow would send an unregistered redirect URI and the user would land on the
+# provider's own error page mid-sign-in, with nothing naming this integration as
+# the cause. Fail here instead, while the message can still explain itself.
+_MY_HOME_ASSISTANT_DOMAIN = "my"
+
 
 class OctopusEnergyJapanConfigFlow(
     config_entry_oauth2_flow.AbstractOAuth2FlowHandler,
@@ -46,6 +57,16 @@ class OctopusEnergyJapanConfigFlow(
     def logger(self) -> logging.Logger:
         """Return the flow logger."""
         return _LOGGER
+
+    @override
+    async def async_step_user(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> ConfigFlowResult:
+        """Refuse to start sign-in when the redirect URI would be unregistered."""
+        if _MY_HOME_ASSISTANT_DOMAIN not in self.hass.config.components:
+            return self.async_abort(reason="my_home_assistant_required")
+        return await super().async_step_user(user_input)
 
     @override
     async def async_oauth_create_entry(self, data: dict[str, Any]) -> ConfigFlowResult:

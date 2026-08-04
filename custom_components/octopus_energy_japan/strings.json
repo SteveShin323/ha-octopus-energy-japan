@@ -24,6 +24,7 @@
       "cannot_connect": "Could not connect to Octopus Energy Japan",
       "missing_configuration": "[%key:common::config_flow::abort::oauth2_missing_configuration%]",
       "missing_credentials": "Add an application credential first. Home Assistant needs the public OAuth client ID that Octopus Energy Japan issues for this integration, under Settings > Devices & services > Application credentials. Octopus Energy Japan has not issued one yet, so setup cannot be completed.",
+      "my_home_assistant_required": "My Home Assistant must be enabled. Signing in to Octopus Energy Japan returns you through my.home-assistant.io, which is the single redirect address registered for this integration. Without it, Octopus Energy Japan would reject the sign-in with an error of its own. Add \"my:\" to your configuration.yaml, or restore \"default_config:\", then restart Home Assistant.",
       "no_historical_resources": "No historical accounts or supply points were discovered",
       "no_url_available": "[%key:common::config_flow::abort::oauth2_no_url_available%]",
       "oauth_error": "[%key:common::config_flow::abort::oauth2_error%]",

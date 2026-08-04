@@ -47,7 +47,20 @@ Two parts of this decision are **not** yet supported by that document:
   unadvertised.
 
 Neither is proof of absence, and no other approach is open to a HACS integration,
-so the decision stands. Both are now explicit questions in
+so the decision stands. Both were submitted to OEJP as required specification with
+the application request, and what a reply must confirm is recorded in
 [`OAUTH_APPLICATION_STATUS.md`](../OAUTH_APPLICATION_STATUS.md). If a client secret
 turns out to be mandatory, this ADR must be superseded rather than worked around,
 because a distributed secret is not a secret.
+
+## Redirect URI consequence, 2026-08-04
+
+A single public client can only be registered against a single redirect URI, and
+`https://my.home-assistant.io/redirect/oauth` is the one Home Assistant provides
+for exactly this purpose. Home Assistant chooses it only when the `my` integration
+is loaded; otherwise it builds this instance's own callback URL, which OEJP will
+not have registered.
+
+The config flow therefore aborts with a translated message when `my` is absent,
+rather than letting the user reach the provider's unregistered-redirect error
+part-way through sign-in.

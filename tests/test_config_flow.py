@@ -18,6 +18,7 @@ from custom_components.octopus_energy_japan.api import (
     OejpTransportError,
     ResourceLifecycle,
 )
+from custom_components.octopus_energy_japan.config_flow import OctopusEnergyJapanConfigFlow
 from custom_components.octopus_energy_japan.const import (
     CONF_ENABLED_HISTORICAL_RESOURCES,
     DOMAIN,
@@ -56,6 +57,16 @@ TOKEN = {
     "refresh_token": "refresh",
     "expires_in": 3600,
 }
+
+
+@pytest.fixture(autouse=True)
+def my_home_assistant_enabled(hass: HomeAssistant) -> None:
+    """Load `my`, as every default Home Assistant installation does.
+
+    Without it Home Assistant would build a redirect URI OEJP has not registered,
+    and the flow refuses to start. That refusal has its own test below.
+    """
+    hass.config.components.add("my")
 
 
 class FakeOAuth2Implementation(config_entry_oauth2_flow.AbstractOAuth2Implementation):
@@ -355,6 +366,88 @@ async def test_first_run_without_application_credentials_tells_the_user_where_to
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "missing_credentials"
+
+
+@pytest.mark.parametrize(
+    ("data", "metadata", "reason"),
+    [
+        ({"token": dict(TOKEN)}, None, "oauth_metadata_unavailable"),
+        ({}, METADATA, "oauth_metadata_unavailable"),
+        ({"token": {"refresh_token": "refresh"}}, METADATA, "oauth_identity_unavailable"),
+        ({"token": {"access_token": ""}}, METADATA, "oauth_identity_unavailable"),
+    ],
+)
+async def test_unusable_token_response_aborts_before_calling_the_api(
+    hass: HomeAssistant,
+    data: dict[str, Any],
+    metadata: OejpOAuthMetadata | None,
+    reason: str,
+) -> None:
+    """A token response the flow cannot use must not reach the API.
+
+    Without an access token there is nothing to authenticate with, and without
+    metadata the header scheme and issuer are unknown, so neither the request nor
+    the resulting unique ID could be formed correctly.
+
+    Home Assistant rejects a malformed token response before this handler runs, so
+    these guards are exercised directly. They are the boundary that keeps a future
+    change upstream from turning an unusable response into a broken entry.
+    """
+    implementation = FakeOAuth2Implementation()
+    implementation.metadata = metadata
+    handler = OctopusEnergyJapanConfigFlow()
+    handler.hass = hass
+    handler.flow_id = "direct"
+    handler.context = {"source": config_entries.SOURCE_USER}
+    handler.flow_impl = implementation
+
+    identity = AsyncMock(return_value=SUBJECT)
+    with patch(
+        "custom_components.octopus_energy_japan.config_flow.async_get_viewer_identity",
+        identity,
+    ):
+        result = await handler.async_oauth_create_entry(data)
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == reason
+    identity.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "source",
+    [config_entries.SOURCE_USER, config_entries.SOURCE_REAUTH],
+)
+async def test_flow_refuses_to_start_without_my_home_assistant(
+    hass: HomeAssistant,
+    source: str,
+) -> None:
+    """Only `https://my.home-assistant.io/redirect/oauth` is registered with OEJP.
+
+    Without `my`, Home Assistant would send this instance's own callback URL, and
+    the user would meet the provider's unregistered-redirect error part-way through
+    sign-in with nothing naming this integration. Refuse first, while the message
+    can still explain what to do.
+    """
+    hass.config.components.remove("my")
+    await async_setup_component(hass, "application_credentials", {})
+    await async_import_client_credential(
+        hass,
+        DOMAIN,
+        ClientCredential("public-client", ""),
+    )
+    entry = MockConfigEntry(domain=DOMAIN, data={"auth_implementation": DOMAIN})
+    entry.add_to_hass(hass)
+
+    context: dict[str, Any] = {"source": source}
+    if source == config_entries.SOURCE_REAUTH:
+        context["entry_id"] = entry.entry_id
+    result = await hass.config_entries.flow.async_init(DOMAIN, context=context)
+    if source == config_entries.SOURCE_REAUTH:
+        assert result["step_id"] == "reauth_confirm"
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "my_home_assistant_required"
 
 
 @pytest.mark.usefixtures("current_request_with_host")

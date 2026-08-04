@@ -53,6 +53,13 @@ services → Add integration → Octopus Energy Japan**.
 Sign-in happens on the OEJP website, in your browser. The integration never asks
 for your OEJP password and cannot see it.
 
+**My Home Assistant must be enabled.** It is part of `default_config:`, so a normal
+installation already has it. Sign-in returns through `my.home-assistant.io`, which
+is the one redirect address registered with OEJP, and which forwards the result to
+your own instance. If you run a stripped-down configuration, add `my:` to
+`configuration.yaml`. The integration stops with an explanatory message rather than
+letting OEJP reject the sign-in for a redirect address it does not recognise.
+
 If you try to add the integration before registering an application credential,
 Home Assistant stops with a message telling you to add one first. That is the
 expected behaviour today, because no client ID exists to register.
@@ -171,6 +178,7 @@ anything. Usually you do not.
 
 | Symptom | Likely cause |
 |---|---|
+| Setup says My Home Assistant is required | `my` is not loaded; add `my:` or restore `default_config:` and restart |
 | Totals say **unknown** | the period is not fully covered yet; normal soon after install |
 | Latest interval is hours old | normal OEJP publishing delay; check *Data delay* |
 | Entities went unavailable together | a refresh failed; the integration retries automatically |
