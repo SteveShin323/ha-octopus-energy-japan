@@ -1,0 +1,91 @@
+name: Bug report
+description: Something the integration does is wrong. バグの報告。
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please attach the **diagnostics download**, not logs. It is designed to be
+        safe to publish: no token, email address, account number, supply-point
+        number, address, reading value, or monetary amount. You do not need to
+        review it first.
+
+        ログではなく **診断情報のダウンロード** を添付してください。個人情報は
+        含まれないため、中身を確認せずに添付できます。
+
+        Do not paste your account number or supply-point number anywhere in this
+        report. 契約番号・供給地点特定番号は記入しないでください。
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Before you submit
+      options:
+        - label: I have not included my account number, supply-point number, address, or any token.
+          required: true
+        - label: I checked Settings → System → Repairs, and the message there did not explain this.
+          required: true
+
+  - type: textarea
+    id: what-happens
+    attributes:
+      label: What happens
+      description: What you observe. 実際に起きていること。
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-expected
+    attributes:
+      label: What you expected
+      description: 期待していた動作。
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part
+      options:
+        - Setup or sign-in / セットアップ・サインイン
+        - Consumption entities / 使用量エンティティ
+        - Calendar totals / 期間の集計
+        - Energy Dashboard statistics / Energy Dashboard の統計
+        - Account, contract, or billing entities / アカウント・契約・請求
+        - Repair message or diagnostics / 修復メッセージ・診断情報
+        - Something else / その他
+    validations:
+      required: true
+
+  - type: input
+    id: integration-version
+    attributes:
+      label: Integration version
+      description: From HACS, or the version in the diagnostics file.
+    validations:
+      required: true
+
+  - type: input
+    id: ha-version
+    attributes:
+      label: Home Assistant version
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: >-
+        Attach the file from the integration's menu, or paste its contents. 統合の
+        メニューから診断情報をダウンロードして添付してください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: anything-else
+    attributes:
+      label: Anything else
+      description: >-
+        When it started, whether it happens every refresh, what you already tried.
+        いつから、毎回起きるか、試したこと。

@@ -41,7 +41,7 @@
     }
   },
   "application_credentials": {
-    "description": "Enter the public OAuth client ID issued by Octopus Energy Japan. Do not enter or distribute a confidential client secret."
+    "description": "Enter the public OAuth client ID that Octopus Energy Japan issued for this integration.\n\nLeave the client secret empty. This integration is a public client and must never hold a secret, because anything shipped to every installation is not secret.\n\nOEJP has not issued a client ID yet and offers no self-service registration, so there is currently no value to enter. Progress is tracked in the project's OAuth application status document."
   },
   "entity": {
     "binary_sensor": {

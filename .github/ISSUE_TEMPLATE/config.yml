@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question about using the integration
+    url: https://github.com/SteveShin323/ha-octopus-energy-japan/discussions
+    about: Ask in Discussions. Please do not post your account number, supply-point number, or raw logs.
+  - name: Security or privacy report
+    url: https://github.com/SteveShin323/ha-octopus-energy-japan/security/policy
+    about: Report privately. Never open a public issue for a security or privacy problem.
+  - name: Octopus Energy Japan account, meter, or billing問題
+    url: https://octopusenergy.co.jp
+    about: Contact Octopus Energy Japan directly. This project is unofficial and cannot help with your contract, meter, or bill.

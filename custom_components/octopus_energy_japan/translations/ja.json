@@ -1,6 +1,6 @@
 {
   "application_credentials": {
-    "description": "Octopus Energy Japan から発行されたパブリック OAuth クライアント ID を入力してください。コンフィデンシャルクライアントのシークレットを入力または配布しないでください。"
+    "description": "この連携のために Octopus Energy Japan から発行されたパブリック OAuth クライアント ID を入力してください。\n\nクライアントシークレットは空のままに してください。本連携はパブリッククライアントであり、すべての利用者に配布される 値は秘密になり得ないため、シークレットを保持しません。\n\n現時点で OEJP は クライアント ID を発行しておらず、利用者自身が登録する手段もないため、入力できる 値はまだありません。進捗はプロジェクトの OAuth application status 文書に 記録しています。"
   },
   "config": {
     "abort": {
