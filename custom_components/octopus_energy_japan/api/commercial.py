@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Iterator, Mapping
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import Any
@@ -106,6 +106,14 @@ query AccountCommercialBilling($accountNumber: String!) {
       }
     }
     ledgers {
+      statements(first: 1, orderBy: FINALIZED_AT_DESC) {
+        edges {
+          node {
+            id
+            dueDate
+          }
+        }
+      }
       transactions(first: 1, orderBy: POSTED_DATE_DESC) {
         edges {
           node {
@@ -126,6 +134,15 @@ query AccountCommercialBilling($accountNumber: String!) {
   }
 }
 """
+# The payment due date is read from the ledger's statement, because the `bills` connection
+# does not reach it. On a real account the newest bill arrives as `PeriodBasedDocumentType`
+# with `billType: STATEMENT`, so every field behind `... on StatementType` — `paymentDueDate`
+# and `status` among them — resolves to nothing. `StatementBillingDocumentType.dueDate` is
+# the same date on the same document, and the two share an id, which is how they are matched
+# rather than assuming the newest of each connection correspond. `status` has no equivalent:
+# `documentDebtPosition` is null and `isFinal` is null, both measured, so it stays absent
+# instead of being filled with a guess.
+#
 # Transactions are read from the ledger, not from `account.transactions`. Measured against
 # a real account on 2026-08-04: `account.transactions` returned an empty connection while
 # `ledgers[].transactions` returned three — a payment, a charge, and a credit, with posted
@@ -422,10 +439,49 @@ def parse_account_billing(
     bill_nodes = _connection_nodes(bills, "Bill")
     if len(bill_nodes) > 1:
         raise OejpInvalidResponseError("Billing response exceeded the requested result limit")
-    return (
-        _parse_bill(bill_nodes[0]) if bill_nodes else None,
-        _latest_ledger_transaction(account),
-    )
+    bill = _parse_bill(bill_nodes[0]) if bill_nodes else None
+    if bill is not None and bill.due_date is None:
+        bill = _with_statement_due_date(bill, account)
+    return bill, _latest_ledger_transaction(account)
+
+
+def _with_statement_due_date(bill: BillSummary, account: Mapping[str, Any]) -> BillSummary:
+    """Fill in the due date from the ledger statement describing the same document.
+
+    The bill only carries `paymentDueDate` when it resolves as `StatementType`, and on a
+    real account it resolves as `PeriodBasedDocumentType` instead. The ledger's statement
+    is the same document — same id — and does carry the date.
+
+    The ids are compared as text because the bill's is an `ID` and the statement's an `Int`.
+    A statement that does not match is ignored rather than borrowed from: a due date from a
+    different billing period is worse than none.
+    """
+    for statement in _iter_statements(account):
+        if _optional_string(str(statement.get("id"))) != bill.id:
+            continue
+        due_date = _optional_date(statement.get("dueDate"), "Statement dueDate")
+        if due_date is not None:
+            return replace(bill, due_date=due_date)
+    return bill
+
+
+def _iter_statements(account: Mapping[str, Any]) -> Iterator[Mapping[str, Any]]:
+    """Yield each ledger's newest statement, tolerating a nulled selection."""
+    ledgers = account.get("ledgers")
+    if ledgers is None:
+        return
+    for value in _required_list(ledgers, "Billing response returned malformed ledgers"):
+        ledger = _required_mapping(value, "Billing response contained a malformed ledger")
+        statements = ledger.get("statements")
+        if statements is None:
+            continue
+        nodes = _connection_nodes(
+            _required_mapping(statements, "Billing response returned malformed statements"),
+            "Statement",
+        )
+        if len(nodes) > 1:
+            raise OejpInvalidResponseError("Billing response exceeded the requested result limit")
+        yield from nodes
 
 
 def _latest_ledger_transaction(account: Mapping[str, Any]) -> TransactionSummary | None:

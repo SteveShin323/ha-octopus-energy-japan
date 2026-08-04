@@ -392,6 +392,32 @@ product and rate connection and follows `endCursor` pagination.
 fragments for `StatementType`, `PeriodBasedDocumentType`, and `InvoiceType`, plus
 the single newest transaction **from each of the account's ledgers**.
 
+**The payment due date is on the ledger's statement, not on the bill.** On a real
+account the newest `bills` node resolves as `PeriodBasedDocumentType` while
+reporting `billType: STATEMENT`, so every field behind `... on StatementType` —
+`paymentDueDate` and `status` among them — resolves to nothing. The
+`latest_bill_due` sensor was therefore permanently empty, in the same way and for
+the same kind of reason as the transaction sensor. `LedgerType.statements` returns
+the same document as `StatementBillingDocumentType`, which does carry `dueDate`.
+The two share an id, so they are matched on it rather than by assuming the newest
+node of each connection corresponds; the bill's id is an `ID` and the statement's
+an `Int`, so the comparison is textual. `statements` is ordered
+`FINALIZED_AT_DESC`, because the connection's first node is otherwise not the
+newest.
+
+`status` is deliberately left absent for these documents. Nothing recovers it:
+`documentDebtPosition` is null and `StatementBillingDocumentType.isFinal` is null,
+both measured on 2026-08-04. A guessed settled/outstanding value would be worse
+than none.
+
+The bill *amount* needed no change, and the check that established this is worth
+recording because an earlier comparison suggested otherwise. `PeriodBasedDocumentType`
+and `StatementBillingDocumentType` report identical `totalCharges` — net, tax and
+gross — on the same document, and the customer's cleared payment settles exactly
+that gross. The earlier "the totals differ" reading came from comparing against
+`totalCharges` on a fragment that had not been requested for the type that was
+returned, so the field was simply absent.
+
 **Transactions live on the ledger, not on the account.** `Account.transactions`
 exists, is readable, and returns an empty connection. `LedgerType.transactions`
 returns the customer's actual activity. Measured on 2026-08-04 against a real

@@ -630,3 +630,154 @@ def test_a_malformed_ledger_shape_is_rejected_rather_than_ignored(
 
     with pytest.raises(OejpInvalidResponseError, match=message):
         parse_account_billing(payload, ACCOUNT)
+
+
+def _period_billing() -> dict[str, object]:
+    """A real account's shape: the bill resolves as a period document, not a statement.
+
+    The `bills` connection returns `PeriodBasedDocumentType` with `billType: STATEMENT`, so
+    every field behind `... on StatementType` is absent. The default fixture uses
+    `StatementType`, which is why the empty due date went unnoticed until it was measured.
+    """
+    payload = deepcopy(_billing())
+    node = payload["account"]["bills"]["edges"][0]["node"]  # type: ignore[index]
+    node.pop("statementTotalCharges")
+    node.pop("paymentDueDate")
+    node.pop("status")
+    node.update(
+        {
+            "__typename": "PeriodBasedDocumentType",
+            "periodTotalCharges": {"grossTotal": 8765},
+            "periodIsAnnulled": False,
+            "periodIsHeld": False,
+        }
+    )
+    # The statement's id is an `Int` where the bill's is an `ID`, and they describe the same
+    # document.
+    payload["account"]["ledgers"][0]["statements"] = {  # type: ignore[index]
+        "edges": [{"node": {"id": 1, "dueDate": "2026-07-31"}}]
+    }
+    node["id"] = "1"
+    return payload
+
+
+def test_the_due_date_comes_from_the_ledger_statement_when_the_bill_has_none() -> None:
+    bill, _ = parse_account_billing(_period_billing(), ACCOUNT)
+
+    assert bill is not None
+    assert bill.type_name == "PeriodBasedDocumentType"
+    assert bill.due_date is not None
+    assert bill.due_date.isoformat() == "2026-07-31"
+
+
+def test_the_statements_query_asks_for_the_newest_finalised_first() -> None:
+    """Without an order the connection's first node is not the newest statement."""
+    assert "statements(first: 1, orderBy: FINALIZED_AT_DESC)" in ACCOUNT_BILLING_QUERY
+
+
+def test_a_statement_for_a_different_document_does_not_lend_its_due_date() -> None:
+    """A due date from another billing period is worse than no due date at all."""
+    payload = _period_billing()
+    payload["account"]["ledgers"][0]["statements"]["edges"][0]["node"]["id"] = 99  # type: ignore[index]
+
+    bill, _ = parse_account_billing(payload, ACCOUNT)
+
+    assert bill is not None
+    assert bill.due_date is None
+
+
+def test_a_bill_that_carries_its_own_due_date_is_not_overwritten() -> None:
+    payload = deepcopy(_billing())
+    payload["account"]["ledgers"][0]["statements"] = {  # type: ignore[index]
+        "edges": [{"node": {"id": "bill-1", "dueDate": "2001-01-01"}}]
+    }
+
+    bill, _ = parse_account_billing(payload, ACCOUNT)
+
+    assert bill is not None
+    assert bill.due_date is not None
+    assert bill.due_date.isoformat() == "2026-07-31"
+
+
+def test_the_bill_status_is_left_absent_rather_than_invented() -> None:
+    """Nothing recovers `StatementType.status` for a period document.
+
+    Measured on the real account: `documentDebtPosition` is null and
+    `StatementBillingDocumentType.isFinal` is null, so there is no settled/outstanding
+    signal to substitute. Reporting a guessed status would be worse than reporting none.
+    """
+    bill, _ = parse_account_billing(_period_billing(), ACCOUNT)
+
+    assert bill is not None
+    assert bill.status is None
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda ledger: ledger.update(statements=None),
+        lambda ledger: ledger.pop("statements"),
+        lambda ledger: ledger["statements"].update(edges=[]),
+        lambda ledger: ledger["statements"]["edges"][0]["node"].update(dueDate=None),
+    ],
+    ids=["nulled", "absent", "no-edges", "nulled-due-date"],
+)
+def test_an_unusable_statement_leaves_the_due_date_absent(mutate: object) -> None:
+    payload = _period_billing()
+    mutate(payload["account"]["ledgers"][0])  # type: ignore[operator, index]
+
+    bill, _ = parse_account_billing(payload, ACCOUNT)
+
+    assert bill is not None
+    assert bill.due_date is None
+
+
+def test_a_malformed_statements_connection_is_rejected() -> None:
+    payload = _period_billing()
+    payload["account"]["ledgers"][0]["statements"] = ["not a mapping"]  # type: ignore[index]
+
+    with pytest.raises(OejpInvalidResponseError, match="malformed statements"):
+        parse_account_billing(payload, ACCOUNT)
+
+
+def test_more_statements_than_requested_is_rejected() -> None:
+    payload = _period_billing()
+    edges = payload["account"]["ledgers"][0]["statements"]["edges"]  # type: ignore[index]
+    edges.append(deepcopy(edges[0]))
+
+    with pytest.raises(OejpInvalidResponseError, match="result limit"):
+        parse_account_billing(payload, ACCOUNT)
+
+
+def test_more_bills_than_requested_is_rejected() -> None:
+    """The bill excess guard is separate from the transaction one and needs its own case."""
+    payload = deepcopy(_billing())
+    edges = payload["account"]["bills"]["edges"]  # type: ignore[index]
+    edges.append(deepcopy(edges[0]))
+
+    with pytest.raises(OejpInvalidResponseError, match="result limit"):
+        parse_account_billing(payload, ACCOUNT)
+
+
+def test_a_period_bill_with_no_ledgers_at_all_keeps_an_absent_due_date() -> None:
+    """The statement lookup must tolerate the partial response the transaction read does."""
+    payload = _period_billing()
+    payload["account"]["ledgers"] = None  # type: ignore[index]
+
+    bill, transaction = parse_account_billing(payload, ACCOUNT)
+
+    assert bill is not None
+    assert bill.due_date is None
+    assert transaction is None
+
+
+def test_a_ledger_with_no_transactions_is_skipped_rather_than_ending_the_search() -> None:
+    """A second ledger holding the only transaction must still be found."""
+    payload = deepcopy(_billing())
+    empty = {"transactions": {"edges": []}}
+    payload["account"]["ledgers"] = [empty, payload["account"]["ledgers"][0]]  # type: ignore[index]
+
+    _, transaction = parse_account_billing(payload, ACCOUNT)
+
+    assert transaction is not None
+    assert transaction.id == "transaction-1"
