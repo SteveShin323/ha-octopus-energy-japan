@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from typing import Any
 
@@ -33,6 +32,12 @@ query AccountCommercialOverview($accountNumber: String!) {
 }
 """
 
+# `product.rates` is deliberately not requested. An account user is not authorised to
+# read it: on 2026-08-04 asking for it returned `AUTHORIZATION/KT-CT-1111` at
+# `account.marketSupplyAgreements.edges.0.node.product.rates`, and because GraphQL
+# propagates that error to the nearest nullable parent, the whole `product` came back
+# null — so the current product name was lost to fetch a field this integration never
+# publishes. Removing it resolves the product and removes the error entirely.
 ACCOUNT_AGREEMENTS_QUERY = """
 query AccountCommercialAgreements($accountNumber: String!, $after: String) {
   account(accountNumber: $accountNumber) {
@@ -52,19 +57,6 @@ query AccountCommercialAgreements($accountNumber: String!, $after: String) {
             displayName
             fullName
             marketName
-            rates {
-              name
-              category
-              pricePerUnit
-              unit
-              unitDisplay
-              currency
-              isSalesTax
-              validityPeriod {
-                start
-                end
-              }
-            }
           }
         }
       }
@@ -185,21 +177,6 @@ class AgreementPage:
 
 
 @dataclass(frozen=True, slots=True)
-class ProductRate:
-    """One applicable product rate exactly as the provider denominates it."""
-
-    name: str
-    category: str | None
-    price_per_unit: Decimal | None
-    unit: str | None
-    unit_display: str | None
-    currency: str | None
-    is_sales_tax: bool
-    valid_from: datetime | None
-    valid_to: datetime | None
-
-
-@dataclass(frozen=True, slots=True)
 class ProductSummary:
     """Supply product attached to an agreement."""
 
@@ -208,7 +185,6 @@ class ProductSummary:
     display_name: str | None
     full_name: str | None
     market_name: str | None
-    rates: tuple[ProductRate, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -469,37 +445,12 @@ def _parse_agreement(value: Mapping[str, Any]) -> AgreementSummary:
 
 
 def _parse_product(value: Mapping[str, Any]) -> ProductSummary:
-    rates = _required_list(value.get("rates"), "Product response was missing rates")
     return ProductSummary(
         id=_required_identifier(value, "id", "Product"),
         code=_optional_string(value.get("code")),
         display_name=_optional_string(value.get("displayName")),
         full_name=_optional_string(value.get("fullName")),
         market_name=_optional_string(value.get("marketName")),
-        rates=tuple(
-            _parse_product_rate(_required_mapping(rate, "Product rate was malformed"))
-            for rate in rates
-        ),
-    )
-
-
-def _parse_product_rate(value: Mapping[str, Any]) -> ProductRate:
-    period = value.get("validityPeriod")
-    validity = (
-        _required_mapping(period, "Product rate validityPeriod was malformed")
-        if period is not None
-        else {}
-    )
-    return ProductRate(
-        name=_required_identifier(value, "name", "Product rate"),
-        category=_optional_string(value.get("category")),
-        price_per_unit=_optional_decimal(value.get("pricePerUnit"), "Product rate pricePerUnit"),
-        unit=_optional_string(value.get("unit")),
-        unit_display=_optional_string(value.get("unitDisplay")),
-        currency=_optional_string(value.get("currency")),
-        is_sales_tax=_optional_bool(value.get("isSalesTax"), "Product rate isSalesTax") or False,
-        valid_from=_optional_datetime(validity.get("start"), "Product rate validityPeriod start"),
-        valid_to=_optional_datetime(validity.get("end"), "Product rate validityPeriod end"),
     )
 
 
@@ -673,20 +624,6 @@ def _optional_bool(value: object, context: str) -> bool | None:
     return _required_bool(value, context)
 
 
-def _optional_decimal(value: object, context: str) -> Decimal | None:
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, str | int | float):
-        raise OejpInvalidResponseError(f"{context} was malformed")
-    try:
-        parsed = Decimal(str(value))
-    except (InvalidOperation, ValueError) as err:
-        raise OejpInvalidResponseError(f"{context} was malformed") from err
-    if not parsed.is_finite():
-        raise OejpInvalidResponseError(f"{context} was malformed")
-    return parsed
-
-
 def _required_datetime(value: object, context: str) -> datetime:
     parsed = _optional_datetime(value, context)
     if parsed is None:
@@ -737,7 +674,6 @@ __all__ = [
     "CommercialAccess",
     "CommercialAvailability",
     "CommercialFeature",
-    "ProductRate",
     "ProductSummary",
     "TransactionSummary",
     "async_fetch_account_commercial_snapshot",

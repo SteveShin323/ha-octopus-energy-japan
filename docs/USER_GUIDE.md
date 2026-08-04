@@ -192,8 +192,12 @@ charge at all. Showing it as your cost would carry provider authority for a figu
 no line of your bill supports. The evidence is in
 [`CONTRACT_AND_BILLING.md`](CONTRACT_AND_BILLING.md).
 
-**No tariff unit prices.** OEJP returns rates keyed by an untyped provider payload,
-with no reliable way to tell which one applies to your supply point.
+**No tariff unit prices.** An account cannot read them. Asking for `product.rates`
+returns an authorisation error, and because that error propagates upward it also nulls
+the product it belongs to — so the integration deliberately does not request rates, and
+your current plan name appears as a result. Even if they were readable, they are keyed
+by an untyped provider payload with no reliable way to tell which one applies to your
+supply point.
 
 **No `kWh × unit price` estimate.** A Japanese electricity bill combines tiered
 energy pricing, a fixed daily charge, a monthly fuel-cost adjustment, a renewable

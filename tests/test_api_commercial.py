@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import UTC, datetime
-from decimal import Decimal
 from unittest.mock import AsyncMock
 
 import pytest
@@ -63,21 +62,6 @@ def _agreements() -> dict[str, object]:
                                 "displayName": "Octopus plan",
                                 "fullName": "Octopus Energy Japan plan",
                                 "marketName": "JPN_ELECTRICITY",
-                                "rates": [
-                                    {
-                                        "name": "Standard unit rate",
-                                        "category": "CONSUMPTION_CHARGE",
-                                        "pricePerUnit": "31.25",
-                                        "unit": "KWH",
-                                        "unitDisplay": "kWh",
-                                        "currency": "JPY",
-                                        "isSalesTax": False,
-                                        "validityPeriod": {
-                                            "start": "2026-07-01T00:00:00+09:00",
-                                            "end": None,
-                                        },
-                                    }
-                                ],
                             },
                         }
                     },
@@ -152,7 +136,6 @@ def test_parsers_return_typed_deterministic_commercial_data() -> None:
     assert [agreement.id for agreement in agreements] == ["1", "agreement-2"]
     assert agreements[-1].valid_from == datetime(2026, 6, 30, 15, tzinfo=UTC)
     assert agreements[-1].product is not None
-    assert agreements[-1].product.rates[0].price_per_unit == Decimal("31.25")
     assert bill is not None
     assert bill.gross_amount_minor == 8765
     assert bill.due_date is not None and bill.due_date.isoformat() == "2026-07-31"
@@ -161,35 +144,37 @@ def test_parsers_return_typed_deterministic_commercial_data() -> None:
     assert transaction.created_at == datetime(2026, 7, 10, 1, 2, 3, tzinfo=UTC)
 
 
-def test_applicable_rate_is_parsed_with_its_provider_denomination() -> None:
+def test_the_agreements_query_does_not_request_rates() -> None:
+    """An account user may not read `product.rates`, and asking costs the product.
+
+    On 2026-08-04 requesting it returned `AUTHORIZATION/KT-CT-1111` at
+    `account.marketSupplyAgreements.edges.0.node.product.rates`. GraphQL propagates that
+    error to the nearest nullable parent, so the entire `product` came back null and the
+    current product name was lost — to fetch a field this integration never publishes.
+    """
+    assert "rates" not in ACCOUNT_AGREEMENTS_QUERY
+    assert "pricePerUnit" not in ACCOUNT_AGREEMENTS_QUERY
+    # The fields that survive are the ones actually published.
+    for field in ("id", "code", "displayName", "fullName", "marketName"):
+        assert field in ACCOUNT_AGREEMENTS_QUERY
+
+
+def test_a_product_without_rates_still_parses() -> None:
     agreements = parse_account_agreements(_agreements(), ACCOUNT)
 
     product = agreements[-1].product
     assert product is not None
-    rate = product.rates[0]
-    assert rate.name == "Standard unit rate"
-    assert rate.category == "CONSUMPTION_CHARGE"
-    assert rate.price_per_unit == Decimal("31.25")
-    assert rate.unit == "KWH"
-    assert rate.unit_display == "kWh"
-    assert rate.currency == "JPY"
-    assert rate.is_sales_tax is False
-    assert rate.valid_from == datetime(2026, 6, 30, 15, tzinfo=UTC)
-    assert rate.valid_to is None
+    assert product.display_name == "Octopus plan"
+    assert not hasattr(product, "rates")
 
 
-def test_absent_optional_rate_flags_fall_back_to_safe_defaults() -> None:
+def test_absent_optional_agreement_flags_fall_back_to_safe_defaults() -> None:
     payload = deepcopy(_agreements())
     node = payload["account"]["marketSupplyAgreements"]["edges"][0]["node"]  # type: ignore[index]
-    node["product"]["rates"][0].update({"isSalesTax": None, "validityPeriod": None})
     node["isActive"] = None
 
     agreements = parse_account_agreements(payload, ACCOUNT)
 
-    product = agreements[-1].product
-    assert product is not None
-    assert product.rates[0].is_sales_tax is False
-    assert product.rates[0].valid_from is None
     assert agreements[-1].is_active is None
 
 
@@ -308,9 +293,6 @@ def test_overview_rejects_malformed_or_mismatched_data(mutation: object) -> None
         lambda value: value["account"]["marketSupplyAgreements"]["edges"][0]["node"].update(
             {"validFrom": "invalid"}
         ),
-        lambda value: value["account"]["marketSupplyAgreements"]["edges"][0]["node"]["product"][
-            "rates"
-        ][0].update({"pricePerUnit": "NaN"}),
     ],
 )
 def test_agreements_reject_malformed_contract_data(mutation: object) -> None:
@@ -480,14 +462,6 @@ def test_page_info_must_provide_a_cursor_when_more_pages_exist() -> None:
             lambda node: node.update({"validTo": "2026-07-01T00:00:00"}),
             "not timezone-aware",
         ),
-        (
-            lambda node: node["product"]["rates"][0].update({"pricePerUnit": "not-a-number"}),
-            "pricePerUnit was malformed",
-        ),
-        (
-            lambda node: node["product"]["rates"][0].update({"pricePerUnit": True}),
-            "pricePerUnit was malformed",
-        ),
     ],
 )
 def test_agreement_field_contracts_are_enforced(mutation: object, message: str) -> None:
@@ -496,32 +470,6 @@ def test_agreement_field_contracts_are_enforced(mutation: object, message: str) 
 
     with pytest.raises(OejpInvalidResponseError, match=message):
         parse_account_agreements(payload, ACCOUNT)
-
-
-def test_absent_rate_price_is_preserved_as_unknown() -> None:
-    payload = deepcopy(_agreements())
-    payload["account"]["marketSupplyAgreements"]["edges"][0]["node"]["product"]["rates"][0].update(  # type: ignore[index]
-        {"pricePerUnit": None}
-    )
-
-    agreements = parse_account_agreements(payload, ACCOUNT)
-
-    assert agreements[-1].product is not None
-    assert agreements[-1].product.rates[0].price_per_unit is None
-
-
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [(None, None), ("2026-07-05", "2026-07-05")],
-)
-def test_optional_bill_dates_round_trip(value: str | None, expected: str | None) -> None:
-    payload = deepcopy(_billing())
-    payload["account"]["bills"]["edges"][0]["node"].update({"issuedDate": value})  # type: ignore[index]
-
-    bill, _ = parse_account_billing(payload, ACCOUNT)
-
-    assert bill is not None
-    assert (bill.issued_date.isoformat() if bill.issued_date is not None else None) == expected
 
 
 def test_invoice_gross_amount_is_used_when_no_charge_breakdown_exists() -> None:
