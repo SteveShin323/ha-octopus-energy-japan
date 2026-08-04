@@ -132,7 +132,7 @@ ENERGY_DESCRIPTIONS: tuple[OejpSensorEntityDescription, ...] = (
 # Provider-issued cost is intentionally absent here. Every projection of OEJP
 # `costEstimate` stays unpublished until the currency, permission, interval
 # coverage, and correction semantics are confirmed. See
-# `docs/CONTRACT_AND_BILLING.md`.
+# `docs/API_CONTRACTS.md`.
 COMMERCIAL_DESCRIPTIONS: tuple[OejpCommercialSensorEntityDescription, ...] = (
     OejpCommercialSensorEntityDescription(
         key="account_status",

@@ -54,7 +54,7 @@ _RECORDER_DOMAIN = "recorder"
 # windows are JST calendar months — the fuel adjustment observed on 2026-08-04 ran from
 # 2026-08-01 00:00 JST to 2026-09-01 00:00 JST, and the levy from 2026-05-01 JST — so that
 # is the boundary this follows. It is not the billing period, which ends at a meter read a
-# few hours after midnight; `docs/ENERGY_STATISTICS.md` records the measured difference.
+# few hours after midnight; `docs/ARCHITECTURE.md` records the measured difference.
 TOKYO = ZoneInfo("Asia/Tokyo")
 
 
@@ -184,7 +184,7 @@ class HomeAssistantStatisticsProjector:
 
         The Energy dashboard cannot price an external statistic itself — it builds a cost
         sensor only for a real entity — so a cost statistic published here is the only way
-        `stat_cost` can be filled. See `docs/ENERGY_STATISTICS.md`.
+        `stat_cost` can be filled. See `docs/ARCHITECTURE.md`.
         """
         if self._tariff_lookup is None:
             return
@@ -323,7 +323,7 @@ def _metadata(
         )
     # Both remaining kinds are money. "cost" is the tariff-derived one a user selects in
     # the Energy dashboard; "official cost" is the provider's own per-interval estimate,
-    # which is not published — see `docs/CONTRACT_AND_BILLING.md`.
+    # which is not published — see `docs/API_CONTRACTS.md`.
     what = "cost" if series.key.kind is StatisticKind.TARIFF_COST else "official cost"
     return StatisticMetaData(
         mean_type=StatisticMeanType.NONE,

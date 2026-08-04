@@ -43,7 +43,7 @@ as an unverified assumption.
 
 Provider cost and product rate components are parsed and retained but not
 projected to entities or statistics until the verification gate in
-[`CONTRACT_AND_BILLING.md`](../CONTRACT_AND_BILLING.md) is closed.
+[`API_CONTRACTS.md`](../API_CONTRACTS.md) is closed.
 
 ## Consequences
 

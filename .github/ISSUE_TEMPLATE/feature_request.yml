@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         Some things are deliberately absent. Please check
-        [known limitations](https://github.com/SteveShin323/ha-octopus-energy-japan/blob/main/docs/USER_GUIDE.md#known-limitations)
+        [known limitations](https://github.com/SteveShin323/ha-octopus-energy-japan/blob/main/README.md#known-limitations)
         first — electricity cost, tariff unit prices, and `kWh × unit price`
         estimates are excluded on purpose, with the evidence recorded.
 
