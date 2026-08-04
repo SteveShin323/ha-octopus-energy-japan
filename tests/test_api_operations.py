@@ -12,7 +12,10 @@ from custom_components.octopus_energy_japan.api import (
     async_discover_accounts,
     async_get_viewer_identity,
 )
-from custom_components.octopus_energy_japan.api.operations import async_obtain_token
+from custom_components.octopus_energy_japan.api.operations import (
+    async_obtain_token,
+    async_renew_token,
+)
 
 
 async def test_obtain_token_parses_all_supported_fields() -> None:
@@ -157,3 +160,32 @@ async def test_get_viewer_identity_rejects_malformed_payload(
 
     with pytest.raises(OejpInvalidResponseError):
         await async_get_viewer_identity(client, "Bearer access")
+
+
+@pytest.mark.parametrize("refresh_token", ["", "   "])
+def test_renewing_without_a_refresh_token_is_a_programming_error(refresh_token: str) -> None:
+    """An empty token would ask the provider to renew nothing, so fail locally."""
+    import asyncio
+
+    with pytest.raises(ValueError, match="refresh token is required"):
+        asyncio.run(async_renew_token(OejpGraphQLClient(AsyncMock()), refresh_token))
+
+
+async def test_renewing_sends_only_the_refresh_token() -> None:
+    """The password must not appear in a renewal request."""
+    client = AsyncMock(spec=OejpGraphQLClient)
+    client.execute.return_value = {
+        "obtainKrakenToken": {
+            "token": "renewed",
+            "refreshToken": "refresh-2",
+            "refreshExpiresIn": "1785326400",
+        }
+    }
+
+    token = await async_renew_token(client, "refresh-1")
+
+    assert token.access_token == "renewed"
+    assert token.refresh_token == "refresh-2"
+    variables = client.execute.await_args.args[1]
+    assert variables == {"input": {"refreshToken": "refresh-1"}}
+    assert "password" not in str(variables)

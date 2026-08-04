@@ -81,7 +81,11 @@ endpoint.
 - An account user gets 50,000 complexity points per hour against an OAuth
   application's 300,000, so this method has one sixth of the headroom. The polling
   cadences are unchanged and stay far inside both.
-- Revocation on removal invalidates only the refresh token the entry holds. Renewal
-  does not rotate refresh tokens, so an account may hold several valid ones;
-  invalidating every token for a user is a broader action this integration does not
-  take on the user's behalf.
+- **Removal cannot revoke the token.** `invalidateRefreshToken` exists in the schema
+  but returned `AUTHORIZATION/KT-CT-1111` when called as the signed-in account user on
+  2026-08-04, and the provider documents `KT-CT-1111` and `KT-CT-1130` Unauthorized for
+  it. `async_revoke` is therefore a documented no-op for this method rather than a
+  request that can never succeed. Removal deletes the local copy, and the refresh token
+  expires at the provider within seven days. Changing the OEJP password is the only way
+  to invalidate it sooner. OAuth entries still revoke, at the OAuth revocation
+  endpoint.

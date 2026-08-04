@@ -91,7 +91,6 @@ from .operations import (
     OejpToken,
     async_discover_accounts,
     async_get_viewer_identity,
-    async_invalidate_refresh_token,
     async_obtain_token,
     async_renew_token,
 )
@@ -205,7 +204,6 @@ __all__ = [
     "async_discover_resources",
     "async_fetch_account_commercial_snapshot",
     "async_get_viewer_identity",
-    "async_invalidate_refresh_token",
     "async_obtain_token",
     "async_paginate",
     "async_renew_token",
