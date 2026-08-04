@@ -4,10 +4,10 @@ This is the reference for people running the integration. It is the normative
 English documentation; the Japanese version is [`ja/README.md`](ja/README.md).
 
 > [!IMPORTANT]
-> The integration cannot be connected yet. Octopus Energy Japan has not issued an
-> OAuth client ID, and there is no self-service way to create one, so the sign-in
-> step has nothing to authenticate against. Everything else is finished and tested.
-> Progress is tracked in [`OAUTH_APPLICATION_STATUS.md`](OAUTH_APPLICATION_STATUS.md).
+> **The account sign-in is not available yet.** Octopus Energy Japan has not issued an
+> OAuth client ID, and there is no self-service way to create one. Until it does, use
+> the **email and password** method, which works today. Progress on the client ID is
+> tracked in [`OAUTH_APPLICATION_STATUS.md`](OAUTH_APPLICATION_STATUS.md).
 
 ## What it does
 
@@ -46,32 +46,64 @@ It is **not** a billing tool. See [known limitations](#known-limitations).
 
 ## Installation
 
-Once a client ID exists, installation is: add the repository to HACS, install
-**Octopus Energy Japan**, restart Home Assistant, then **Settings → Devices &
-services → Add integration → Octopus Energy Japan**.
+Add the repository to HACS, install **Octopus Energy Japan**, restart Home Assistant,
+then **Settings → Devices & services → Add integration → Octopus Energy Japan**.
 
-Sign-in happens on the OEJP website, in your browser. The integration never asks
-for your OEJP password and cannot see it.
+Setup opens by asking how you want to sign in.
 
-**My Home Assistant must be enabled.** It is part of `default_config:`, so a normal
-installation already has it. Sign-in returns through `my.home-assistant.io`, which
-is the one redirect address registered with OEJP, and which forwards the result to
-your own instance. If you run a stripped-down configuration, add `my:` to
-`configuration.yaml`. The integration stops with an explanatory message rather than
-letting OEJP reject the sign-in for a redirect address it does not recognise.
+## Choosing a sign-in method
 
-If you try to add the integration before registering an application credential,
-Home Assistant stops with a message telling you to add one first. That is the
-expected behaviour today, because no client ID exists to register.
+| | Octopus Energy Japan account | Email and password |
+|---|---|---|
+| Available now | no, OEJP has issued no client ID | **yes** |
+| Where you sign in | on the OEJP website | in Home Assistant |
+| Your password | never requested or stored | **stored in Home Assistant** |
+| Needs My Home Assistant | yes | no |
+| Expected lifetime | the method OEJP is moving to | being withdrawn, see below |
+
+**Octopus Energy Japan account** is the method to prefer once it works. Sign-in
+happens on the OEJP website, in your browser, and the integration never asks for your
+password or sees it. It needs a public OAuth client ID registered under **Settings →
+Devices & services → Application credentials**, and no such ID exists yet. Choosing it
+today stops with a message telling you to add a credential first, which is the correct
+behaviour when there is none to add.
+
+**Email and password** works today. It is the provider's older login, and OEJP has
+already removed these fields from its published API schema while continuing to accept
+them, so it can stop working without warning. When that happens Home Assistant asks
+you to reconnect, and the account method will be the only option left.
+
+Your email and password are stored in Home Assistant. That is not for convenience: the
+provider's refresh token lasts seven days and renewing it does not extend that, so
+nothing but the credential itself can sign in afterwards. What is stored, and where, is
+in [`../PRIVACY.md`](../PRIVACY.md).
+
+### Switching later, without losing history
+
+When a client ID exists, open the integration's menu, choose to reconnect, and pick the
+account method. The entry is promoted in place: your readings and Energy Dashboard
+statistics are kept, and **the stored password is deleted**. You do not delete and
+re-add.
+
+### My Home Assistant, for the account method only
+
+It is part of `default_config:`, so a normal installation already has it. Sign-in
+returns through `my.home-assistant.io`, the one redirect address registered with OEJP,
+which forwards the result to your own instance. If you run a stripped-down
+configuration, add `my:` to `configuration.yaml`. The integration stops with an
+explanatory message rather than letting OEJP reject the sign-in for a redirect address
+it does not recognise. The email and password method has no redirect and does not need
+this.
 
 ### Configuration parameters
 
-There is nothing to type during setup. No API key, no account number, no supply
-point. Everything is discovered from the account you sign in with.
+No API key, no account number, no supply point. Everything else is discovered from the
+account you sign in with.
 
 | Parameter | Where | Required | Meaning |
 |---|---|---|---|
-| OAuth client ID | Settings → Devices & services → **Application credentials** | yes | the public client ID issued by OEJP. Not a secret. Leave the secret field empty |
+| Email and password | setup → **Email and password** | for that method | your OEJP sign-in, stored so the integration can sign in again |
+| OAuth client ID | Settings → Devices & services → **Application credentials** | for the account method | the public client ID issued by OEJP. Not a secret. Leave the secret field empty |
 | Enabled historical resources | integration → **Configure** | no | which ended accounts or supply points to keep reporting |
 
 Active accounts and supply points are always enabled and cannot be turned off, so a
@@ -181,7 +213,8 @@ anything. Usually you do not.
 
 | Symptom | Likely cause |
 |---|---|
-| Setup says My Home Assistant is required | `my` is not loaded; add `my:` or restore `default_config:` and restart |
+| Setup says My Home Assistant is required | `my` is not loaded; add `my:` or restore `default_config:` and restart. Affects the account method only |
+| Asked to reconnect an email and password entry | your OEJP password changed, or OEJP stopped accepting password login |
 | Totals say **unknown** | the period is not fully covered yet; normal soon after install |
 | Latest interval is hours old | normal OEJP publishing delay; check *Data delay* |
 | Entities went unavailable together | a refresh failed; the integration retries automatically |
@@ -203,8 +236,9 @@ at [`ja/DIAGNOSTICS.md`](ja/DIAGNOSTICS.md).
 ## Removing the integration
 
 **Settings → Devices & services → Octopus Energy Japan → Delete.** The integration
-asks OEJP to revoke its authorization, and deletes its stored readings, sync
-checkpoints, and installation secret.
+asks OEJP to revoke what that entry holds — its OAuth grant, or its refresh token — and
+deletes its stored readings, sync checkpoints, installation secret, and any stored
+credential.
 
 Two things survive on purpose:
 

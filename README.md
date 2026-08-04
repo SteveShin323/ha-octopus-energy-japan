@@ -18,10 +18,11 @@ correction-safe Energy Dashboard statistics into Home Assistant.
 > Energy Japan or Kraken Technologies.
 
 > [!IMPORTANT]
-> **You cannot connect it yet.** OEJP has not issued an OAuth client ID, and there
-> is no self-service way to create one, so the sign-in step has nothing to
-> authenticate against. Everything else is implemented and tested. Progress is
-> tracked in [`docs/OAUTH_APPLICATION_STATUS.md`](docs/OAUTH_APPLICATION_STATUS.md).
+> **Sign in with your email and password for now.** OEJP has not issued an OAuth
+> client ID and offers no self-service way to create one, so the account sign-in
+> cannot be completed yet. The provider's email and password login works today and is
+> offered at setup. Progress on the client ID is tracked in
+> [`docs/OAUTH_APPLICATION_STATUS.md`](docs/OAUTH_APPLICATION_STATUS.md).
 
 ## Start here
 
@@ -66,6 +67,7 @@ renewable levy, and tax. One unit price cannot reproduce it.
 
 | Area | Status |
 |---|---|
+| Sign-in methods | Email/password and OAuth implemented, selectable at setup |
 | OAuth architecture | Implemented; provider endpoints and scopes confirmed |
 | Account and supply-point discovery | Implemented |
 | Import/export reading providers | Implemented |
@@ -76,15 +78,16 @@ renewable levy, and tax. One unit price cannot reproduce it.
 | Diagnostics and Repairs | Implemented and validated |
 | User documentation and release process | Implemented |
 | Provider-issued cost and tariff rates | Excluded, with evidence |
-| Supported installation | Blocked only on an OEJP client ID |
+| Supported installation | Works with email/password; the account method needs an OEJP client ID |
 
 The badges report `main`. Validate runs Ruff, strict mypy, pytest with branch
 coverage, Hassfest, HACS validation, and documentation link checks.
 
 ## Installation
 
-Not available yet, for the reason above. Once a client ID exists, the steps are in
-the [user guide](docs/USER_GUIDE.md#installation).
+Add the repository to HACS, install **Octopus Energy Japan**, restart, then add the
+integration and choose a sign-in method. Full steps, and the trade-offs between the
+methods, are in the [user guide](docs/USER_GUIDE.md#installation).
 
 ## Documentation
 

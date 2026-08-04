@@ -87,7 +87,14 @@ from .models import (
     ReadingSource,
     ResourceLifecycle,
 )
-from .operations import async_discover_accounts, async_get_viewer_identity
+from .operations import (
+    OejpToken,
+    async_discover_accounts,
+    async_get_viewer_identity,
+    async_invalidate_refresh_token,
+    async_obtain_token,
+    async_renew_token,
+)
 from .readings import (
     GENERIC_ENERGY_UNITS,
     GENERIC_PAGE_SIZE,
@@ -176,6 +183,7 @@ __all__ = [
     "OejpRegister",
     "OejpSupplyPoint",
     "OejpTimeoutError",
+    "OejpToken",
     "OejpTransientHttpError",
     "OejpTransportError",
     "ProductRate",
@@ -197,7 +205,10 @@ __all__ = [
     "async_discover_resources",
     "async_fetch_account_commercial_snapshot",
     "async_get_viewer_identity",
+    "async_invalidate_refresh_token",
+    "async_obtain_token",
     "async_paginate",
+    "async_renew_token",
     "attach_generic_devices",
     "build_generic_readings_query",
     "candidate_directions",

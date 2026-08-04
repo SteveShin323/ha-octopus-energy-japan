@@ -26,9 +26,19 @@
       "default": "[%key:common::config_flow::create_entry::authenticated%]"
     },
     "error": {
-      "cannot_connect": "Failed to connect"
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Octopus Energy Japan rejected that email address and password",
+      "unknown": "Octopus Energy Japan returned an unexpected response"
     },
     "step": {
+      "password": {
+        "title": "Sign in with email and password",
+        "description": "Enter the email address and password you use for Octopus Energy Japan. Both are stored in Home Assistant so the integration can sign in again when the provider's seven-day refresh token expires. Switch to the account sign-in later and the stored password is deleted.",
+        "data": {
+          "email": "Email address",
+          "password": "Password"
+        }
+      },
       "reauth_confirm": {
         "description": "Continue to Octopus Energy Japan to renew access.",
         "title": "Reconnect Octopus Energy Japan"
@@ -38,6 +48,14 @@
         "title": "Manage historical OEJP resources",
         "data": {
           "enabled_historical_resources": "Enabled historical resources"
+        }
+      },
+      "user": {
+        "title": "Choose how to sign in",
+        "description": "**Octopus Energy Japan account (recommended)** signs you in on the OEJP website. This integration never sees your password. It needs an OAuth client ID, which OEJP has not issued yet.\n\n**Email and password** uses the provider's older login. It works today, but OEJP has already removed these fields from its published API schema and can stop accepting them without notice. Your password is stored in Home Assistant, because the provider's refresh token lasts only seven days and nothing else can renew it.",
+        "menu_options": {
+          "oauth": "Octopus Energy Japan account (recommended)",
+          "password": "Email and password"
         }
       }
     }

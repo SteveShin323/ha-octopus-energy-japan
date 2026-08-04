@@ -5,6 +5,27 @@ is no developer-operated server, no analytics, and no external telemetry. Nothin
 about you is sent anywhere except to Octopus Energy Japan, on your behalf, to read
 your own data.
 
+## What differs by sign-in method
+
+You choose a sign-in method when you add the integration, and it is the one thing
+that changes what is stored about you.
+
+| | Octopus Energy Japan account (OAuth) | Email and password |
+|---|---|---|
+| Where you sign in | on the OEJP website | in Home Assistant |
+| Your password | never requested, received, or stored | **stored in Home Assistant** |
+| What is stored to stay signed in | OAuth access and refresh tokens | your email, your password, and the provider's tokens |
+
+The password is stored because the provider's refresh token lasts seven days and
+renewing it does not extend that, so nothing else can sign in again afterwards. It is
+kept in the config entry, which is a plain-text file inside your Home Assistant
+configuration directory. It is never logged, never shown in a state or attribute, and
+never included in diagnostics.
+
+If you later switch that entry to the account sign-in, the stored password is
+**deleted**, and your collected history is kept. The reasoning is recorded in
+[ADR 0008](docs/adr/0008-password-authentication.md).
+
 ## What leaves your Home Assistant
 
 Requests to `https://api.oejp-kraken.energy/v1/graphql/` and to
@@ -18,6 +39,7 @@ Everything below lives in your Home Assistant's own storage.
 | Data | Purpose | Removed when the entry is deleted |
 |---|---|---|
 | OAuth access and refresh tokens | authenticating to OEJP | yes |
+| Your email and password, if you chose that sign-in method | signing in again once the provider's seven-day refresh token expires | yes |
 | Account numbers, supply-point numbers, meter and register identifiers | required to call the API and to join stored readings back to a supply point | yes |
 | Half-hourly readings, their version and quality, provider cost | totals and Energy Dashboard statistics that survive corrections | yes |
 | Synchronisation checkpoints | resuming background work after a restart | yes |
@@ -25,8 +47,9 @@ Everything below lives in your Home Assistant's own storage.
 | Energy Dashboard statistics | long-term energy history | **no**, see below |
 | Application credentials (client ID) | re-adding without retyping | **no**, see below |
 
-Your OEJP password is never requested, received, or stored. Sign-in happens on the
-OEJP website.
+With the account sign-in, your OEJP password is never requested, received, or
+stored, and sign-in happens on the OEJP website. With the email and password method
+it is stored, as described above.
 
 ## What never appears in the user interface
 
@@ -68,6 +91,12 @@ integration should not destroy your energy history. Remove them yourself under
 **Application credentials** stay so you can re-add the integration without
 retyping the client ID. Remove them under **Settings → Devices & services →
 Application credentials**.
+
+Removing an entry that used email and password also asks OEJP to invalidate the
+refresh token that entry held. Renewing does not rotate refresh tokens, so an account
+can hold more than one valid at a time and this invalidates only the one stored here.
+Invalidating every token issued to your user is a broader action the integration does
+not take on your behalf.
 
 ## Development data
 

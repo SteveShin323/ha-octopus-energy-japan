@@ -36,7 +36,11 @@ from custom_components.octopus_energy_japan.oauth import (
 )
 from custom_components.octopus_energy_japan.oauth_metadata import (
     AuthorizationHeaderScheme,
+    OAuthMetadataUnavailableError,
     OejpOAuthMetadata,
+)
+from custom_components.octopus_energy_japan.password_auth import (
+    OejpPasswordCredentialRejected,
 )
 from custom_components.octopus_energy_japan.runtime import OejpRuntimeData
 from homeassistant.core import HomeAssistant
@@ -654,6 +658,207 @@ async def test_remove_entry_does_not_block_on_revocation_failure(
         patch(
             "custom_components.octopus_energy_japan.oauth.OejpPkceAuthSession",
             return_value=auth,
+        ),
+    ):
+        await async_remove_entry(hass, entry)
+
+
+def _password_entry(**overrides: object) -> MockConfigEntry:
+    data = {
+        "auth_method": "password",
+        "email": "person@example.test",
+        "password": "correct horse",
+        "access_token": "legacy-access",
+        "refresh_token": "legacy-refresh",
+        "refresh_expires_at": "2026-08-11T00:00:00+00:00",
+    }
+    data.update(overrides)
+    return MockConfigEntry(domain=DOMAIN, data=data)
+
+
+async def test_setup_entry_uses_the_password_session_without_any_oauth_implementation(
+    hass: HomeAssistant,
+) -> None:
+    """A password entry has no application credential, so none may be required."""
+    entry = _password_entry()
+    session = AsyncMock()
+    session.async_get_authorization_header.return_value = "Bearer legacy-access"
+    coordinator = AsyncMock()
+    coordinator.async_add_listener = Mock(return_value=Mock())
+    coordinator.data = _empty_coordinator_data()
+    commercial_coordinator = AsyncMock()
+    commercial_coordinator.async_add_listener = Mock(return_value=Mock())
+    commercial_coordinator.set_accounts = Mock()
+    commercial_coordinator.data = None
+    with (
+        patch(
+            "homeassistant.helpers.config_entry_oauth2_flow.async_get_config_entry_implementation",
+            AsyncMock(side_effect=AssertionError("the password method must not need one")),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.oauth_metadata.require_oauth_metadata",
+            return_value=METADATA,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.password_auth.OejpPasswordAuthSession",
+            return_value=session,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_discover_resources",
+            AsyncMock(return_value=()),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_detect_capabilities",
+            AsyncMock(return_value=CapabilitySnapshot()),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.coordinator.OejpDataUpdateCoordinator",
+            return_value=coordinator,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.commercial_coordinator.OejpCommercialCoordinator",
+            return_value=commercial_coordinator,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.statistics_runtime.HomeAssistantStatisticsProjector",
+            return_value=AsyncMock(),
+        ),
+        patch.object(
+            hass.config_entries,
+            "async_forward_entry_setups",
+            AsyncMock(),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.runtime.async_project_discovered_devices",
+            Mock(),
+        ),
+    ):
+        assert await async_setup_entry(hass, entry) is True
+
+    runtime = entry.runtime_data
+    assert isinstance(runtime, OejpRuntimeData)
+    assert runtime.auth is session
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [{"password": None}, {"email": None}],
+    ids=["password missing", "email missing"],
+)
+async def test_setup_entry_asks_for_reauth_when_the_credential_is_not_stored(
+    hass: HomeAssistant,
+    overrides: dict[str, object],
+) -> None:
+    entry = _password_entry(**overrides)
+    with pytest.raises(ConfigEntryAuthFailed):
+        await async_setup_entry(hass, entry)
+
+
+async def test_setup_entry_retries_when_metadata_is_unavailable_for_a_password_entry(
+    hass: HomeAssistant,
+) -> None:
+    entry = _password_entry()
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.oauth_metadata.require_oauth_metadata",
+            side_effect=OAuthMetadataUnavailableError("awaiting confirmation"),
+        ),
+        pytest.raises(ConfigEntryNotReady),
+    ):
+        await async_setup_entry(hass, entry)
+
+
+async def test_setup_entry_asks_for_reauth_when_the_stored_credential_is_rejected(
+    hass: HomeAssistant,
+) -> None:
+    """A rejected password cannot be recovered by retrying, so it must not be."""
+    entry = _password_entry()
+    session = AsyncMock()
+    session.async_get_authorization_header.side_effect = OejpPasswordCredentialRejected("rejected")
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.oauth_metadata.require_oauth_metadata",
+            return_value=METADATA,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.password_auth.OejpPasswordAuthSession",
+            return_value=session,
+        ),
+        pytest.raises(ConfigEntryAuthFailed),
+    ):
+        await async_setup_entry(hass, entry)
+
+
+async def test_setup_entry_retries_a_password_sign_in_that_failed_transiently(
+    hass: HomeAssistant,
+) -> None:
+    entry = _password_entry()
+    session = AsyncMock()
+    session.async_get_authorization_header.side_effect = OejpRateLimitError(
+        (GraphQLErrorDetail(message="rate limited", error_code="KT-CT-1199"),)
+    )
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.oauth_metadata.require_oauth_metadata",
+            return_value=METADATA,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.password_auth.OejpPasswordAuthSession",
+            return_value=session,
+        ),
+        pytest.raises(ConfigEntryNotReady),
+    ):
+        await async_setup_entry(hass, entry)
+
+
+async def test_removing_a_password_entry_invalidates_its_refresh_token(
+    hass: HomeAssistant,
+) -> None:
+    entry = _password_entry()
+    session = AsyncMock()
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.oauth_metadata.require_oauth_metadata",
+            return_value=METADATA,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.password_auth.OejpPasswordAuthSession",
+            return_value=session,
+        ),
+    ):
+        await async_remove_entry(hass, entry)
+
+    session.async_revoke.assert_awaited_once()
+
+
+async def test_removing_a_password_entry_without_a_credential_revokes_nothing(
+    hass: HomeAssistant,
+) -> None:
+    entry = _password_entry(password=None)
+    with patch(
+        "custom_components.octopus_energy_japan.password_auth.OejpPasswordAuthSession",
+        Mock(side_effect=AssertionError("nothing to revoke with")),
+    ):
+        await async_remove_entry(hass, entry)
+
+
+async def test_removing_a_password_entry_tolerates_a_failed_invalidation(
+    hass: HomeAssistant,
+) -> None:
+    """Removal must complete even if the provider refuses, or the entry is stuck."""
+    entry = _password_entry()
+    session = AsyncMock()
+    session.async_revoke.side_effect = OejpQueryValidationError(
+        (GraphQLErrorDetail(message="refused", error_code="KT-CT-1113"),)
+    )
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.oauth_metadata.require_oauth_metadata",
+            return_value=METADATA,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.password_auth.OejpPasswordAuthSession",
+            return_value=session,
         ),
     ):
         await async_remove_entry(hass, entry)
