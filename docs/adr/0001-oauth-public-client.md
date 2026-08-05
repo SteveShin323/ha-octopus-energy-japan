@@ -16,8 +16,12 @@ keep a distributed client secret confidential.
 Use Authorization Code with PKCE S256 as the primary authentication method.
 Support Device Authorization Grant as a selectable setup method through the same
 `AuthSession` boundary: it uses the same client ID and the same token endpoint, so its
-tokens refresh identically, and it needs no redirect URI at all. Never request or store the customer's OEJP password in the
-public integration. Never distribute a client secret.
+tokens refresh identically, and it needs no redirect URI at all. Never distribute a client
+secret.
+
+~~Never request or store the customer's OEJP password in the public integration.~~
+Superseded by [ADR 0008](0008-password-authentication.md), which permits it as one
+selectable method for as long as no client ID exists.
 
 The client ID is committed only if OEJP authorizes a shared public client.
 Otherwise, use Home Assistant Application Credentials. The legacy Kraken token

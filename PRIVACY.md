@@ -10,12 +10,12 @@ The sign-in method you choose is the one thing that changes what is stored about
 
 | | Email and password | Device code or account (OAuth) |
 |---|---|---|
-| Where you sign in | in Home Assistant | on the provider website |
+| Where you sign in | in Home Assistant | on the Octopus Energy Japan website |
 | Your password | **stored in Home Assistant** | never requested, received, or stored |
-| Stored to stay signed in | your email, your password, and the provider's tokens | access and refresh tokens |
+| Stored to stay signed in | your email, your password, and the access and refresh tokens | access and refresh tokens |
 
-The password is stored because the refresh token lasts seven days and renewing it does
-not extend that, so nothing else can sign in again afterwards. It is kept in the config
+The password is stored because the refresh token lasts seven days and renewing it does not
+extend those seven days, so after that nothing else can sign in again. It is kept in the config
 entry, a plain-text file inside your Home Assistant configuration directory. It is
 never logged, never shown in a state or attribute, and never included in diagnostics.
 
@@ -36,29 +36,29 @@ Everything below lives in your Home Assistant's own storage.
 | Data | Purpose | Deleted with the entry |
 |---|---|---|
 | Access and refresh tokens | authenticating | yes |
-| Your email and password, with that sign-in method | signing in again after seven days | yes |
+| Your email and password, if you chose that sign-in method | signing in again after seven days | yes |
 | Account, supply point, meter, and register identifiers | calling the API and joining stored readings to a supply point | yes |
-| Half-hourly readings with version, quality, and the provider's own cost figure | totals and statistics that survive corrections | yes |
+| Half-hourly readings with version, quality, and the cost figure Octopus Energy Japan returns | totals and statistics that can be corrected later | yes |
 | Synchronisation checkpoints | resuming background work after a restart | yes |
-| An installation-local secret | deriving stable private identities | with the last entry |
+| An installation-local secret | deriving the private identifiers used for devices and statistics | with the last entry |
 | Energy Dashboard statistics | long-term energy history | **no**, see below |
 | Application credentials (client ID) | re-adding without retyping | **no**, see below |
 
-Two things are deliberately **not** written to storage. Your tariff prices and your
-property's address are held in memory only and re-read from the provider on each refresh,
-so they exist on disk nowhere except inside a Home Assistant backup of the recorder, and
-only then if you enabled the Address entity.
+Two things are deliberately **not** in the table, because they are never written to storage.
+Your tariff prices and your property's address are held in memory and re-read from Octopus
+Energy Japan on each refresh. The one way either reaches disk is the Address entity: if you
+enable it, its state goes to the recorder database like any other entity.
 
 ## What never appears in the user interface
 
-Raw provider identifiers do not appear in entity names, entity IDs, unique IDs, device
-names, device identifiers, states, or attributes. Those are the places a value travels
-without you choosing to show it: a screenshot, an automation pasted into a forum, a
-state history export.
+Raw account, supply point, meter, and register identifiers do not appear in entity names,
+entity IDs, unique IDs, device names, device identifiers, states, or attributes. Those are
+the places a value travels without you choosing to show it: a screenshot, an automation
+pasted into a forum, a state history export.
 
 Devices and statistics are addressed by an HMAC of an installation-local secret and the
-provider identifier. It is stable inside one installation and cannot be correlated with
-the same identifier in another.
+identifier Octopus Energy Japan uses. It is stable inside one installation and cannot be
+matched to the same identifier in another.
 
 **Two deliberate exceptions.**
 
@@ -82,14 +82,14 @@ attributes.
 The diagnostics download is designed so you can attach it to a public issue without
 reading it first. It contains no token, email address, name, address, account number,
 supply point number, meter identifier, reading value, balance, or bill amount, and it
-reports failures by exception class name rather than message, because provider text is
-unbounded. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+reports a failure by its exception class name rather than its message, because message text
+has no bounded length or format. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Logs
 
 The integration does not log tokens, identifiers, addresses, reading values, or
-provider message text. Home Assistant's own debug logging can still be verbose, so
-please attach diagnostics rather than logs when reporting a problem.
+message text from Octopus Energy Japan. Home Assistant's own debug logging can still be
+verbose, so please attach diagnostics rather than logs when reporting a problem.
 
 ## What survives removal, and why
 
@@ -105,11 +105,11 @@ If you removed an entry from a build before deletion was implemented, files name
 `octopus_energy_japan.ledger.*` and `octopus_energy_japan.sync.*` may remain in your
 storage directory and can be deleted by hand.
 
-**Removing an email and password entry cannot revoke its token.** An account user may
-not invalidate a refresh token, so it expires seven days after the sign-in that issued
-it. Removal deletes Home Assistant's copy of your email, password, and tokens. To cut
-access off immediately, change your password. An OAuth entry *is* revoked, through the
-provider's revocation endpoint.
+**Removing an email and password entry cannot revoke its token.** Octopus Energy Japan does
+not let a customer invalidate a refresh token, so it expires seven days after the sign-in
+that issued it. Removal deletes Home Assistant's copy of your email, password, and tokens.
+To cut access off immediately, change your password. An OAuth entry *is* revoked, through
+Octopus Energy Japan's revocation endpoint.
 
 ## Development data
 

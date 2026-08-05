@@ -1,7 +1,7 @@
 # API contracts
 
-Provider behaviour that shaped the code and is not obvious from reading it. Each item
-was measured against a real account, not taken from documentation. The detailed
+API behaviour that shaped the code and is not obvious from reading it. Every item here was
+measured against a real account rather than taken from documentation. The detailed
 reasoning for a given query lives in a comment beside that query; this page is the index
 a contributor should read before changing a GraphQL document.
 
@@ -11,7 +11,7 @@ a contributor should read before changing a GraphQL document.
 
 ## Request limits
 
-Published in the provider's API guide, and the reason for the constants the code uses. A
+Published in the official API guide, and the reason for the constants the code uses. A
 test pins the relationship.
 
 | Limit | Value | Error code |
@@ -26,14 +26,15 @@ mistaken for a schema or permission problem.
 
 `first` is **required** on a connection, not optional. Omitting it returns `KT-CT-1201`,
 which is a validation error about the missing argument — not an authorization failure.
-Reading it as one produces a false map of what an account may access.
+Treating it as an authorization failure makes it look as though the account is not allowed
+to read that field.
 
 ## Readings
 
-**One response is capped at 1488 intervals and truncates silently.** That is 31 days of
-half-hourly data. Beyond it the oldest rows are dropped with no error and no flag, so an
-over-wide window looks like missing history. Requests use seven-day windows. There is no
-retention limit: every interval since supply started remains retrievable.
+**One response returns at most 1488 intervals — 31 days of half-hourly data — and drops the
+oldest beyond that with no error and no flag.** An over-wide window therefore looks like
+missing history. Requests use seven-day windows. There is no retention limit: every interval
+since supply started can still be fetched.
 
 **A reading's `version` marks the billing lifecycle.** Intervals are reissued with a new
 version when a period closes, and values change. This is why the ledger stores keyed
@@ -121,15 +122,15 @@ the integration publishes. Most of it stays unpublished:
 | Reason | What it covers |
 |---|---|
 | About the customer, not the supply | health, hardship, contact details, payment instruments, consents |
-| An affordance for a mutation this integration does not perform | anything describing an action available in the provider's own app |
+| An affordance for a mutation this integration does not perform | anything describing an action available in the Octopus Energy Japan app |
 | Already published under another name | account-level payments duplicate the ledger transaction that is published |
 | Measured to be unmaintained | the two "next reading date" fields were both in the past and disagreed with the reading day on the same supply point |
 | Undecidable on the account available | four balance fields agreed, but all were zero; the account's only ledger reports `affectsAccountBalance: true`, so its balance is a component of the account balance already published |
 | Not worth an entity's cost | a signed URL that would exceed the state length limit; fields that were null, zero, or equal to one already published |
 
-The zero-balance row is worth reading twice: the first comparison reported four fields
-"identical" and would have been written up as redundancy, when they were identical only
-because every one of them was zero.
+The zero-balance row needs care. The four fields agreed, which looked like redundancy, but
+they agreed only because all four were zero. Comparing them again on an account with a
+non-zero balance is the way to settle it.
 
 Publishing a field from any of these categories is a decision, not an omission to be
 corrected. Revisit them individually.
