@@ -164,6 +164,17 @@ would mean holding the lock across a projection and blocking the worker for its 
 a latency change that would need measuring first. The invariant is documented at the method
 and pinned by tests instead.
 
+**Two failure tables, not one.** The poll and the background worker each read an ordered
+table to decide what a failed request means. They deliberately stay separate, because they
+answer different questions: the poll records a per-attempt failure and may abandon the rest
+of the poll, while the worker decides whether to retry with backoff, give up, or hand over to
+reauthentication. Forcing them together would produce a table of mostly inapplicable columns.
+
+What they *do* share is the classification: a permanent worker failure is recorded with the
+class the poll's table assigns, so the two can never disagree about what an exception means.
+Both tables are ordered most-specific-first, and both orderings are asserted — in each,
+`OejpNonRetryableHttpError` must precede `OejpTransportError`, and `OejpError` must be last.
+
 **`OejpDataUpdateCoordinator` is large, and splitting out its status bookkeeping would not
 help.** Extracting the eight direction-status methods into their own collaborator was
 designed and rejected: they are called from about forty sites, and removing them leaves both
