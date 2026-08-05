@@ -25,9 +25,15 @@ top-level package and the build refuses with "Multiple top-level packages discov
 flat-layout". Nothing else catches that: an already-installed environment keeps working, so
 it fails first in CI.
 
-Coverage must be at least 95% line and branch overall. Authentication, ledger,
-statistics, and storage-migration modules must be fully covered. `manifest.json` and
-`pyproject.toml` must agree on the version; a test asserts it.
+Coverage must be at least 95% line and branch overall, which the gate enforces.
+
+Beyond that number, what matters is *which* lines. Authentication, the ledger, statistics,
+and storage migration need a test for every correctness path and every concurrency
+invariant — anything where being wrong loses or double-counts data. Defensive guards are
+not chased to 100%: a `continue` that skips a shape the caller never produces is worth
+leaving uncovered rather than reaching with an artificial test.
+
+`manifest.json` and `pyproject.toml` must agree on the version; a test asserts it.
 
 ## Pull requests
 
@@ -121,21 +127,17 @@ No release is tagged unless:
 
 ## Brand images
 
-`custom_components/octopus_energy_japan/brand/` holds the six images
-`home-assistant/brands` requires — `icon`, `logo`, and `dark_logo`, each with its `@2x` —
-at the sizes that repository accepts. A test pins every dimension, because a submission
-with the wrong one is rejected and the pull request against another repository is the only
-place that would otherwise surface it.
+`custom_components/octopus_energy_japan/brand/` holds `icon`, `logo`, and `dark_logo`,
+each with its `@2x` variant, at the sizes Home Assistant accepts. A test pins every
+dimension and requires an alpha channel.
 
-They sit **inside** the component even though Home Assistant serves brand images from
-`brands.home-assistant.io`. HACS validation looks for
-`custom_components/<domain>/brand/icon.png` first and falls back to querying the brands
-repository; this integration is not listed there yet, so the in-component copy is what
-keeps the `hacs` check passing.
+**Nothing needs submitting anywhere.** Since Home Assistant 2026.3 a custom integration
+ships its brand images in that directory, and the `custom_integrations` folder of
+`home-assistant/brands` is legacy — its own README says so. Moving these files out breaks
+three CI jobs, which `tests/test_manifest.py` records.
 
-Submitting them — copy the directory to `custom_integrations/octopus_energy_japan/` in a
-fork of `home-assistant/brands` — is the one outstanding `quality_scale.yaml` rule and
-needs this repository to be public first.
+`dark_icon.png` and `dark_icon@2x.png` are also supported and deliberately absent: the icon
+is legible on either theme, so a dark variant would be a second copy of the same image.
 
 Tag `vMAJOR.MINOR.PATCH` on `main` and publish a GitHub release whose notes are the
 changelog entry. HACS installs the `custom_components/octopus_energy_japan` directory

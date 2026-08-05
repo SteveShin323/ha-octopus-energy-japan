@@ -4,10 +4,18 @@ All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-No version has been released yet. Sign-in with email and password works; the two
-OAuth methods need a published client ID.
+Sign-in with email and password works. The two OAuth methods are implemented and need a
+published client ID before they can be completed.
 
 ## [Unreleased]
+
+## [0.8.0] - 2026-08-05
+
+First release. Beta under this project's version scheme: everything the README describes is
+implemented, covered by tests, and verified against a real account, but two of the three
+sign-in methods cannot be completed until a client ID exists.
+
+The entries below record what went into it.
 
 ### Added
 
