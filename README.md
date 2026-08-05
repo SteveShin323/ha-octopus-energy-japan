@@ -259,21 +259,22 @@ not paste Home Assistant logs, which can contain text from Octopus Energy Japan.
 ## Removing the integration
 
 **Settings → Devices & services → Octopus Energy Japan → Delete.** This deletes the
-entry's stored readings, synchronisation checkpoints, installation secret, and any stored
-credential. An OAuth entry also revokes its authorization; a password entry cannot,
-because Octopus Energy Japan does not let a customer invalidate a refresh token. That token
-expires within seven days instead. To cut access off at once, change your password.
+entry's stored readings, synchronisation checkpoints, Energy Dashboard statistics,
+installation secret, and any stored credential. An OAuth entry also revokes its
+authorization; a password entry cannot, because Octopus Energy Japan does not let a customer
+invalidate a refresh token. That token expires within seven days instead. To cut access off
+at once, change your password.
 
-Two things survive on purpose:
-
-- **Energy Dashboard statistics** stay in the recorder, so removing the integration
-  does not destroy your energy history. Remove them under **Developer tools →
-  Statistics**.
-- **Application credentials** stay, so you can re-add without re-entering the client
-  ID. Remove them under **Settings → Devices & services → Application credentials**.
+One thing survives on purpose: **application credentials** stay, so you can re-add without
+re-entering the client ID. Remove them under **Settings → Devices & services →
+Application credentials**.
 
 Re-adding starts a fresh local history and downloads the current and previous month
-again.
+again. Statistics are deleted rather than kept because they cannot be continued: the
+installation secret goes with the entry and statistic identifiers are derived from it, so a
+re-added entry writes to new ones. Keeping the old rows left two identically named series in
+the Energy dashboard picker. If you removed an entry from an earlier build, delete those
+leftovers under **Developer tools → Statistics**.
 
 ## Privacy
 

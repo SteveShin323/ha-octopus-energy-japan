@@ -9,6 +9,17 @@ published client ID before they can be completed.
 
 ## [Unreleased]
 
+### Fixed
+
+- removing an entry now deletes the Energy Dashboard statistics it published. They were left
+  in the recorder on purpose, so that removing the integration would not destroy an energy
+  history — but the installation secret is deleted with the last entry and every statistic id
+  is derived from it, so a re-added entry writes to new ids and the old rows can never be
+  reached again. Worse, a statistic's display name comes from its device, whose name is
+  ordinal and therefore identical after a re-install, so the Energy dashboard picker showed
+  two series with the same name and no way to tell which one was live. When the last entry is
+  removed, statistics left behind by an earlier removal are swept as well.
+
 ## [0.8.1] - 2026-08-05
 
 Migration handling, which the version scheme names as a condition for `1.0.0`. No user-visible
