@@ -141,6 +141,38 @@ partitions, silent readings, an unavailable capability, and a missing commercial
 permission. Reauthentication is the one flow that is not a repair issue, because Home
 Assistant owns that prompt.
 
+## Deliberate shapes that look like problems
+
+Each of these has been examined and left as it is. The reasoning is here so it is not
+"fixed" into a defect.
+
+**Two parsing disciplines in `api/`, not duplication.** `_optional_string`,
+`_required_mapping` and friends appear in several modules with small differences. Those
+differences are the point: a strict parser raises `OejpInvalidResponseError` for a field the
+integration depends on, and a lenient one returns `None` for optional provider data.
+`_optional_datetime`, `_optional_decimal`, `_optional_scalar_string`, `_required_datetime`
+and `_required_identifier` each differ deliberately between modules. Extracting them into a
+shared helper would silently change parser contracts. Only three are genuinely identical,
+totalling about twelve lines, which is not worth a new import edge.
+
+**`_async_publish_pending_statistics` runs under two lock disciplines.** The poll calls it
+without the mutation lock; the background worker calls it with the lock held. They can
+overlap, because the worker re-checks `_poll_pending` only before its network request. The
+method pops a dirty marker only when it still equals the one just projected, which is what
+keeps a change arriving mid-projection from being discarded. Making the discipline uniform
+would mean holding the lock across a projection and blocking the worker for its duration —
+a latency change that would need measuring first. The invariant is documented at the method
+and pinned by tests instead.
+
+**`OejpDataUpdateCoordinator` is large, and splitting out its status bookkeeping would not
+help.** Extracting the eight direction-status methods into their own collaborator was
+designed and rejected: they are called from about forty sites, and removing them leaves both
+long methods exactly as long, because those methods *call* the helpers rather than contain
+them. The length that mattered was a ninety-line exception ladder inside
+`_async_update_data`, which is now a table. `_async_background_worker` remains long for a
+different reason — the poll-yield handshake and retry bookkeeping — and is a separate
+question.
+
 ## Invariants
 
 Breaking any of these is a regression even when the tests pass:
