@@ -12,6 +12,7 @@ from homeassistant.loader import async_get_integration
 
 from .api import CapabilitySnapshot, ResourceLifecycle
 from .const import DOMAIN
+from .identity import stable_supply_point_identity
 from .ledger import LEDGER_SCHEMA_VERSION
 
 if TYPE_CHECKING:
@@ -115,6 +116,43 @@ def _aggregation(data: OejpCoordinatorData) -> dict[str, Any]:
     }
 
 
+def _tariffs(
+    coordinator: OejpCommercialCoordinator | None,
+    identity_secret: str,
+) -> list[dict[str, Any]]:
+    """Report the shape of each reported tariff, never a price.
+
+    A cost statistic that is absent looks the same whether the plan cannot be expressed or the
+    integration is broken. What the provider said the plan is — its product type, how many
+    steps and rate generations it has, and what the standing charge is measured in — is what
+    distinguishes the two, and none of it is a monetary amount or an identifier.
+    """
+    snapshot = coordinator.data if coordinator is not None else None
+    if snapshot is None:
+        return []
+    return [
+        {
+            "supply_point": stable_supply_point_identity(
+                identity_secret,
+                tariff.account_number,
+                tariff.supply_point_id,
+            ),
+            "product_type": tariff.product_type,
+            "priceable": tariff.is_priceable,
+            "unpriceable_reason": (
+                tariff.unpriceable_reason.value if tariff.unpriceable_reason else None
+            ),
+            "steps": len(tariff.steps),
+            "rate_generations": len({(step.valid_from, step.valid_to) for step in tariff.steps}),
+            "standing_charge_unit": tariff.standing_charge_unit,
+            "has_standing_charge": tariff.standing_charge_per_day is not None,
+            "has_fuel_cost_adjustment": tariff.fuel_cost_adjustment is not None,
+            "has_renewable_energy_levy": tariff.renewable_energy_levy is not None,
+        }
+        for tariff in snapshot.tariffs
+    ]
+
+
 def _commercial(coordinator: OejpCommercialCoordinator | None) -> dict[str, Any]:
     if coordinator is None:
         return {"configured": False}
@@ -203,4 +241,5 @@ async def async_get_config_entry_diagnostics(
     report["providers"] = _providers(data)
     report["aggregation"] = _aggregation(data)
     report["commercial"] = _commercial(runtime.commercial_coordinator)
+    report["tariffs"] = _tariffs(runtime.commercial_coordinator, runtime.identity_secret)
     return report

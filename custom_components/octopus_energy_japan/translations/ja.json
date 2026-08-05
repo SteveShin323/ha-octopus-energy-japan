@@ -197,6 +197,10 @@
     "readings_silent": {
       "title": "Octopus Energy Japan から新しい使用量が届いていません",
       "description": "{count} 件の系列で {hours} 時間以上、新しい使用量が届いていません。30分値は数時間遅れて届くのが通常なので短い空白は正常ですが、それより長い場合は計量データが Octopus Energy Japan にまだ到着していないことが多いです。特に操作は不要で、データが届き次第、連携が自動的に埋めます。"
+    },
+    "tariff_not_priceable": {
+      "title": "取得した料金プランを金額に換算できません",
+      "description": "Octopus Energy Japan から取得した料金プランを、この統合では金額に換算できません（{reasons}）。使用量・カレンダー集計・Energy Dashboard の使用量統計には影響せず、料金統計のみが発行されません。対応は不要で、設定で変わるものでもありません。プランの一部だけを計算して残りを無視すると、正しく動いているように見えて金額が誤ったままになるためです。"
     }
   },
   "exceptions": {

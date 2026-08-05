@@ -215,8 +215,15 @@ token, reading value, or amount appears.
 
 Repair issues are informational. Each explains a condition the user cannot fix by
 reconfiguring, and says whether anything needs doing. They cover a corrupt ledger partition,
-readings that stopped arriving, an unavailable capability, and a missing commercial
-permission. Reauthentication is not among them, because Home Assistant owns that prompt.
+readings that stopped arriving, an unavailable capability, a missing commercial permission,
+and a tariff whose shape the cost formula cannot express. Reauthentication is not among them,
+because Home Assistant owns that prompt.
+
+The last of those exists because an absent cost statistic looks the same whether the plan
+cannot be priced or the integration is broken. The `tariffs` section of the diagnostics
+download carries the same distinction in more detail: each tariff's product type, step count,
+number of rate generations, and what the provider says its standing charge is measured in.
+None of that is a monetary amount.
 
 ## Rules that look like problems
 

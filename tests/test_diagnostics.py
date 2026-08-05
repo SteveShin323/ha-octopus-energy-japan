@@ -32,6 +32,12 @@ from custom_components.octopus_energy_japan.api import (
     ReadingProviderName,
     ResourceLifecycle,
 )
+from custom_components.octopus_energy_japan.api.tariff import (
+    SupplyPointTariff,
+    TariffAdder,
+    TariffStep,
+    TariffUnpriceable,
+)
 from custom_components.octopus_energy_japan.commercial_coordinator import OejpCommercialData
 from custom_components.octopus_energy_japan.const import DOMAIN
 from custom_components.octopus_energy_japan.coordinator import (
@@ -194,6 +200,35 @@ def _entry(hass: HomeAssistant, *, loaded: bool = True) -> MockConfigEntry:
             ),
         ),
         NOW,
+        tariffs=(
+            SupplyPointTariff(
+                account_number=ACCOUNT_NUMBER,
+                supply_point_id=SUPPLY_POINT_ID,
+                product_code="JPN_KK_OCTOPUS_MAY_26",
+                product_name="KKオクトパス",
+                steps=(
+                    TariffStep(Decimal(0), Decimal(120), Decimal("20.62")),
+                    TariffStep(Decimal(120), None, Decimal("25.29")),
+                ),
+                standing_charge_per_day=Decimal("38.80"),
+                fuel_cost_adjustment=TariffAdder(Decimal("4.32")),
+                renewable_energy_levy=None,
+                standing_charge_unit="YEN_AMPERE_DAY",
+                product_type="ElectricitySteppedProduct",
+            ),
+            SupplyPointTariff(
+                account_number=ACCOUNT_NUMBER,
+                supply_point_id="OTHER-POINT",
+                product_code="TOU",
+                product_name="TOU",
+                steps=(),
+                standing_charge_per_day=None,
+                fuel_cost_adjustment=None,
+                renewable_energy_levy=None,
+                product_type="ElectricitySteppedProduct",
+                unpriceable_reason=TariffUnpriceable.TIME_OF_USE,
+            ),
+        ),
     )
 
     entry.runtime_data = OejpRuntimeData(
@@ -271,6 +306,37 @@ async def test_diagnostics_expose_commercial_permission_without_values(
     assert feature["availability"] == CommercialAvailability.FORBIDDEN.value
     assert feature["error_codes"] == ["KT-CT-1111"]
     assert feature["error_paths"] == [["account", "marketSupplyAgreements"]]
+
+
+async def test_diagnostics_report_the_tariff_shape_without_a_price(
+    hass: HomeAssistant,
+) -> None:
+    """An absent cost statistic needs the plan's shape to be diagnosable.
+
+    Whether a plan can be priced, what kind of product it is, how many steps and rate
+    generations it has, and what the standing charge is measured in are all that distinguish
+    an unsupported plan from a defect. None of them is a monetary amount.
+    """
+    report = await async_get_config_entry_diagnostics(hass, _entry(hass))
+
+    priceable, unpriceable = report["tariffs"]
+    assert priceable["priceable"] is True
+    assert priceable["unpriceable_reason"] is None
+    assert priceable["steps"] == 2
+    assert priceable["rate_generations"] == 1
+    assert priceable["standing_charge_unit"] == "YEN_AMPERE_DAY"
+    assert priceable["has_standing_charge"] is True
+    assert priceable["has_fuel_cost_adjustment"] is True
+    assert priceable["has_renewable_energy_levy"] is False
+    assert unpriceable["priceable"] is False
+    assert unpriceable["unpriceable_reason"] == "time_of_use"
+
+    # The supply point is named by its installation-local identity, never its provider id.
+    serialized = json.dumps(report["tariffs"], default=str)
+    assert SUPPLY_POINT_ID not in serialized
+    assert ACCOUNT_NUMBER not in serialized
+    for amount in ("20.62", "25.29", "38.80", "4.32"):
+        assert amount not in serialized
 
 
 async def test_diagnostics_work_before_the_runtime_is_loaded(hass: HomeAssistant) -> None:

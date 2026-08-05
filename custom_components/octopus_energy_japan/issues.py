@@ -49,6 +49,7 @@ class OejpIssue(StrEnum):
     READINGS_SILENT = "readings_silent"
     CAPABILITY_UNAVAILABLE = "capability_unavailable"
     COMMERCIAL_PERMISSION_MISSING = "commercial_permission_missing"
+    TARIFF_NOT_PRICEABLE = "tariff_not_priceable"
 
 
 def _issue_id(entry_id: str, issue: OejpIssue) -> str:
@@ -126,6 +127,29 @@ def _forbidden_commercial_features(data: OejpCommercialData | None) -> tuple[str
     return tuple(sorted(forbidden))
 
 
+def _unpriceable_tariff_reasons(commercial: OejpCommercialData | None) -> tuple[str, ...]:
+    """Return the distinct reasons a reported tariff cannot be priced.
+
+    A plan shape this formula cannot express is refused rather than approximated, which leaves
+    the cost statistic absent. Without this the absence is indistinguishable from a defect, and
+    the user has no way to learn that their plan, not the integration, is the reason.
+
+    A supply point with no consumption agreement at all yields no tariff and so no reason: an
+    export-only point is not a problem to report.
+    """
+    if commercial is None:
+        return ()
+    return tuple(
+        sorted(
+            {
+                tariff.unpriceable_reason.value
+                for tariff in commercial.tariffs
+                if tariff.unpriceable_reason is not None
+            }
+        )
+    )
+
+
 @callback
 def async_update_issues(
     hass: HomeAssistant,
@@ -172,6 +196,16 @@ def async_update_issues(
         OejpIssue.COMMERCIAL_PERMISSION_MISSING,
         active=bool(forbidden),
         placeholders={"features": ", ".join(forbidden)},
+        severity=ir.IssueSeverity.WARNING,
+    )
+
+    unpriceable = _unpriceable_tariff_reasons(commercial)
+    _apply(
+        hass,
+        entry_id,
+        OejpIssue.TARIFF_NOT_PRICEABLE,
+        active=bool(unpriceable),
+        placeholders={"reasons": ", ".join(unpriceable)},
         severity=ir.IssueSeverity.WARNING,
     )
 
