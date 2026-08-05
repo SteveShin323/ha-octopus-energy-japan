@@ -5,11 +5,12 @@ rules:
     comment: The integration is read-only and exposes no actions.
   appropriate-polling: done
   brands:
-    status: todo
+    status: done
     comment: >-
-      brand/ holds the six images home-assistant/brands requires, at the sizes it
-      accepts, pinned by a test. HACS reads icon.png and logo.png from there while the
-      submission waits on the domain being public.
+      brand/ holds icon, logo, and dark_logo with their @2x variants, at the accepted
+      sizes, pinned by a test. Since Home Assistant 2026.3 a custom integration ships
+      its brand images in that directory; the home-assistant/brands custom_integrations
+      folder is legacy, so there is nothing to submit.
   common-modules: done
   config-flow: done
   config-flow-test-coverage: done

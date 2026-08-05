@@ -119,8 +119,9 @@ def test_the_quality_scale_records_only_the_known_outstanding_rule() -> None:
         if (value if isinstance(value, str) else value.get("status")) == "todo"
     }
 
-    # `brands` needs the domain to be public in home-assistant/brands first.
-    assert outstanding == {"brands"}
+    # Since Home Assistant 2026.3 the brand images ship inside the component, so the
+    # `brands` rule is met by `brand/` rather than by a pull request elsewhere.
+    assert not outstanding, outstanding
 
 
 ARCHITECTURE = ROOT / "docs" / "ARCHITECTURE.md"

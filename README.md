@@ -10,7 +10,7 @@
 [![Security](https://github.com/SteveShin323/ha-octopus-energy-japan/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/SteveShin323/ha-octopus-energy-japan/actions/workflows/security.yml)
 [![CodeQL](https://github.com/SteveShin323/ha-octopus-energy-japan/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/SteveShin323/ha-octopus-energy-japan/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/github/license/SteveShin323/ha-octopus-energy-japan)](LICENSE)
-![Project status](https://img.shields.io/badge/status-pre--alpha-orange)
+![Project status](https://img.shields.io/badge/status-beta-yellow)
 
 A read-only Home Assistant custom integration for Octopus Energy Japan. It brings
 your half-hourly electricity readings, calendar totals, and Energy Dashboard statistics —
@@ -282,13 +282,12 @@ developer-operated server. See [`PRIVACY.md`](PRIVACY.md).
 
 ## Project status
 
-Pre-alpha. Everything listed under [what it does](#what-it-does) is implemented and
-covered by tests, verified against a real account. Outstanding:
+Beta. Everything listed under [what it does](#what-it-does) is implemented, covered by
+tests, and verified against a real account. Outstanding:
 
 | Item | State |
 |---|---|
 | The two OAuth sign-in methods | implemented; need a published client ID to complete |
-| Icon and logo in `home-assistant/brands` | not submitted |
 
 ## Documentation
 

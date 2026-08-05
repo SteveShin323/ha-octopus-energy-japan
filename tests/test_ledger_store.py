@@ -190,3 +190,53 @@ async def test_store_backend_rejects_unsafe_partition_identifiers(
         await backend.async_load_partition("../2026-07")
     with pytest.raises(ValueError):
         await backend.async_remove_partition("../2026-07")
+
+
+async def test_a_partition_saved_during_a_flush_is_not_dropped(hass: HomeAssistant) -> None:
+    """`async_flush` awaits each store, so a newer payload can arrive mid-flush.
+
+    It clears a pending partition only when the entry still holds the payload it just wrote.
+    Clearing unconditionally would discard the newer one, and that partition would stay only
+    in memory until something else happened to write it — silently losing intervals on unload.
+
+    This is the same invariant the coordinator relies on when it publishes statistics.
+    """
+    backend = HomeAssistantLedgerBackend(hass, "entry-1", STORAGE_SCOPE, save_delay=30)
+    first = {"schema_version": 1, "partition": "2026-07", "records": []}
+    newer = {"schema_version": 1, "partition": "2026-07", "records": [{"marker": True}]}
+    await backend.async_save_partition("2026-07", first)
+
+    store = backend._partition_store("2026-07")
+    with patch.object(store, "async_save", AsyncMock()) as save:
+        # A write landing while the first save is in flight.
+        save.side_effect = lambda _payload: backend._pending_partitions.__setitem__(
+            "2026-07", newer
+        )
+        await backend.async_flush()
+
+    assert backend._pending_partitions.get("2026-07") is newer
+
+
+async def test_an_index_saved_during_a_flush_is_not_dropped(hass: HomeAssistant) -> None:
+    """The index carries which partitions exist, so losing an update orphans a partition."""
+    backend = HomeAssistantLedgerBackend(hass, "entry-1", STORAGE_SCOPE, save_delay=30)
+    await backend.async_save_index({"2026-07"})
+    newer = {"schema_version": 1, "partitions": ["2026-07", "2026-08"]}
+
+    with patch.object(backend._index_store, "async_save", AsyncMock()) as save:
+        save.side_effect = lambda _payload: setattr(backend, "_pending_index", newer)
+        await backend.async_flush()
+
+    assert backend._pending_index is newer
+
+
+async def test_a_flush_with_nothing_pending_writes_nothing(hass: HomeAssistant) -> None:
+    """The guarded branches must also be reachable in the ordinary direction."""
+    backend = HomeAssistantLedgerBackend(hass, "entry-1", STORAGE_SCOPE, save_delay=0)
+
+    with patch.object(backend._index_store, "async_save", AsyncMock()) as save:
+        await backend.async_flush()
+
+    save.assert_not_awaited()
+    assert not backend._pending_partitions
+    assert backend._pending_index is None
