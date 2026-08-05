@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -24,6 +24,7 @@ from homeassistant.util.unit_conversion import EnergyConverter
 
 from .api import ReadingDirection
 from .api.tariff import SupplyPointTariff
+from .billing_period import BillingPeriodCalendar
 from .const import CURRENCY_JPY, DOMAIN
 from .identity import stable_supply_point_identity
 from .ledger import PersistentIntervalLedger, partition_bounds
@@ -57,9 +58,28 @@ _RECORDER_DOMAIN = "recorder"
 # few hours after midnight; `docs/ARCHITECTURE.md` records the measured difference.
 TOKYO = ZoneInfo("Asia/Tokyo")
 
+# The same boundary, as the object that decides where a projection may be truncated. Steps
+# restart here, so a pass that starts on one of these instants computes every later hour
+# exactly as a whole-ledger pass would.
+_CALENDAR_MONTHS = BillingPeriodCalendar.calendar_months(TOKYO)
+
 
 def _hour_start(value: datetime) -> datetime:
     return value.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
+
+
+def _cumulative_before(
+    series: tuple[tuple[datetime, Decimal], ...],
+    boundary: datetime,
+    fallback: Decimal,
+) -> Decimal:
+    """Return the cumulative total at the last hour before ``boundary``."""
+    total = fallback
+    for start, cumulative in series:
+        if start >= boundary:
+            break
+        total = cumulative
+    return total
 
 
 class StatisticsProjector(Protocol):
@@ -96,6 +116,10 @@ class HomeAssistantStatisticsProjector:
         self._publisher = publisher
         self._tariff_lookup = tariff_lookup
         self._warned_about_recorder = False
+        # Per supply point, the cumulative total each statistic had reached at a period
+        # boundary. Held in memory only: the projector is the sole writer of these series,
+        # so its own last pass is the truth, and an empty cache costs one whole-ledger pass.
+        self._baselines: dict[tuple[str, str], dict[datetime, dict[str, Decimal]]] = {}
 
     async def async_project_supply_point(
         self,
@@ -118,19 +142,21 @@ class HomeAssistantStatisticsProjector:
                     reset_directions,
                 )
             return
-        start_at, _end_at = partition_bounds(min(ledger.known_partitions))
+        earliest, _end_at = partition_bounds(min(ledger.known_partitions))
+        scope = (account_id, supply_point_id)
+        effective_dirty = None if reset_directions else dirty_from
+        start_at, baseline = self._projection_start(scope, earliest, effective_dirty)
         records = tuple(
             record
             for record in await ledger.async_records(start_at, generated_at)
             if record.reading.account_id == account_id
             and record.reading.supply_point_id == supply_point_id
         )
-        # Projected without a dirty boundary, then filtered at publication. The cumulative
-        # sums are computed from every record either way, but the cost series has to
-        # accumulate over the *whole* history before its tail is published: handing it a
-        # pre-filtered series restarted its running total at the correction, which made a
-        # corrected hour look like the first hour ever recorded.
-        effective_dirty = None if reset_directions else dirty_from
+        # Projected without a dirty boundary, then filtered at publication. Every cumulative
+        # sum is computed from every record in the pass, and a pass that starts mid-history
+        # resumes from `baseline`: handing a series a pre-filtered set with *no* baseline
+        # restarted its running total at the correction, which made a corrected hour look
+        # like the first hour ever recorded.
         projection = project_hourly_statistics(records, generated_at)
         identity = stable_supply_point_identity(
             self._identity_secret,
@@ -144,32 +170,111 @@ class HomeAssistantStatisticsProjector:
                 reset_directions,
             )
         boundary = _hour_start(effective_dirty) if effective_dirty is not None else None
+        totals: dict[str, tuple[tuple[datetime, Decimal], ...]] = {}
         for series in projection.series:
             if series.key.kind is StatisticKind.OFFICIAL_COST and not self._include_official_cost:
                 continue
-            statistics = tuple(
-                StatisticData(
-                    start=value.start,
-                    state=float(value.state),
-                    sum=float(value.sum),
-                )
-                for value in series.statistics
-                if boundary is None or value.start >= boundary
-            )
+            statistic_id = statistic_id_for(identity, series.key.direction, series.key.kind)
+            offset = baseline.get(statistic_id, Decimal(0))
+            cumulative: list[tuple[datetime, Decimal]] = []
+            statistics: list[StatisticData] = []
+            for value in series.statistics:
+                total = offset + value.sum
+                cumulative.append((value.start, total))
+                if boundary is None or value.start >= boundary:
+                    statistics.append(
+                        StatisticData(
+                            start=value.start,
+                            state=float(value.state),
+                            sum=float(total),
+                        )
+                    )
+            totals[statistic_id] = tuple(cumulative)
             if statistics:
                 self._publisher(
                     self._hass,
                     _metadata(self._hass, identity, series),
-                    statistics,
+                    tuple(statistics),
                 )
 
-        self._publish_tariff_cost(
-            account_id,
-            supply_point_id,
-            identity,
-            projection.series,
-            dirty_from=effective_dirty,
+        totals.update(
+            self._publish_tariff_cost(
+                account_id,
+                supply_point_id,
+                identity,
+                projection.series,
+                dirty_from=effective_dirty,
+                baseline=baseline,
+            )
         )
+        self._remember_baselines(scope, start_at, generated_at, totals, baseline)
+
+    def _projection_start(
+        self,
+        scope: tuple[str, str],
+        earliest: datetime,
+        dirty_from: datetime | None,
+    ) -> tuple[datetime, Mapping[str, Decimal]]:
+        """Choose where to start projecting, and the totals to resume the sums from.
+
+        Reading the whole ledger for every correction costs one pass over every month ever
+        collected, which grows without bound. Truncating is only safe on a period boundary:
+        the cost series restarts its step counter there, so a pass that begins on one prices
+        every later hour exactly as a whole-ledger pass would.
+
+        Falls back to the whole ledger whenever that boundary has no remembered totals. That
+        is the first pass after a restart, and it repairs itself by remembering them.
+        """
+        if dirty_from is None:
+            return earliest, {}
+        candidate = _CALENDAR_MONTHS.period_start(dirty_from)
+        if candidate <= earliest:
+            return earliest, {}
+        remembered = self._baselines.get(scope, {}).get(candidate)
+        if remembered is None:
+            return earliest, {}
+        return candidate, remembered
+
+    def _remember_baselines(
+        self,
+        scope: tuple[str, str],
+        start_at: datetime,
+        generated_at: datetime,
+        totals: Mapping[str, tuple[tuple[datetime, Decimal], ...]],
+        baseline: Mapping[str, Decimal],
+    ) -> None:
+        """Keep the cumulative totals at the two most recent period boundaries.
+
+        Two is what the refresh cadence reaches: the poll re-reads the last 72 hours, and the
+        daily reconciliation covers the current and previous month. A correction older than
+        that falls back to a whole-ledger pass, which is correct and rare.
+
+        A statistic missing from this pass keeps the total it was last remembered with. The
+        tariff lookup can go quiet for a refresh, and dropping the cost baseline then would
+        make the next truncated pass publish sums that start again from zero.
+        """
+        boundaries = (
+            _CALENDAR_MONTHS.previous_period_start(generated_at),
+            _CALENDAR_MONTHS.period_start(generated_at),
+        )
+        remembered = self._baselines.setdefault(scope, {})
+        for stale in tuple(remembered):
+            if stale not in boundaries:
+                del remembered[stale]
+        for at in boundaries:
+            if at < start_at:
+                continue
+            remembered[at] = {
+                **remembered.get(at, {}),
+                **{
+                    statistic_id: _cumulative_before(
+                        cumulative,
+                        at,
+                        baseline.get(statistic_id, Decimal(0)),
+                    )
+                    for statistic_id, cumulative in totals.items()
+                },
+            }
 
     def _publish_tariff_cost(
         self,
@@ -179,19 +284,24 @@ class HomeAssistantStatisticsProjector:
         series: tuple[StatisticsSeriesProjection, ...],
         *,
         dirty_from: datetime | None,
-    ) -> None:
+        baseline: Mapping[str, Decimal],
+    ) -> tuple[tuple[str, tuple[tuple[datetime, Decimal], ...]], ...]:
         """Publish a cost series derived from the reported tariff, when one is known.
 
         The Energy dashboard cannot price an external statistic itself — it builds a cost
         sensor only for a real entity — so a cost statistic published here is the only way
         `stat_cost` can be filled. See `docs/ARCHITECTURE.md`.
+
+        Returns the cumulative total each cost series reached, so the caller can remember it
+        at the next period boundary.
         """
         if self._tariff_lookup is None:
-            return
+            return ()
         tariff = self._tariff_lookup(account_id, supply_point_id)
         if tariff is None or not tariff.is_priceable:
-            return
+            return ()
 
+        totals: list[tuple[str, tuple[tuple[datetime, Decimal], ...]]] = []
         for energy in series:
             if energy.key.kind is not StatisticKind.ENERGY:
                 continue
@@ -206,10 +316,21 @@ class HomeAssistantStatisticsProjector:
             )
             if not costs:
                 continue
-            running = Decimal(0)
+            cost_series = StatisticsSeriesProjection(
+                key=replace(energy.key, kind=StatisticKind.TARIFF_COST),
+                statistics=(),
+            )
+            statistic_id = statistic_id_for(
+                identity,
+                cost_series.key.direction,
+                cost_series.key.kind,
+            )
+            running = baseline.get(statistic_id, Decimal(0))
+            cumulative: list[tuple[datetime, Decimal]] = []
             rows: list[StatisticData] = []
             for cost in costs:
                 running += cost.amount
+                cumulative.append((cost.start, running))
                 if dirty_from is not None and cost.start < _hour_start(dirty_from):
                     continue
                 rows.append(
@@ -219,17 +340,15 @@ class HomeAssistantStatisticsProjector:
                         sum=float(running),
                     )
                 )
+            totals.append((statistic_id, tuple(cumulative)))
             if not rows:
                 continue
-            cost_series = StatisticsSeriesProjection(
-                key=replace(energy.key, kind=StatisticKind.TARIFF_COST),
-                statistics=(),
-            )
             self._publisher(
                 self._hass,
                 _metadata(self._hass, identity, cost_series),
                 tuple(rows),
             )
+        return tuple(totals)
 
     def _clear_directions(
         self,
