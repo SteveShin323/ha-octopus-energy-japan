@@ -197,6 +197,7 @@ async def async_get_config_entry_diagnostics(
         "corrections": data.correction_count,
         "last_refresh_changes": data.last_refresh_change_count,
         "corrupt_partitions": data.corrupt_partition_count,
+        "discarded_checkpoints": data.discarded_checkpoint_count,
     }
     report["directions"] = _directions(data)
     report["providers"] = _providers(data)

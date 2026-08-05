@@ -176,6 +176,10 @@ Versions are `MAJOR.MINOR.PATCH`, with the stage carried by the range rather tha
 suffix: `0.1.x` alpha, `0.5.x` and `0.8.x` beta, `1.0.0` once migrations, security,
 documentation, translations, and quality gates are all met.
 
+`1.0.0` also means the entity IDs, unique IDs, statistic IDs, and stored formats are
+settled, because changing one breaks a user's automations or their Energy dashboard. That
+is a reason to leave time between the first release and `1.0.0` rather than a box to tick.
+
 No release is tagged unless:
 
 - every required check passes on the release commit — Validate, Security, CodeQL, and
