@@ -19,7 +19,7 @@ code, so it can be grepped.
 | **the background worker** | `_async_background_worker`, which drains queued windows behind the poll |
 | **window** | a start and end time one request covers |
 | **capability** | a field or query discovery confirmed this account can use, held in `CapabilitySnapshot` |
-| **period** | the span a stepped tariff's cumulative kWh accumulates over, from `billing_period.py`. Currently the Asia/Tokyo calendar month |
+| **period** | the span a stepped tariff's cumulative kWh accumulates over, from `billing_period.py`. Anchored on the reported meter-reading day, or the Asia/Tokyo calendar month when none is reported |
 
 ## Where the code lives
 
@@ -104,7 +104,9 @@ complete day with a low number. These boundaries do not match a billing period, 
 a meter read a few hours after midnight.
 
 One response is capped at 1488 intervals and silently drops the oldest beyond that, so
-requests use seven-day windows to stay well inside it.
+requests use seven-day windows to stay well inside it. Measured on one account the cap binds a
+response rather than a range: the legacy query stops 31 days back however wide the window,
+while the paginated generic query returned every interval asked for.
 
 ## Statistics
 
@@ -145,16 +147,29 @@ An hour that crosses a step boundary is split across both prices. Export is neve
 consumption rate. A charge in a unit this formula cannot express makes the whole tariff
 unusable rather than partly priced.
 
-**Steps restart on the invoiced period, anchored on the day of the month supply began.**
-Measured on a real account: supply began 2026-06-18 00:00 JST and the closed invoice covered
-6/18 to 7/17, and both scheduled reading dates fell on the 18th. `billing_period.py` derives
-the anchor from `supplyPeriods.supplyStartAt` — the earliest billable period — and clamps it to
-the last day of a month too short to hold it. When no supply start is reported the Asia/Tokyo
-calendar month is used instead, which is what the formula used before. `docs/API_CONTRACTS.md`
-records the three other dates that look like they should anchor it and do not.
+**Steps restart on the invoiced period, anchored on the reported meter-reading day.**
+`billing_period.py` takes whichever evidence states the schedule most directly: two consecutive
+scheduled reading dates that agree on a day one month apart, else the day billable supply
+began, else the Asia/Tokyo calendar month. The anchor is clamped to the last day of a month too
+short to hold it, so each period stays adjacent to the next.
+
+The rule itself was measured on **one** account with **one** closed invoice.
+`docs/API_CONTRACTS.md` records what each candidate field reported and which were rejected. The
+diagnostics download reports the derived anchor, which evidence produced it, and whether the
+provider's own `readingDateDayOfMonth` agrees — so an account this rule is wrong for can be
+recognised from a bug report rather than guessed at.
+
+**Nothing in the cost path assumes a plan shape.** A tariff whose charges vary by time of day,
+mix two grid operators, or are measured in something other than consumed kWh is refused with a
+recorded reason rather than approximated, and an hour is priced with the rate generation the
+provider says was in force then. A single-price plan is priced from its one charge; a stepped
+plan from its ladder. What the standing charge is measured in is reported rather than acted on,
+because one account reported `YEN_AMPERE_DAY` and the set of possible values is unknown.
 
 Every price comes from the customer's own agreement, so nothing is entered by hand. Against
-one closed bill the total came to 104%; the README's known limitations say why.
+one closed bill on one account the total came to 104% — a single measurement, taken before the
+period alignment below, not a figure to expect. The README's known limitations say what still
+makes a total differ.
 
 ## Coordination
 

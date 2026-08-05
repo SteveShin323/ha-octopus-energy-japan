@@ -45,6 +45,8 @@ query ViewerResourceDiscovery {
             spin
             status
             readingDateDayOfMonth
+            nextReadingDate
+            nextNextReadingDate
             meters {
               serialNumber
               capacity
@@ -461,6 +463,10 @@ def _parse_supply_point(
         property_id=property_id,
         spin=spin,
         reading_day_of_month=_reading_day(raw.get("readingDateDayOfMonth")),
+        reading_schedule_day=_reading_schedule_day(
+            raw.get("nextReadingDate"),
+            raw.get("nextNextReadingDate"),
+        ),
         meters=tuple(meters[key] for key in sorted(meters)),
     )
 
@@ -601,6 +607,30 @@ def _reading_day(value: object) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         return None
     return value if 1 <= value <= 31 else None
+
+
+def _reading_schedule_day(first: object, second: object) -> int | None:
+    """Return the day of the month the meter is scheduled to be read on, when corroborated.
+
+    Two consecutive scheduled dates that fall on the same day one month apart are the recurring
+    schedule stated twice. That is closer evidence for the billing anchor than the day supply
+    began, which lands on the read day only if service happened to start on one.
+
+    Both dates are required to agree. A pair a different number of months apart describes a
+    schedule this calendar does not model, and a pair whose days differ — which a month too
+    short to hold the day would produce — says nothing certain, so both fall back.
+
+    The dates themselves are deliberately not published anywhere: measured on a real account
+    they were a stale snapshot, both already in the past. A day of the month is stable under
+    that staleness in a way a date is not.
+    """
+    one = _optional_datetime(first)
+    two = _optional_datetime(second)
+    if one is None or two is None or one.day != two.day:
+        return None
+    if (two.year - one.year) * 12 + (two.month - one.month) != 1:
+        return None
+    return one.day
 
 
 def _supply_start(value: object) -> datetime | None:

@@ -339,6 +339,27 @@ async def test_diagnostics_report_the_tariff_shape_without_a_price(
         assert amount not in serialized
 
 
+async def test_diagnostics_report_the_billing_anchor_and_what_said_so(
+    hass: HomeAssistant,
+) -> None:
+    """The rule was measured on one account with one closed invoice.
+
+    A user whose bill does not line up has to be able to say which evidence produced their
+    anchor, and whether the provider's own reported reading day agrees with it.
+    """
+    report = await async_get_config_entry_diagnostics(hass, _entry(hass))
+
+    periods = report["billing_periods"]
+    # One per discovered supply point, including the ended one.
+    assert len(periods) == 2
+    for period in periods:
+        assert period["source"] in {"reading_schedule", "supply_anchor", "calendar_month"}
+        assert period["anchor_day"] is None or 1 <= period["anchor_day"] <= 31
+        assert "reading_day_of_month" in period
+        assert "agrees_with_reported_reading_day" in period
+    assert SUPPLY_POINT_ID not in json.dumps(report["billing_periods"], default=str)
+
+
 async def test_diagnostics_work_before_the_runtime_is_loaded(hass: HomeAssistant) -> None:
     report = await async_get_config_entry_diagnostics(hass, _entry(hass, loaded=False))
 

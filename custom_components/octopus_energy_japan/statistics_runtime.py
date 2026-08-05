@@ -51,11 +51,12 @@ _LOGGER = logging.getLogger(__name__)
 # Dashboard statistics do, so those are skipped rather than allowed to fail the refresh.
 _RECORDER_DOMAIN = "recorder"
 
-# Tariff steps accumulate over the Asia/Tokyo month. The provider's own rate validity
-# windows are JST calendar months — the fuel adjustment observed on 2026-08-04 ran from
-# 2026-08-01 00:00 JST to 2026-09-01 00:00 JST, and the levy from 2026-05-01 JST — so that
-# is the boundary this follows. It is not the billing period, which ends at a meter read a
-# few hours after midnight; `docs/ARCHITECTURE.md` records the measured difference.
+# The provider's timezone, which is a property of the provider rather than an assumption about
+# a region: Japan has one timezone and no daylight saving, and the rate validity windows
+# observed on a real account were JST calendar months — the fuel adjustment ran 2026-08-01 to
+# 2026-09-01 JST and the levy from 2026-05-01 JST. Tariff steps restart on the account's
+# reported meter-reading day within this timezone, not on its calendar month; the calendar month
+# is only the fallback when no reading day is reported.
 TOKYO = ZoneInfo("Asia/Tokyo")
 
 # The fallback calendar, used when the supply start date is unknown. It is also what decides

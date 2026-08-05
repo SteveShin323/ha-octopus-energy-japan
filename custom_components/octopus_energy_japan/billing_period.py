@@ -6,20 +6,15 @@ projection can be truncated without changing any result: start it on a boundary 
 counter begins clean, start it anywhere else and every later hour is priced from a partial
 total.
 
-The invoiced period runs from the day of the month supply began to the day before it in the
-following month. Measured on a real account: supply began at 2026-06-18 00:00 JST and the
-closed invoice covered 6/18 to 7/17. Both scheduled reading dates fell on the 18th as well.
+The invoiced period runs from one meter reading to the day before the next. Which day of the
+month that is comes from what the provider reports, in order of how directly it states the
+schedule: two consecutive scheduled reading dates that agree, then the day billable supply
+began, then the local calendar month when neither is reported. `docs/API_CONTRACTS.md` records
+what was measured, on how many accounts, and which fields were rejected and why.
 
-Three other dates on the same account look like they should anchor it and do not, so none of
-them is used:
-
-* `readingDateDayOfMonth` reported 19, which matches neither boundary nor either reading date;
-* `bills.fromDate` and `toDate` reported 6/17 to 7/22 with an issue date of 7/23, which is the
-  document's own period, not the meter reading period;
-* `statements.startAt` and `endAt` reported 6/17 to 7/23 JST, likewise.
-
-When supply began is unknown the calendar month is used instead, which is what the code did
-before this module existed.
+**One account with one closed invoice is the whole evidence for the rule itself.** It is a
+measurement, not a documented contract. `BillingPeriodSource` is reported in the diagnostics
+download so a user whose bill does not line up can say which evidence was used.
 """
 
 from __future__ import annotations
@@ -36,10 +31,16 @@ _ONE_STEP = timedelta(microseconds=1)
 
 
 class BillingPeriodSource(StrEnum):
-    """Where a calendar's boundaries come from."""
+    """Where a calendar's boundaries come from, strongest evidence first."""
 
-    CALENDAR_MONTH = "calendar_month"
+    # Two consecutive scheduled reading dates that agree on a day of the month, one month
+    # apart: the recurring schedule stated twice.
+    READING_SCHEDULE = "reading_schedule"
+    # The day of the month billable supply began. It lands on the read day only if service
+    # happened to start on one, so it is the weaker of the two.
     SUPPLY_ANCHOR = "supply_anchor"
+    # Nothing was reported. This is what the cost formula used before either was read.
+    CALENDAR_MONTH = "calendar_month"
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +59,15 @@ class BillingPeriodCalendar:
     def calendar_months(cls, local_timezone: tzinfo) -> Self:
         """Return the calendar that restarts on the first of each local month."""
         return cls(local_timezone=local_timezone)
+
+    @classmethod
+    def from_reading_day(cls, anchor_day: int, *, local_timezone: tzinfo) -> Self:
+        """Return the calendar anchored on the scheduled meter-reading day."""
+        return cls(
+            local_timezone=local_timezone,
+            anchor_day=anchor_day,
+            source=BillingPeriodSource.READING_SCHEDULE,
+        )
 
     @classmethod
     def from_supply_start(cls, supply_start_at: datetime, *, local_timezone: tzinfo) -> Self:

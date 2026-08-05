@@ -1013,7 +1013,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                     # From `_accounts` rather than `self.data`, which is still unset during
                     # the first poll. Falling back to the calendar month there would price
                     # the first hours published against the wrong boundary.
-                    billing_periods=_billing_periods_for(
+                    billing_periods=billing_periods_for(
                         _find_supply_point(self._accounts, key[0], key[1])
                     ),
                 )
@@ -1558,16 +1558,25 @@ def _find_supply_point(
     return None
 
 
-def _billing_periods_for(point: OejpSupplyPoint | None) -> BillingPeriodCalendar:
+def billing_periods_for(point: OejpSupplyPoint | None) -> BillingPeriodCalendar:
     """Return the periods one supply point's stepped charges accumulate over.
 
-    Anchored on the day of the month supply began, which is what a closed invoice was measured
-    against. Falls back to the Asia/Tokyo calendar month when discovery reports no supply
-    start, which is what the cost formula used before this existed.
+    Whichever the provider reports states the reading schedule most directly wins. Two
+    consecutive scheduled reading dates that agree on a day, one month apart, are the schedule
+    itself. The day billable supply began lands on the read day only if service happened to
+    start on one, so it is the weaker evidence. With neither, the Asia/Tokyo calendar month is
+    used, which is what the cost formula did before either was read.
     """
-    if point is None or point.supply_start_at is None:
+    if point is None:
         return BillingPeriodCalendar.calendar_months(TOKYO)
-    return BillingPeriodCalendar.from_supply_start(point.supply_start_at, local_timezone=TOKYO)
+    if point.reading_schedule_day is not None:
+        return BillingPeriodCalendar.from_reading_day(
+            point.reading_schedule_day,
+            local_timezone=TOKYO,
+        )
+    if point.supply_start_at is not None:
+        return BillingPeriodCalendar.from_supply_start(point.supply_start_at, local_timezone=TOKYO)
+    return BillingPeriodCalendar.calendar_months(TOKYO)
 
 
 def enabled_supply_points(

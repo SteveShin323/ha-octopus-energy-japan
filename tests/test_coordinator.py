@@ -71,6 +71,7 @@ from custom_components.octopus_energy_japan.coordinator import (
     _triage,
     _worker_rule,
     _WorkerDisposition,
+    billing_periods_for,
     enabled_supply_points,
     entity_directions,
     iter_supply_points,
@@ -329,6 +330,41 @@ async def test_statistics_projection_prices_over_the_invoiced_period(
 
     periods = projector.async_project_supply_point.await_args.kwargs["billing_periods"]
     assert periods.anchor_day == 18
+
+
+@pytest.mark.parametrize(
+    ("point_kwargs", "expected_day", "expected_source"),
+    [
+        (
+            {"reading_schedule_day": 18, "supply_start_at": datetime(2026, 6, 30, 15, tzinfo=UTC)},
+            18,
+            "reading_schedule",
+        ),
+        ({"supply_start_at": datetime(2026, 6, 17, 15, tzinfo=UTC)}, 18, "supply_anchor"),
+        ({}, None, "calendar_month"),
+    ],
+)
+def test_the_billing_anchor_prefers_the_evidence_that_states_the_schedule(
+    point_kwargs: dict[str, object],
+    expected_day: int | None,
+    expected_source: str,
+) -> None:
+    """The supply start lands on the read day only if service happened to start on one.
+
+    Two consecutive scheduled reading dates that agree are the schedule itself, so they win.
+    The second case here has a supply start on the 1st JST and a schedule on the 18th, which
+    only the priority distinguishes.
+    """
+    calendar = billing_periods_for(replace(_point(), **point_kwargs))  # type: ignore[arg-type]
+
+    assert calendar.anchor_day == expected_day
+    assert calendar.source.value == expected_source
+
+
+def test_an_unknown_supply_point_falls_back_to_the_calendar_month() -> None:
+    calendar = billing_periods_for(None)
+
+    assert calendar.source.value == "calendar_month"
 
 
 async def test_statistics_projection_failure_is_retried_and_recovers(

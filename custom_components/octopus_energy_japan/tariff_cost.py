@@ -11,11 +11,13 @@ fuel adjustment changes monthly and the provider states the month it covers. The
 depends on nothing but the calendar, which is why a per-kWh price can never express it and
 why this is computed here rather than handed to Home Assistant as a unit price.
 
-Steps advance on the cumulative total for one **billing period**, which the caller
-supplies as a `BillingPeriodCalendar` — the invoiced period when supply's start date is
-known, the Asia/Tokyo calendar month when it is not. Everything else in this integration
-works in UTC hours, so the conversion to local time happens inside that calendar and
-nowhere else.
+Steps advance on the cumulative total for one **billing period**, which the caller supplies as
+a `BillingPeriodCalendar` — anchored on the meter-reading day the account reports, or the local
+calendar month when it reports none. Everything else in this integration works in UTC hours, so
+the conversion to local time happens inside that calendar and nowhere else.
+
+Which rates apply is the provider's statement too, not an assumption: an hour is priced with the
+rate generation whose validity window covers it.
 
 Every price the provider gives is available with and without tax. The tax-inclusive one is
 used throughout: it is what the customer pays, and a cost shown beside consumption that

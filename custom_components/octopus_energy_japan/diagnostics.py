@@ -153,6 +153,37 @@ def _tariffs(
     ]
 
 
+def _billing_periods(data: OejpCoordinatorData, identity_secret: str) -> list[dict[str, Any]]:
+    """Report which day each supply point's charges restart on, and what said so.
+
+    The rule that a period runs from one meter reading to the day before the next was measured
+    on one account with one closed invoice. A user whose bill does not line up needs to be able
+    to say which evidence produced their anchor, so the source is reported alongside it.
+    """
+    from .coordinator import billing_periods_for, iter_supply_points
+
+    return [
+        {
+            "supply_point": stable_supply_point_identity(
+                identity_secret,
+                account.number,
+                point.id,
+            ),
+            "anchor_day": calendar.anchor_day,
+            "source": calendar.source.value,
+            "reading_day_of_month": point.reading_day_of_month,
+            "agrees_with_reported_reading_day": (
+                None
+                if calendar.anchor_day is None or point.reading_day_of_month is None
+                else calendar.anchor_day == point.reading_day_of_month
+            ),
+        }
+        for account in data.accounts
+        for point in iter_supply_points(account)
+        if (calendar := billing_periods_for(point))
+    ]
+
+
 def _commercial(coordinator: OejpCommercialCoordinator | None) -> dict[str, Any]:
     if coordinator is None:
         return {"configured": False}
@@ -242,4 +273,5 @@ async def async_get_config_entry_diagnostics(
     report["aggregation"] = _aggregation(data)
     report["commercial"] = _commercial(runtime.commercial_coordinator)
     report["tariffs"] = _tariffs(runtime.commercial_coordinator, runtime.identity_secret)
+    report["billing_periods"] = _billing_periods(data, runtime.identity_secret)
     return report

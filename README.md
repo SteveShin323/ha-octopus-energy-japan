@@ -143,7 +143,7 @@ Enabled by default:
 | Data delay | how far behind the newest interval is |
 | Status | whether the supply point is active or ended |
 | Data available | whether readings are currently arriving |
-| Meter reading day | the day of the month this meter is read on |
+| Meter reading day | the day of the month your account reports for the meter read. It can differ from the day the price steps restart on, which is taken from your scheduled reading dates; your diagnostics download says which |
 
 Disabled by default: **Address** — the address held for this supply point's property,
 so that with more than one property you can tell which device is which. It is off
@@ -204,19 +204,30 @@ There is no export cost statistic. Energy you send back is paid for under a sepa
 arrangement, so pricing it at a consumption rate would show money you are not being
 charged. Leave **Return to grid** without a cost.
 
-Treat cost as a close estimate, not your bill. Against one closed bill it came to 104% of
-the billed total. [Known limitations](#known-limitations) explains why.
+Treat cost as a close estimate, not your bill. On the one account this has been checked
+against, one closed bill came to 104% of the billed total — a single measurement on one plan in
+one service area, not a figure to expect on yours.
+[Known limitations](#known-limitations) explains what still makes a total differ.
 
 ## Known limitations
 
-**Cost is an estimate.** The prices are read from your own agreement, so they are not a
-guess. Two things still make the total differ from your bill:
+**Cost is an estimate.** Every price is read from your own agreement, so nothing is guessed
+and nothing is assumed about your area or your plan. Three things still make the total differ
+from your bill:
 
-- The price steps restart on the period your bill covers, which runs from the day of the
-  month your supply began. The provider publishes no time of day for the meter read, so each
-  boundary can be a few hours out.
+- The price steps restart on the day of the month your meter is read, taken from what your
+  account reports. The provider publishes no time of day for the read, so each boundary can be
+  a few hours out.
 - Only the current month's fuel-cost adjustment is available, so hours in earlier months are
   priced without one.
+- Whether the standing charge your account reports is already worked out for your contracted
+  amperage is not confirmed. Your diagnostics download says what the provider calls it.
+
+**Some plans cannot be priced at all.** A plan whose price varies by time of day, or that
+includes a charge measured in something other than consumed kilowatt-hours, cannot be expressed
+by this calculation. When that happens no cost statistic is published and a repair message says
+so — your consumption, calendar totals, and the Energy Dashboard energy statistics are
+unaffected. Pricing part of such a plan would look like it worked while being wrong.
 
 **The cost figure Octopus Energy Japan returns per interval is not shown.** It combines the
 fuel-cost adjustment and the renewable levy into one number and cannot express the daily

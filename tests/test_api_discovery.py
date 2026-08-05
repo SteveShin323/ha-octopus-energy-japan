@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -19,6 +20,7 @@ from custom_components.octopus_energy_japan.api import (
     GraphQLResult,
     OejpInvalidResponseError,
     OejpQueryValidationError,
+    OejpSupplyPoint,
     ResourceLifecycle,
     async_detect_capabilities,
     async_discover_generic_devices,
@@ -590,6 +592,16 @@ def test_every_real_day_of_the_month_is_accepted(value: int) -> None:
     assert parsed.reading_day_of_month == value
 
 
+def _parsed_supply_point(payload: dict[str, Any], point_id: str) -> OejpSupplyPoint:
+    return next(
+        point
+        for account in parse_legacy_discovery(payload)
+        for property_ in account.properties
+        for point in property_.supply_points
+        if point.id == point_id
+    )
+
+
 def _supply_periods_payload(periods: object) -> dict[str, object]:
     return {
         "account": {
@@ -772,3 +784,37 @@ def test_a_supply_start_can_be_keyed_by_the_spin_instead() -> None:
         for point in property_.supply_points
     }
     assert points["supply-2"].supply_start_at == start
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "expected"),
+    [
+        # Measured on a real account: both scheduled dates fell on the 18th, one month apart,
+        # and the closed invoice ran from the 18th to the 17th.
+        ("2026-06-18", "2026-07-18", 18),
+        (None, "2026-07-18", None),
+        ("2026-06-18", None, None),
+        # Days that disagree say nothing certain, including the short-month case.
+        ("2026-01-31", "2026-02-28", None),
+        # A gap this calendar does not model.
+        ("2026-06-18", "2026-08-18", None),
+        ("2026-07-18", "2026-06-18", None),
+        ("not-a-date", "2026-07-18", None),
+    ],
+)
+def test_the_reading_schedule_day_needs_two_dates_that_agree(
+    first: object,
+    second: object,
+    expected: int | None,
+) -> None:
+    """Two consecutive dates on the same day are the recurring schedule stated twice.
+
+    One date alone, or a pair that disagrees, is not evidence of a recurring day, and the
+    billing anchor derived from it would silently shift every step boundary.
+    """
+    payload = _discovery_payload()
+    point = payload["viewer"]["accounts"][1]["properties"][1]["electricitySupplyPoints"][0]  # type: ignore[index]
+    point["nextReadingDate"] = first
+    point["nextNextReadingDate"] = second
+
+    assert _parsed_supply_point(payload, "supply-2").reading_schedule_day == expected
