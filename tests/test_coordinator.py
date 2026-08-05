@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from custom_components.octopus_energy_japan.aggregation import TOKYO
 from custom_components.octopus_energy_japan.api import (
     Capability,
     CapabilityAvailability,
@@ -47,6 +49,9 @@ from custom_components.octopus_energy_japan.background_sync import (
     PlannedGeneration,
     SyncCheckpoint,
     SyncObligation,
+)
+from custom_components.octopus_energy_japan.billing_period import (
+    BillingPeriodCalendar,
 )
 from custom_components.octopus_energy_japan.const import (
     CONF_ENABLED_HISTORICAL_RESOURCES,
@@ -295,8 +300,35 @@ async def test_statistics_projection_flushes_ledger_and_clears_pending(
         NOW,
         dirty_from=None,
         reset_directions=frozenset(),
+        billing_periods=BillingPeriodCalendar.calendar_months(TOKYO),
     )
     assert key not in coordinator._statistics_pending
+
+
+async def test_statistics_projection_prices_over_the_invoiced_period(
+    hass: HomeAssistant,
+) -> None:
+    """The calendar comes from `_accounts`, which is populated before the first poll.
+
+    Reading it from `self.data` instead would hand the projector the calendar-month fallback
+    on the very first pass, pricing the first hours published against the wrong boundary.
+    """
+    projector = AsyncMock()
+    # 2026-06-18 00:00 JST, the supply start measured on a real account.
+    point = replace(_point(), supply_start_at=datetime(2026, 6, 17, 15, tzinfo=UTC))
+    coordinator = _coordinator(
+        hass,
+        accounts=(_account(point),),
+        statistics_projector=cast("StatisticsProjector", projector),
+    )
+    _install_state(coordinator, point, router=AsyncMock())
+    coordinator._statistics_pending[(ACCOUNT_ID, SUPPLY_POINT_ID)] = _StatisticsPending(None)
+    assert coordinator.data is None
+
+    await coordinator._async_publish_pending_statistics(NOW)
+
+    periods = projector.async_project_supply_point.await_args.kwargs["billing_periods"]
+    assert periods.anchor_day == 18
 
 
 async def test_statistics_projection_failure_is_retried_and_recovers(

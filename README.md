@@ -212,8 +212,9 @@ the billed total. [Known limitations](#known-limitations) explains why.
 **Cost is an estimate.** The prices are read from your own agreement, so they are not a
 guess. Two things still make the total differ from your bill:
 
-- Your bill covers the period between two meter reads. The price steps here restart on the
-  Tokyo calendar month, so the two periods do not line up.
+- The price steps restart on the period your bill covers, which runs from the day of the
+  month your supply began. The provider publishes no time of day for the meter read, so each
+  boundary can be a few hours out.
 - Only the current month's fuel-cost adjustment is available, so hours in earlier months are
   priced without one.
 

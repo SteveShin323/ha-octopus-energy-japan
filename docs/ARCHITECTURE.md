@@ -136,14 +136,22 @@ one whole-ledger pass rather than a wrong number.
 Cost per hour is:
 
 ```
-kWh × the price step this Tokyo month's cumulative kWh has reached
+kWh × the price step this billing period's cumulative kWh has reached
   + kWh × (fuel-cost adjustment + renewable levy), for whichever is in force
   + the daily standing charge ÷ 24
 ```
 
-An hour that crosses a step boundary is split across both prices. Steps restart on the Tokyo
-calendar month. Export is never priced at a consumption rate. A charge in a unit this formula
-cannot express makes the whole tariff unusable rather than partly priced.
+An hour that crosses a step boundary is split across both prices. Export is never priced at a
+consumption rate. A charge in a unit this formula cannot express makes the whole tariff
+unusable rather than partly priced.
+
+**Steps restart on the invoiced period, anchored on the day of the month supply began.**
+Measured on a real account: supply began 2026-06-18 00:00 JST and the closed invoice covered
+6/18 to 7/17, and both scheduled reading dates fell on the 18th. `billing_period.py` derives
+the anchor from `supplyPeriods.supplyStartAt` — the earliest billable period — and clamps it to
+the last day of a month too short to hold it. When no supply start is reported the Asia/Tokyo
+calendar month is used instead, which is what the formula used before. `docs/API_CONTRACTS.md`
+records the three other dates that look like they should anchor it and do not.
 
 Every price comes from the customer's own agreement, so nothing is entered by hand. Against
 one closed bill the total came to 104%; the README's known limitations say why.

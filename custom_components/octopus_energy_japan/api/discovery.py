@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from typing import Any
 
 from .auth import AuthenticatedGraphQLClient
@@ -49,6 +50,33 @@ query ViewerResourceDiscovery {
               capacity
             }
           }
+        }
+      }
+    }
+  }
+}
+"""
+
+# Asked account-scoped rather than added to the document above, because authorization for this
+# field depends on the path. Measured on a real account: through `account(accountNumber:)` it
+# returns data, and through `viewer.accounts` it returns AUTHORIZATION/KT-CT-4501 and nulls the
+# field, which a strict discovery turns into a failed setup.
+#
+# `supplyStartAt` anchors the billing period the tariff accumulates over. It is optional
+# throughout: without it the cost formula falls back to the calendar month, which is what it
+# used before this was requested.
+ACCOUNT_SUPPLY_PERIODS_QUERY = """
+query AccountSupplyPeriods($accountNumber: String!) {
+  account(accountNumber: $accountNumber) {
+    number
+    properties {
+      electricitySupplyPoints {
+        id
+        spin
+        supplyPeriods {
+          supplyStartAt
+          supplyEndAt
+          isBillable
         }
       }
     }
@@ -147,6 +175,76 @@ async def async_discover_resources(
     """Discover all legacy account/property/supply-point/meter resources."""
     data = await client.execute(LEGACY_DISCOVERY_QUERY)
     return parse_legacy_discovery(data)
+
+
+async def async_discover_supply_starts(
+    client: AuthenticatedGraphQLClient,
+    account_number: str,
+) -> dict[str, datetime]:
+    """Return when billable supply began, per supply point, for one account.
+
+    Optional throughout: an account that may not read this gets an empty mapping and the cost
+    formula falls back to the calendar month. Nothing else depends on it, so a refusal must not
+    reach setup.
+    """
+    result = await client.execute_optional(
+        ACCOUNT_SUPPLY_PERIODS_QUERY,
+        {"accountNumber": account_number},
+    )
+    if result.data is None:
+        return {}
+    return parse_supply_starts(result.data)
+
+
+def parse_supply_starts(data: Mapping[str, Any]) -> dict[str, datetime]:
+    """Parse supply starts keyed by both the supply point's id and its spin.
+
+    Both keys, because the discovery tree identifies a supply point by `id` or by `spin`
+    depending on which the provider returned, and the caller matches on whichever it holds.
+    """
+    account = data.get("account")
+    if not isinstance(account, Mapping):
+        return {}
+    starts: dict[str, datetime] = {}
+    properties = account.get("properties")
+    for property_ in properties if isinstance(properties, list) else []:
+        if not isinstance(property_, Mapping):
+            continue
+        points = property_.get("electricitySupplyPoints")
+        for point in points if isinstance(points, list) else []:
+            if not isinstance(point, Mapping):
+                continue
+            start = _supply_start(point.get("supplyPeriods"))
+            if start is None:
+                continue
+            for key in (point.get("id"), point.get("spin")):
+                if identifier := _optional_string(key):
+                    starts[identifier] = start
+    return starts
+
+
+def attach_supply_starts(
+    accounts: tuple[OejpAccount, ...],
+    starts_by_supply_point: Mapping[str, datetime],
+) -> tuple[OejpAccount, ...]:
+    """Return an immutable discovery tree enriched with each supply point's start."""
+    enriched: list[OejpAccount] = []
+    for account in accounts:
+        properties: list[OejpProperty] = []
+        for property_ in account.properties:
+            supply_points = tuple(
+                replace(
+                    point,
+                    supply_start_at=starts_by_supply_point.get(
+                        point.id,
+                        starts_by_supply_point.get(point.spin or point.id, point.supply_start_at),
+                    ),
+                )
+                for point in property_.supply_points
+            )
+            properties.append(replace(property_, supply_points=supply_points))
+        enriched.append(replace(account, properties=tuple(properties)))
+    return tuple(enriched)
 
 
 def parse_legacy_discovery(data: Mapping[str, Any]) -> tuple[OejpAccount, ...]:
@@ -503,6 +601,38 @@ def _reading_day(value: object) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         return None
     return value if 1 <= value <= 31 else None
+
+
+def _supply_start(value: object) -> datetime | None:
+    """Return when billable supply began, from the earliest billable supply period.
+
+    Lenient throughout: this anchors the billing period the tariff accumulates over, and the
+    fallback when it is unknown is the calendar month, which is what the code did before this
+    field existed. Raising would fail discovery over a field consumption does not need.
+
+    Only billable periods count. A non-billable one is a gap the customer is not charged for,
+    so it cannot be where a charging period starts.
+    """
+    if not isinstance(value, list):
+        return None
+    starts = [
+        parsed
+        for period in value
+        if isinstance(period, Mapping)
+        and period.get("isBillable") is True
+        and (parsed := _optional_datetime(period.get("supplyStartAt"))) is not None
+    ]
+    return min(starts) if starts else None
+
+
+def _optional_datetime(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip())
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
 def _optional_scalar_string(value: object) -> str | None:

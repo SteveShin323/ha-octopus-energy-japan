@@ -41,9 +41,31 @@ version when a period closes, and values change. This is why the ledger stores k
 intervals rather than a running total, and why statistics are external rather than
 recorder-backed.
 
-**A billing period ends at the meter read, not at midnight.** Calendar projections use
-Asia/Tokyo boundaries and will not equal an invoiced period. That is a presentation
-choice, not a defect.
+**A billing period runs from the day of the month supply began to the day before it in the
+following month.** Measured on one account: supply began 2026-06-18 00:00 JST, the closed
+invoice covered 6/18 to 7/17, and both scheduled reading dates fell on the 18th. Cost follows
+that period. Calendar day, week, and month totals still use Asia/Tokyo boundaries and will not
+equal an invoiced period, which is a presentation choice rather than a defect.
+
+**Three other dates look like they anchor the period and do not.** All measured on the same
+account, so none of them is used for cost:
+
+| Field | Reported | Why not |
+|---|---|---|
+| `readingDateDayOfMonth` | 19 | matches neither boundary nor either scheduled reading date |
+| `bills.fromDate` / `toDate` | 6/17 to 7/22, issued 7/23 | the document's own period, not the reading period |
+| `statements.startAt` / `endAt` | 6/17 to 7/23 JST | likewise, and a day out from `bills` |
+
+`supplyPeriods.supplyStartAt` is the one that agrees with the invoice. It is a `DateTime`, so
+it reads as the 17th until converted to JST — the source of a day's error if it is not.
+
+**Authorization can depend on the path a field is reached by, not only on the field.** The same
+`supplyPeriods` selection returns data through `account(accountNumber:)` and
+`AUTHORIZATION/KT-CT-4501` through `viewer.accounts`. Both were measured on the same account in
+the same session. That is why the supply start is asked account-scoped rather than added to the
+viewer document the resource discovery uses: a strict execution there turned one nulled optional
+field into a failed setup. Do not conclude that a field is unavailable to an account from one
+path alone.
 
 **The market name needs a territory prefix.** `JPN_ELECTRICITY`, not `ELECTRICITY`.
 

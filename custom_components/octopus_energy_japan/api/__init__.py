@@ -33,6 +33,7 @@ from .device_auth import (
     OejpDeviceAuthorizationClient,
 )
 from .discovery import (
+    ACCOUNT_SUPPLY_PERIODS_QUERY,
     CAPABILITY_QUERY,
     GENERIC_DEVICES_QUERY,
     LEGACY_DISCOVERY_QUERY,
@@ -40,12 +41,15 @@ from .discovery import (
     async_detect_capabilities,
     async_discover_generic_devices,
     async_discover_resources,
+    async_discover_supply_starts,
     async_paginate,
     attach_generic_devices,
+    attach_supply_starts,
     lifecycle_from_status,
     parse_capabilities,
     parse_generic_devices,
     parse_legacy_discovery,
+    parse_supply_starts,
 )
 from .errors import (
     GraphQLErrorDetail,
@@ -127,6 +131,7 @@ __all__ = [
     "ACCOUNT_AGREEMENTS_QUERY",
     "ACCOUNT_BILLING_QUERY",
     "ACCOUNT_OVERVIEW_QUERY",
+    "ACCOUNT_SUPPLY_PERIODS_QUERY",
     "CAPABILITY_QUERY",
     "DEFAULT_ENDPOINT",
     "ELECTRICITY_MARKET_NAME",
@@ -210,6 +215,7 @@ __all__ = [
     "async_discover_accounts",
     "async_discover_generic_devices",
     "async_discover_resources",
+    "async_discover_supply_starts",
     "async_fetch_account_commercial_snapshot",
     "async_fetch_supply_point_tariffs",
     "async_get_viewer_identity",
@@ -217,6 +223,7 @@ __all__ = [
     "async_paginate",
     "async_renew_token",
     "attach_generic_devices",
+    "attach_supply_starts",
     "build_generic_readings_query",
     "candidate_directions",
     "classify_graphql_error_details",
@@ -233,4 +240,5 @@ __all__ = [
     "parse_legacy_half_hourly_readings",
     "parse_legacy_interval_readings",
     "parse_supply_point_tariffs",
+    "parse_supply_starts",
 ]
