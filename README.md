@@ -13,8 +13,9 @@
 ![Project status](https://img.shields.io/badge/status-pre--alpha-orange)
 
 A read-only Home Assistant custom integration for Octopus Energy Japan. It brings
-your half-hourly electricity readings, calendar totals, and correction-safe Energy
-Dashboard statistics — including cost — into Home Assistant.
+your half-hourly electricity readings, calendar totals, and Energy Dashboard statistics —
+including cost — into Home Assistant. When a reading is corrected later, the statistics are
+corrected with it.
 
 日本語の案内は [`docs/ja/README.md`](docs/ja/README.md) にあります。
 
@@ -27,8 +28,8 @@ Dashboard statistics — including cost — into Home Assistant.
 - Half-hourly import and export readings for every electricity supply point on every
   account your login can see.
 - Today, yesterday, week, and month totals on Asia/Tokyo calendar boundaries.
-- Energy Dashboard statistics rebuilt from a persistent interval ledger, so a reading
-  revised later rewrites history deterministically.
+- Energy Dashboard statistics rebuilt from a stored copy of every reading, so a reading
+  corrected later also corrects every total that used it.
 - An hourly cost statistic computed from your own tariff — price steps, standing
   charge, fuel-cost adjustment, and renewable levy. You enter no prices.
 - Optional account, contract, and billing summaries, with financial entities off by
@@ -40,8 +41,8 @@ readings, and makes no payments. Nothing is sent to any server the developer run
 
 ## What it supports
 
-There is no hardware to pair. The integration talks to the API, so it works with
-whatever your account exposes.
+There is no hardware to pair. The integration reads the Octopus Energy Japan API, so it
+supports whatever your account exposes.
 
 | Supported | Detail |
 |---|---|
@@ -54,7 +55,7 @@ whatever your account exposes.
 
 ## Typical uses
 
-- Watch yesterday's and this month's electricity use without opening the provider app.
+- Watch yesterday's and this month's electricity use without opening the Octopus Energy Japan app.
 - Put consumption and cost on the Energy Dashboard beside solar, battery, or a
   locally measured circuit.
 - Automate on consumption, such as a notification when today's use passes a threshold.
@@ -75,28 +76,28 @@ It is not a billing tool. See [known limitations](#known-limitations).
 | | Email and password | Device code | Account (browser) |
 |---|---|---|---|
 | Usable today | **yes** | needs a client ID | needs a client ID |
-| Where you sign in | in Home Assistant | on the provider website, from any device | on the provider website |
+| Where you sign in | in Home Assistant | on the Octopus Energy Japan website, from any device | on the Octopus Energy Japan website |
 | Your password | **stored in Home Assistant** | never requested | never requested |
 | Needs My Home Assistant | no | no | yes |
 
 **Email and password** works today. Both are stored in Home Assistant — not for
 convenience, but because the refresh token lasts seven days and renewing it does not
-extend that, so nothing but the credential itself can sign in afterwards. What is
-stored and where is in [`PRIVACY.md`](PRIVACY.md). This is the provider's older login
+extend those seven days, so after that nothing but the credential itself can sign in. What is
+stored and where is in [`PRIVACY.md`](PRIVACY.md). This is Octopus Energy Japan's older login
 and can stop being accepted without notice; Home Assistant then asks you to reconnect.
 
 **Device code** and **Account** are the two OAuth methods. Both are implemented and
 both need a public OAuth client ID registered under **Settings → Devices & services →
-Application credentials**. No client ID is published for this provider, so neither can
+Application credentials**. No client ID is published for Octopus Energy Japan, so neither can
 be completed yet, and choosing one stops with a message asking for a credential first.
 Device code needs no browser redirect, which makes it the better of the two for an
 instance with no public address.
 
 ### Switching later, without losing history
 
-Open the integration's menu, choose to reconnect, and pick another method. The entry
-is promoted in place: readings and Energy Dashboard statistics are kept, and any
-stored password is deleted. Do not delete and re-add.
+Open the integration's menu, choose to reconnect, and pick another method. The entry is
+switched in place: your readings and Energy Dashboard statistics are kept, and any stored
+password is deleted. Do not delete and re-add.
 
 ### My Home Assistant
 
@@ -107,12 +108,12 @@ stripped-down configuration, add `my:` to `configuration.yaml` and restart.
 
 ### Configuration parameters
 
-No API key, no account number, no supply point. Everything else is discovered from the
-account you sign in with.
+You never enter an API key, an account number, or a supply point number. Everything else is
+discovered from the account you sign in with.
 
 | Parameter | Where | Required for | Meaning |
 |---|---|---|---|
-| Email and password | setup → **Email and password** | that method | your provider sign-in, stored so the integration can sign in again |
+| Email and password | setup → **Email and password** | that method | your Octopus Energy Japan sign-in, stored so the integration can sign in again |
 | OAuth client ID | **Application credentials** | the two OAuth methods | a public client ID. Not a secret; leave the secret field empty |
 | Enabled historical resources | integration → **Configure** | nothing | which ended accounts or supply points keep reporting |
 
@@ -149,8 +150,9 @@ so that with more than one property you can tell which device is which. It is of
 until you enable it because an entity state is written to the recorder database and
 included in backups. See [`PRIVACY.md`](PRIVACY.md).
 
-A calendar total reports **unknown** until the whole period is covered, rather than a
-number that is quietly too low. A partly synchronised day is not a smaller day.
+A calendar total reports **unknown** until every interval in the period has arrived. A
+half-synchronised day would otherwise look like a complete day that used very little
+electricity.
 
 There is no *current power* entity: the API publishes 30-minute totals, not live
 power, and presenting an average as instantaneous would be wrong. There is no *next
@@ -169,7 +171,7 @@ transaction amount.
 
 | What | How often |
 |---|---|
-| Consumption | every 30 minutes, re-reading the last 72 hours |
+| Readings | every 30 minutes, re-reading the last 72 hours |
 | Account and supply-point discovery | every 24 hours |
 | Contract and billing | every 12 hours |
 | Full reconciliation | daily, over the current and previous month |
@@ -179,8 +181,7 @@ sometimes longer. Nothing is missing; it has not been published yet.
 
 **Readings get corrected.** When a billing period closes, intervals are reissued with
 a new version and values can change. The integration stores every interval rather than
-a running total, so a correction rewrites the affected history and every later Energy
-Dashboard total deterministically.
+a running total, so a correction also updates every later Energy Dashboard total.
 
 **Startup does not stall.** Setup completes from recent data; older history is fetched
 in the background afterwards.
@@ -192,39 +193,40 @@ statistic named after your supply point, for example `OEJP supply point 1-1 Impo
 energy`. If an export direction is reported, add `… Export energy` under **Return to
 grid**.
 
-Pick the **statistic**, not a period sensor. The period sensors are for display; the
-statistics are the correction-safe source Home Assistant can rewrite.
+Pick the **statistic**, not one of the consumption sensors listed above. Those sensors are
+for display. Only a statistic can be rewritten when a reading is corrected.
 
 Set cost to `OEJP supply point 1-1 Import cost`. Leave the price fields empty — Home
 Assistant only multiplies a *sensor* by a price and skips that for an external
-statistic, so anything entered there is ignored. The cost statistic is the route.
+statistic, so anything entered there is ignored. The cost statistic replaces it.
 
-There is no export cost statistic. Energy fed back is compensated under a different
-arrangement than consumption, and pricing it at a consumption rate would invent a
-payment. Leave **Return to grid** without a cost.
+There is no export cost statistic. Energy you send back is paid for under a separate
+arrangement, so pricing it at a consumption rate would show money you are not being
+charged. Leave **Return to grid** without a cost.
 
-Treat cost as a good estimate, not your bill. Measured against one real closed bill it
-came to 104% of the billed total, for two reasons described under
-[known limitations](#known-limitations).
+Treat cost as a close estimate, not your bill. Against one closed bill it came to 104% of
+the billed total. [Known limitations](#known-limitations) explains why.
 
 ## Known limitations
 
-**Cost is an estimate.** The tariff is read from your own agreement, so the prices are
-yours rather than a guess. Two things limit the total: your bill runs to a meter read a
-few hours after midnight while the price steps here restart on the Tokyo calendar
-month, and only the current month's fuel-cost adjustment is available, so hours from
-earlier months are priced without one.
+**Cost is an estimate.** The prices are read from your own agreement, so they are not a
+guess. Two things still make the total differ from your bill:
 
-**The provider's own per-interval cost figure is not published.** It collapses the
-fuel-cost adjustment and the renewable levy into one number and cannot express the
-daily standing charge, so it does not reproduce a billed total.
+- Your bill covers the period between two meter reads. The price steps here restart on the
+  Tokyo calendar month, so the two periods do not line up.
+- Only the current month's fuel-cost adjustment is available, so hours in earlier months are
+  priced without one.
+
+**The cost figure Octopus Energy Japan returns per interval is not shown.** It combines the
+fuel-cost adjustment and the renewable levy into one number and cannot express the daily
+standing charge, so it does not add up to a billed total either.
 
 **A first install starts with the current and previous month.** Older history is
 retrievable and is fetched in the background afterwards.
 
-**Calendar totals are not billing periods.** Your bill runs to a meter-read time a few
-hours after midnight; these months are Asia/Tokyo calendar months. The two will not
-match, by design.
+**Calendar totals are not billing periods.** Every total here uses Asia/Tokyo calendar days,
+weeks, and months. Your bill uses the period between two meter reads. They will not match,
+by design.
 
 **Contract information may be unavailable.** Some accounts are not authorised for
 agreement data. Consumption is unaffected; those entities stay unavailable and a
@@ -252,15 +254,15 @@ Download diagnostics from the integration's menu and attach the file to a
 [GitHub issue](https://github.com/SteveShin323/ha-octopus-energy-japan/issues). It
 contains no token, email address, account number, supply point number, address,
 reading value, or monetary amount, so you do not need to review it first. Please do
-not paste Home Assistant logs, which can contain provider text.
+not paste Home Assistant logs, which can contain text from Octopus Energy Japan.
 
 ## Removing the integration
 
 **Settings → Devices & services → Octopus Energy Japan → Delete.** This deletes the
-entry's stored readings, sync checkpoints, installation secret, and any stored
+entry's stored readings, synchronisation checkpoints, installation secret, and any stored
 credential. An OAuth entry also revokes its authorization; a password entry cannot,
-because an account user may not invalidate a refresh token, so that token expires
-within seven days instead. To cut access off at once, change your password.
+because Octopus Energy Japan does not let a customer invalidate a refresh token. That token
+expires within seven days instead. To cut access off at once, change your password.
 
 Two things survive on purpose:
 
@@ -292,7 +294,7 @@ covered by tests, verified against a real account. Outstanding:
 
 - [Privacy](PRIVACY.md) — what is stored, what leaves your instance, what survives removal
 - [Architecture](docs/ARCHITECTURE.md) — how the integration is built
-- [API contracts](docs/API_CONTRACTS.md) — provider behaviour a contributor must not break
+- [API contracts](docs/API_CONTRACTS.md) — API behaviour a contributor must not break
 - [Development](docs/DEVELOPMENT.md) — tests, live probes, releases
 - [Decision records](docs/adr/) — why the design is what it is
 - [Changelog](CHANGELOG.md)
@@ -302,8 +304,8 @@ covered by tests, verified against a real account. Outstanding:
 Read [`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](SECURITY.md), and
 [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) first.
 
-One rule matters more than the rest: **do not assert provider behaviour that was not
-observed.** A shape taken from documentation alone is unverified until a probe confirms
+One rule matters more than the rest: **do not assert API behaviour that was not
+observed.** A behaviour read from documentation is unverified until a probe confirms
 it. Several defects in this project's history came from skipping that.
 
 ## License

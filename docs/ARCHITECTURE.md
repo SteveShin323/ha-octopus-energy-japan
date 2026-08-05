@@ -1,198 +1,208 @@
 # Architecture
 
-How the integration is built, and the constraints that shaped it. The code and its
-tests are the specification; this page exists so a contributor knows where to look and
-which invariants must not be broken.
+Where to look in the code, and the rules that must hold. The code and its tests define the
+behaviour; this page only says where things are and why.
 
-## Layers
+## Words used here
 
-Each layer depends only on the ones above it.
+The same thing is called the same thing throughout. Each term matches an identifier in the
+code, so it can be grepped.
 
-| Layer | Modules | Responsibility |
+| Term | Means |
+|---|---|
+| **the API** | Octopus Energy Japan's GraphQL API. Not called "the provider", which would collide with the two reading providers below |
+| **OEJP** | Octopus Energy Japan. Used in class and constant names — `OejpError`, `OEJP_AUTH_ISSUER` — and in the decision records, not in prose here |
+| **reading provider** | `GenericReadingsProvider` or `LegacyHalfHourlyProvider`, the two internal classes that fetch intervals |
+| **interval** | one 30-minute reading for one supply point and direction |
+| **correction** | an interval the API re-publishes with a new `version`, whose value may differ |
+| **the poll** | `_async_update_data`, which runs every 30 minutes |
+| **the background worker** | `_async_background_worker`, which drains queued windows behind the poll |
+| **window** | a start and end time one request covers |
+| **capability** | a field or query discovery confirmed this account can use, held in `CapabilitySnapshot` |
+
+## Where the code lives
+
+Grouped by responsibility. This is not a strict layering — see the dependency rule below.
+
+| Group | Modules | Responsibility |
 |---|---|---|
-| Authentication | `oauth.py`, `oauth_metadata.py`, `device_auth.py`, `password_auth.py`, `application_credentials.py` | obtain and renew a bearer token for one of three sign-in methods |
-| Transport | `api/client.py`, `api/auth.py`, `api/errors.py` | one GraphQL POST, structured error classification, retry policy |
-| Operations | `api/discovery.py`, `api/readings.py`, `api/commercial.py`, `api/tariff.py`, `api/operations.py` | query documents and strict parsers, returning typed models |
-| Ledger | `ledger.py`, `ledger_store.py` | persist every interval, keyed so a correction replaces rather than accumulates |
-| Aggregation | `aggregation.py` | Asia/Tokyo calendar projections over the ledger |
-| Statistics | `statistics.py`, `statistics_runtime.py`, `tariff_cost.py` | external long-term statistics, including cost |
-| Coordination | `coordinator.py`, `commercial_coordinator.py`, `sync.py`, `sync_runtime.py`, `sync_store.py`, `background_sync.py` | refresh cadence, background backfill, checkpoints |
+| Authentication | `oauth.py`, `oauth_metadata.py`, `password_auth.py`, `application_credentials.py`, `api/device_auth.py` | obtain and renew a bearer token |
+| Transport | `api/client.py`, `api/auth.py`, `api/errors.py` | one GraphQL POST, error classification, retries |
+| Operations | `api/discovery.py`, `api/readings.py`, `api/commercial.py`, `api/tariff.py`, `api/operations.py` | query documents and parsers, returning typed models |
+| Ledger | `ledger.py`, `ledger_store.py` | store every interval, keyed so a correction replaces it |
+| Aggregation | `aggregation.py` | Asia/Tokyo calendar totals over the ledger |
+| Statistics | `statistics.py`, `statistics_runtime.py`, `tariff_cost.py` | external long-term statistics, energy and cost |
+| Coordination | `coordinator.py`, `commercial_coordinator.py`, `sync.py`, `sync_runtime.py`, `sync_store.py`, `background_sync.py` | the poll, the background worker, checkpoints |
 | Presentation | `sensor.py`, `binary_sensor.py`, `entity.py`, `runtime.py`, `diagnostics.py`, `issues.py` | entities, devices, diagnostics, repair issues |
 
-`identity.py` sits beside all of them: every device, entity, and statistic is addressed
-by an HMAC of an installation-local secret and the provider identifier, so no raw
-identifier reaches Home Assistant's registries.
+**The dependency rule that does hold:** nothing under `api/` imports Home Assistant or any
+module outside `api/`. That package is a standalone client, testable without Home Assistant.
+Everything else may import anything above it in the table, and `coordinator.py` also imports
+two helpers from `runtime.py`, so the ordering is a reading order rather than a strict
+layering.
+
+`identity.py` is used by every group. Devices, entities, and statistics are addressed by an
+HMAC of an installation-local secret and the API's identifier, so no raw identifier reaches
+Home Assistant's registries.
 
 ## Authentication
 
-Three methods, selected in the config flow and recorded as `auth_method` on the entry.
-`__init__.py` routes on it and refuses an unknown value rather than guessing.
+Three methods. The config flow records the choice as `auth_method` on the config entry, and
+`__init__.py` routes on it, refusing a value it does not recognise.
 
-- **Password** — `obtainKrakenToken` with email and password. The credential is stored
-  because the refresh token lasts seven days and renewing it does not extend the expiry,
-  so nothing else can sign in afterwards. A rejected renewal falls back to a full
-  sign-in; a rejected sign-in is terminal and raises reauth.
-- **OAuth authorization code** with PKCE S256, and **device authorization grant**. Both
-  are public-client flows using Home Assistant's Application Credentials. Both need a
-  published client ID.
+| Method | Flow | Needs |
+|---|---|---|
+| Password | `obtainKrakenToken` with email and password | nothing |
+| OAuth authorization code | public client, PKCE S256 | a published client ID |
+| Device authorization grant | public client, RFC 8628 | a published client ID |
 
-One login owns one config entry. Switching method promotes the entry in place, keeping
-its ledger and statistics and deleting any stored password. Removal purges the entry's
-stored data, including the installation secret when it is the last entry.
+The password method stores the credential. The API's refresh token lasts seven days and
+renewing it does not extend that expiry, so after seven days nothing but the credential can
+sign in again. A rejected renewal falls back to a full sign-in; a rejected sign-in is final
+and raises reauthentication.
+
+One login owns one config entry. Changing method upgrades that entry in place: its ledger and
+statistics are kept, and any stored password is deleted. Deleting the entry removes its stored
+data, including the installation secret if it is the last entry.
 
 ## Reading providers
 
-Two providers, with a strict fallback policy.
+The **generic** provider calls `readings` at the most granular level discovery found —
+register, else device, else supply point — so the same energy is never counted twice at two
+levels. Import and export are separate connections.
 
-The **generic** provider calls `readings` at the most granular level discovered —
-register, then device, then supply point — so the same energy is never counted at two
-aggregation levels. Import and export are separate connections.
+The **legacy** provider calls `halfHourlyReadings` by account and time range.
 
-The **legacy** provider calls `halfHourlyReadings` by account and datetime range.
+Falling back from generic to legacy is allowed for exactly four causes:
 
-Fallback from generic to legacy is permitted only for an observed unsupported or
-forbidden capability, an authorization error scoped to a reading child field, a
-disabled-field error, or a null generic series after the supply point was found.
-Authentication failures, rate limits, transport errors, malformed data, and unrecognised
-validation errors stay visible. Widening that list is how a silent data-quality
-regression gets shipped.
+1. discovery observed the capability as unsupported or forbidden;
+2. an authorization error whose GraphQL path is confined to a reading field;
+3. a disabled-field error (`KT-CT-1113`); or
+4. a generic series that is null after the supply point itself was found.
+
+Everything else stays visible: authentication failures, rate limits, transport errors,
+malformed responses, and validation errors the code does not recognise. Adding a fifth cause
+would let a real fault look like a capability gap, and the wrong provider would be used
+silently.
 
 ## Ledger and aggregation
 
-**Raw intervals are persisted, not a running total.** The provider republishes intervals
-with a new version when a billing period closes, and the values change. A running total
-cannot be corrected; a keyed interval store can. Each interval is keyed by supply point,
-direction, and start time, so a later version replaces the earlier one in place.
+**Every interval is stored, not a running total.** When a billing period closes, the API
+re-publishes its intervals with a new `version` and the values can change. A running total
+cannot be corrected. Each interval is keyed by supply point, direction, and start time, so a
+later version replaces the earlier one in place.
 
-Storage is partitioned by month. A partition that fails to load is isolated rather than
-failing setup, and a repair issue reports it.
+Storage is split into one partition per month. A partition that fails to load is skipped
+rather than failing setup, and a repair issue reports which one.
 
-Calendar projections use **Asia/Tokyo** day, week, and month boundaries. A period reports
-`unknown` until it is fully covered, because a partly synchronised day is not a smaller
-day. These boundaries deliberately do not match a billing period, which runs to a meter
-read a few hours after midnight.
+Calendar totals use **Asia/Tokyo** day, week, and month boundaries. A period reports `unknown`
+until every interval in it has arrived, so a half-synchronised day is never shown as a
+complete day with a low number. These boundaries do not match a billing period, which ends at
+a meter read a few hours after midnight.
 
-Request windows stay well inside the provider's per-response cap of 1488 intervals: the
-integration asks for seven days at a time. Exceeding the cap truncates the oldest rows
-silently, which would look like missing data rather than an error.
+One response is capped at 1488 intervals and silently drops the oldest beyond that, so
+requests use seven-day windows to stay well inside it.
 
 ## Statistics
 
-Energy and cost are published as **external statistics**, not recorder-backed sensor
-history, because external statistics can be rewritten when a reading is corrected.
+Energy and cost are published as Home Assistant **external statistics**, not as recorder
+history behind a sensor, because external statistics can be rewritten when a correction
+arrives.
 
-Projection is deterministic: the whole ledger is projected in one pass, then filtered at
-publication. Projecting only from a correction boundary made a corrected hour look like
-the first hour ever recorded, restarting the cumulative sum.
+The whole ledger is projected in one pass and filtered at publication. Projecting only from
+the corrected interval onwards was a defect: the corrected hour looked like the first hour
+ever recorded and the cumulative sum restarted from it.
 
-Cost is computed per hour as:
+Cost per hour is:
 
 ```
-kWh × the price step the Tokyo month's cumulative kWh has reached
-  + kWh × (fuel-cost adjustment + renewable levy), where each is in force
+kWh × the price step this Tokyo month's cumulative kWh has reached
+  + kWh × (fuel-cost adjustment + renewable levy), for whichever is in force
   + the daily standing charge ÷ 24
 ```
 
-An hour crossing a step boundary is split across both prices. Steps restart on the Tokyo
-calendar month. Export is never priced as consumption. A charge in a unit this formula
-cannot express drops the tariff rather than pricing part of it.
+An hour that crosses a step boundary is split across both prices. Steps restart on the Tokyo
+calendar month. Export is never priced at a consumption rate. A charge in a unit this formula
+cannot express makes the whole tariff unusable rather than partly priced.
 
-Every input comes from the customer's own agreement, so the user enters no prices.
-Measured against one real closed bill the result was 104% of the billed total; the two
-causes are the billing boundary and the fuel-cost adjustment's missing history, both
-recorded in the README's known limitations.
+Every price comes from the customer's own agreement, so nothing is entered by hand. Against
+one closed bill the total came to 104%; the README's known limitations say why.
 
 ## Coordination
 
-| Work | Cadence |
+| Work | Interval |
 |---|---|
-| Readings | every 30 minutes, re-reading the last 72 hours |
+| The poll — readings | every 30 minutes, re-reading the last 72 hours |
 | Discovery | every 24 hours |
 | Contract and billing | every 12 hours |
 | Full reconciliation | daily, over the current and previous month |
 
-Setup must not block on history. It completes from recent data and schedules older
-windows as background work, with checkpoints persisted so a restart resumes rather than
-restarts. A partial failure degrades one direction, never the whole entry.
+Setup does not wait for history. It finishes from recent data and queues older windows for the
+background worker. Checkpoints are persisted, so a restart resumes the queue instead of
+rebuilding it. A failure affecting one direction leaves the other directions working.
 
-The recorder is an `after_dependencies` entry, which orders setup but does not guarantee
-the recorder exists. Statistics publication checks for it and warns once instead of
-raising.
+The recorder is listed in `after_dependencies`, which orders setup but does not guarantee the
+recorder is loaded. Statistics publication checks for it and logs one warning rather than
+failing.
 
 ## Commercial data
 
-Account status, agreements, and billing are three **independently optional** operations.
-Each records its own availability — available, partial, forbidden, unsupported, or failed
-— so an account that is not authorised for agreement data still reports consumption.
-Authentication errors propagate instead of becoming an availability status.
+Account status, agreements, and billing are three independent requests. Each records its own
+availability — available, partial, forbidden, unsupported, or failed — so an account that may
+not read agreement data still reports consumption. An authentication error is raised rather
+than recorded as one of those states.
 
 Financial entities are disabled by default.
 
 ## Diagnostics and repair issues
 
-Diagnostics contain only constants, counts, booleans, enumerated states, HMAC identities,
-and UTC timestamps. Failures are reported by exception class name, because provider
-message text is unbounded. A test asserts that no account number, supply point number,
-address, token, reading value, or monetary amount appears.
+Diagnostics contain constants, counts, booleans, enumerated states, HMAC identities, and UTC
+timestamps. A failure is reported by its exception class name, because API message text has no
+bounded length or format. A test asserts that no account number, supply point number, address,
+token, reading value, or amount appears.
 
-Repair issues are **informational**: they explain a condition the user cannot fix by
-reconfiguring, and each says whether action is needed. They are raised for corrupt ledger
-partitions, silent readings, an unavailable capability, and a missing commercial
-permission. Reauthentication is the one flow that is not a repair issue, because Home
-Assistant owns that prompt.
+Repair issues are informational. Each explains a condition the user cannot fix by
+reconfiguring, and says whether anything needs doing. They cover a corrupt ledger partition,
+readings that stopped arriving, an unavailable capability, and a missing commercial
+permission. Reauthentication is not among them, because Home Assistant owns that prompt.
 
-## Deliberate shapes that look like problems
+## Rules that look like problems
 
-Each of these has been examined and left as it is. The reasoning is here so it is not
-"fixed" into a defect.
+Each of these is deliberate. Do not change one without a reason other than tidiness.
 
-**Two parsing disciplines in `api/`, not duplication.** `_optional_string`,
-`_required_mapping` and friends appear in several modules with small differences. Those
-differences are the point: a strict parser raises `OejpInvalidResponseError` for a field the
-integration depends on, and a lenient one returns `None` for optional provider data.
-`_optional_datetime`, `_optional_decimal`, `_optional_scalar_string`, `_required_datetime`
-and `_required_identifier` each differ deliberately between modules. Extracting them into a
-shared helper would silently change parser contracts. Only three are genuinely identical,
-totalling about twelve lines, which is not worth a new import edge.
+**`api/` has two kinds of parser, not duplicated helpers.** A strict parser raises
+`OejpInvalidResponseError` for a field the integration depends on; a lenient one returns `None`
+for optional data. Helpers with the same name differ between modules because the field's
+intent differs. Merging them would change parser contracts silently.
 
-**`_async_publish_pending_statistics` runs under two lock disciplines.** The poll calls it
-without the mutation lock; the background worker calls it with the lock held. They can
-overlap, because the worker re-checks `_poll_pending` only before its network request. The
-method pops a dirty marker only when it still equals the one just projected, which is what
-keeps a change arriving mid-projection from being discarded. Making the discipline uniform
-would mean holding the lock across a projection and blocking the worker for its duration —
-a latency change that would need measuring first. The invariant is documented at the method
-and pinned by tests instead.
+**The poll and the background worker read separate failure tables.** They decide different
+things: the poll records a per-attempt failure and may abandon the rest of the poll, while the
+worker chooses between retrying with backoff, giving up, and reauthenticating. They share the
+*classification* — a permanent worker failure is recorded with the class the poll's table
+assigns — so the two can never disagree about what an exception means. Both tables are ordered
+most-specific-first and both orderings are asserted by tests.
 
-**Two failure tables, not one.** The poll and the background worker each read an ordered
-table to decide what a failed request means. They deliberately stay separate, because they
-answer different questions: the poll records a per-attempt failure and may abandon the rest
-of the poll, while the worker decides whether to retry with backoff, give up, or hand over to
-reauthentication. Forcing them together would produce a table of mostly inapplicable columns.
+**`_async_publish_pending_statistics` is called with the lock held and without it.** The poll
+calls it without the mutation lock, the background worker with it, and they can overlap. The
+method removes a supply point's dirty marker only if it still matches the one it just
+projected. Without that check, a correction arriving while a projection was running would be
+dropped. Making the locking uniform would block the worker for the length of a projection, so
+the behaviour is tested rather than changed.
 
-What they *do* share is the classification: a permanent worker failure is recorded with the
-class the poll's table assigns, so the two can never disagree about what an exception means.
-Both tables are ordered most-specific-first, and both orderings are asserted — in each,
-`OejpNonRetryableHttpError` must precede `OejpTransportError`, and `OejpError` must be last.
-
-**`OejpDataUpdateCoordinator` is large, and splitting out its status bookkeeping would not
-help.** Extracting the eight direction-status methods into their own collaborator was
-designed and rejected: they are called from about forty sites, and removing them leaves both
-long methods exactly as long, because those methods *call* the helpers rather than contain
-them. The length that mattered was a ninety-line exception ladder inside
-`_async_update_data`, which is now a table. `_async_background_worker` remains long for a
-different reason — the poll-yield handshake and retry bookkeeping — and is a separate
-question.
+**Extracting the coordinator's direction-status helpers would not shorten it.** Its two long
+methods call those helpers rather than contain them, so moving them elsewhere leaves both
+methods the same length.
 
 ## Invariants
 
-Breaking any of these is a regression even when the tests pass:
+Breaking any of these is a regression even when the tests pass.
 
-1. Provider behaviour is never asserted without an observation. A shape taken from
-   documentation alone is unverified until a probe confirms it.
-2. A raw provider identifier never reaches an entity ID, state, attribute, log, or the
+1. API behaviour is not asserted without observing it. A behaviour read from documentation is
+   unverified until a probe confirms it.
+2. No raw identifier from the API reaches an entity ID, state, attribute, log, or the
    diagnostics download.
-3. A corrected interval replaces its earlier version and rewrites every later total.
+3. A correction replaces the earlier interval and rewrites every later total.
 4. A period that is not fully covered reports `unknown`, never a partial sum.
-5. Fallback from the generic to the legacy provider happens only for the listed causes.
+5. Falling back to the legacy provider happens only for the four listed causes.
 6. Setup completes without waiting for history.
+7. Nothing under `api/` imports Home Assistant.
