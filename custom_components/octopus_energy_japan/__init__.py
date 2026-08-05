@@ -48,6 +48,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         AUTH_METHOD_OAUTH,
         AUTH_METHOD_PASSWORD,
         CONF_AUTH_METHOD,
+        DOMAIN,
         OAUTH_AUTH_METHODS,
     )
     from .coordinator import OejpDataUpdateCoordinator
@@ -70,17 +71,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # A method this build does not implement, most likely a downgrade after an
         # entry was created by a newer version. Failing here is honest; treating it as
         # OAuth would silently use the wrong credentials.
-        raise ConfigEntryAuthFailed(f"Unsupported OEJP authentication method: {method}")
+        raise ConfigEntryAuthFailed(
+            f"Unsupported OEJP authentication method: {method}",
+            translation_domain=DOMAIN,
+            translation_key="unsupported_auth_method",
+            translation_placeholders={"method": str(method)},
+        )
 
     if method == AUTH_METHOD_PASSWORD:
         email = entry.data.get(CONF_EMAIL)
         password = entry.data.get(CONF_PASSWORD)
         if not isinstance(email, str) or not isinstance(password, str):
-            raise ConfigEntryAuthFailed("OEJP email and password are no longer stored")
+            raise ConfigEntryAuthFailed(
+                "OEJP email and password are no longer stored",
+                translation_domain=DOMAIN,
+                translation_key="credentials_missing",
+            )
         try:
             metadata = require_oauth_metadata()
         except OAuthMetadataUnavailableError as err:
-            raise ConfigEntryNotReady("OEJP metadata is temporarily unavailable") from err
+            raise ConfigEntryNotReady(
+                "OEJP metadata is temporarily unavailable",
+                translation_domain=DOMAIN,
+                translation_key="metadata_unavailable",
+            ) from err
         auth = OejpPasswordAuthSession(
             hass,
             entry,
@@ -94,9 +108,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except OejpPasswordAuthError as err:
             # The stored credential no longer works, or OEJP stopped honouring
             # password login. Retrying cannot fix either, so ask the user.
-            raise ConfigEntryAuthFailed("OEJP rejected the stored email and password") from err
+            raise ConfigEntryAuthFailed(
+                "OEJP rejected the stored email and password",
+                translation_domain=DOMAIN,
+                translation_key="credentials_rejected",
+            ) from err
         except (OejpRateLimitError, OejpTransportError) as err:
-            raise ConfigEntryNotReady("OEJP sign-in is temporarily unavailable") from err
+            raise ConfigEntryNotReady(
+                "OEJP sign-in is temporarily unavailable",
+                translation_domain=DOMAIN,
+                translation_key="sign_in_unavailable",
+            ) from err
     else:
         try:
             implementation = await config_entry_oauth2_flow.async_get_config_entry_implementation(
@@ -110,30 +132,60 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             ValueError,
         ) as err:
             raise ConfigEntryNotReady(
-                "OEJP OAuth implementation is temporarily unavailable"
+                "OEJP OAuth implementation is temporarily unavailable",
+                translation_domain=DOMAIN,
+                translation_key="oauth_implementation_unavailable",
             ) from err
 
         auth = OejpPkceAuthSession(hass, entry, implementation, metadata)
         try:
             await auth.async_get_authorization_header()
         except OAuth2TokenRequestReauthError as err:
-            raise ConfigEntryAuthFailed("OEJP OAuth authorization must be renewed") from err
+            raise ConfigEntryAuthFailed(
+                "OEJP OAuth authorization must be renewed",
+                translation_domain=DOMAIN,
+                translation_key="reauth_required",
+            ) from err
         except OAuth2TokenRequestTransientError as err:
-            raise ConfigEntryNotReady("OEJP OAuth server is temporarily unavailable") from err
+            raise ConfigEntryNotReady(
+                "OEJP OAuth server is temporarily unavailable",
+                translation_domain=DOMAIN,
+                translation_key="oauth_server_unavailable",
+            ) from err
         except OAuth2TokenRequestError as err:
-            raise ConfigEntryNotReady("OEJP OAuth token request failed") from err
+            raise ConfigEntryNotReady(
+                "OEJP OAuth token request failed",
+                translation_domain=DOMAIN,
+                translation_key="oauth_token_request_failed",
+            ) from err
         except OejpOAuthError as err:
-            raise ConfigEntryAuthFailed("OEJP OAuth token is invalid") from err
+            raise ConfigEntryAuthFailed(
+                "OEJP OAuth token is invalid",
+                translation_domain=DOMAIN,
+                translation_key="oauth_token_invalid",
+            ) from err
 
     authenticated_client = AuthenticatedGraphQLClient(client, auth)
     try:
         accounts, capabilities = await _async_discover_state(authenticated_client)
     except OejpAuthenticationError as err:
-        raise ConfigEntryAuthFailed("OEJP OAuth authorization must be renewed") from err
+        raise ConfigEntryAuthFailed(
+            "OEJP OAuth authorization must be renewed",
+            translation_domain=DOMAIN,
+            translation_key="reauth_required",
+        ) from err
     except (OejpRateLimitError, OejpTransportError) as err:
-        raise ConfigEntryNotReady("OEJP discovery is temporarily unavailable") from err
+        raise ConfigEntryNotReady(
+            "OEJP discovery is temporarily unavailable",
+            translation_domain=DOMAIN,
+            translation_key="discovery_unavailable",
+        ) from err
     except OejpError as err:
-        raise ConfigEntryNotReady("OEJP resource discovery failed") from err
+        raise ConfigEntryNotReady(
+            "OEJP resource discovery failed",
+            translation_domain=DOMAIN,
+            translation_key="discovery_failed",
+        ) from err
 
     identity_secret = await async_get_identity_secret(hass)
     runtime = OejpRuntimeData(

@@ -108,6 +108,68 @@ Measurements taken against a real account belong in a code comment or in
 customer's consumption, invoice amount, account number, or supply point number in the
 repository, in a commit message, or in a pull request.
 
+## Home Assistant quality scale
+
+The rule names and tiers are Home Assistant's, taken from `ALL_RULES` in
+`script/hassfest/quality_scale.py` in `home-assistant/core` rather than from a summary of a
+web page: 20 bronze, 10 silver, 21 gold, 3 platinum.
+
+**A custom integration cannot be awarded a tier.** Home Assistant grades the integrations it
+ships; the scale's own documentation puts custom integrations outside it and states that the
+project does not review, audit, maintain, or support them. This repository therefore does not
+carry a `quality_scale.yaml`: nothing validates one for a custom integration — verified by
+putting an invented rule name and an invalid status in the file and watching `hassfest`, `hacs`
+and every other job pass — and a file full of self-assigned marks would read as a certification
+that was never granted.
+
+What follows is the same rule set used as a checklist, with each verdict and its reason. Gold
+is cumulative, so bronze and silver are included.
+
+### Met
+
+Every bronze, silver, and gold rule not listed under *Not applicable* below. The ones worth
+knowing where to find:
+
+| Rule | Where |
+|---|---|
+| `runtime-data` | `entry.runtime_data` holds `OejpRuntimeData`; nothing is kept in `hass.data` |
+| `config-flow-test-coverage`, `test-coverage` | `tests/test_config_flow.py`; overall coverage is enforced at 95% and sits near 99% |
+| `entity-unique-id`, `has-entity-name` | `entity.py`, from an installation-local HMAC |
+| `entity-translations`, `icon-translations` | `strings.json` plus `translations/{en,ja}.json`, and `icons.json` |
+| `exception-translations` | every `HomeAssistantError` subclass raised carries `translation_domain` and `translation_key`; three tests keep the keys and messages in step |
+| `reauthentication-flow`, `reconfiguration-flow` | `config_flow.py` |
+| `repair-issues`, `diagnostics` | `issues.py`, `diagnostics.py` |
+| `dynamic-devices` | a coordinator listener adds entities for a supply point that appears later, with no reload |
+| `parallel-updates` | `PARALLEL_UPDATES = 0` in both platforms; the coordinator owns the requests |
+| `log-when-unavailable` | every failure reaches Home Assistant as `UpdateFailed`, which the coordinator logs once and then suppresses until it recovers. Statistics projection, which is outside that path, keeps its own once-per-condition flag |
+| `docs-*` | each maps to a README section: `#what-it-does`, `#installation`, `#configuration-parameters`, `#entities`, `#how-data-updates`, `#typical-uses`, `#energy-dashboard`, `#known-limitations`, `#troubleshooting`, `#removing-the-integration` |
+
+### Not applicable, with the reason
+
+| Rule | Why |
+|---|---|
+| `action-setup`, `action-exceptions`, `docs-actions` | the integration registers no actions. It is read-only |
+| `docs-triggers`, `docs-conditions` | no triggers or conditions, for the same reason |
+| `entity-event-setup` | nothing subscribes to an external event stream; data arrives by polling |
+| `discovery`, `discovery-update-info` | a cloud service reached by account credentials. There is nothing on the network to discover |
+| `docs-supported-devices` | no devices are supported in the hardware sense. `README.md#what-it-supports` says what the account exposes instead |
+
+### Deliberately different
+
+**`stale-devices`.** The rule asks that a device no longer provided be removed. A supply point
+that ends is **disabled** instead, and can be re-enabled from the integration's options. Ending
+a contract should not delete the energy history recorded against it, and Home Assistant offers
+no way to keep statistics for a device it has removed. `runtime.py` only ever changes disabling
+it set itself, so a user who enables one keeps that choice.
+
+### Platinum
+
+| Rule | State |
+|---|---|
+| `strict-typing` | mypy runs in `strict` mode over every module and passes. The rule's own validator also requires each `manifest.json` requirement to ship `py.typed`; there are no requirements. Its first check is membership of core's `.strict-typing` file, which a custom integration cannot join |
+| `inject-websession` | the client is constructed with `async_get_clientsession(hass)`. It never creates a session |
+| `async-dependency` | there is no external client library. `api/` is async throughout and imports nothing from Home Assistant, which `tests/test_documentation_consistency.py` asserts |
+
 ## Releases
 
 Versions are `MAJOR.MINOR.PATCH`, with the stage carried by the range rather than a
@@ -119,7 +181,7 @@ No release is tagged unless:
 - every required check passes on the release commit — Validate, Security, CodeQL, and
   Dependency Review;
 - coverage meets the thresholds above;
-- no `quality_scale.yaml` rule is `todo` that the release stage claims to have met;
+- every quality-scale rule below still holds;
 - English and Japanese translations have identical key sets;
 - the README and every document under `docs/` agree with the code. A status table that
   calls something planned when it is implemented blocks the release; and

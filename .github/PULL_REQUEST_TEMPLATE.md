@@ -27,7 +27,7 @@
       taken from documentation alone is labelled as unverified
 - [ ] the normative document for the affected scope is updated in this PR, and no
       other document now contradicts it
-- [ ] `quality_scale.yaml` reflects what is actually implemented
+- [ ] the Home Assistant quality-scale rules in `docs/DEVELOPMENT.md` still hold
 - [ ] English and Japanese translations have identical key sets
 - [ ] no account number, supply-point number, address, token, reading value, or
       monetary amount is added to code, tests, fixtures, documentation, or this

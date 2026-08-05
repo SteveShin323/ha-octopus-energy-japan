@@ -9,6 +9,7 @@ from homeassistant.exceptions import PlatformNotReady
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .api import ReadingDirection
+from .const import DOMAIN
 from .coordinator import (
     OejpDataUpdateCoordinator,
     entity_directions,
@@ -28,7 +29,11 @@ async def async_setup_entry(
     """Set up current and future discovered data-availability entities."""
     runtime = entry.runtime_data
     if not isinstance(runtime, OejpRuntimeData) or runtime.coordinator is None:
-        raise PlatformNotReady("OEJP runtime coordinator is unavailable")
+        raise PlatformNotReady(
+            "OEJP runtime coordinator is unavailable",
+            translation_domain=DOMAIN,
+            translation_key="coordinator_unavailable",
+        )
     coordinator = runtime.coordinator
     created: set[str] = set()
 

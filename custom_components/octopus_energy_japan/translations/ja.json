@@ -198,5 +198,58 @@
       "title": "Octopus Energy Japan から新しい使用量が届いていません",
       "description": "{count} 件の系列で {hours} 時間以上、新しい使用量が届いていません。30分値は数時間遅れて届くのが通常なので短い空白は正常ですが、それより長い場合は計量データが Octopus Energy Japan にまだ到着していないことが多いです。特に操作は不要で、データが届き次第、連携が自動的に埋めます。"
     }
+  },
+  "exceptions": {
+    "coordinator_unavailable": {
+      "message": "統合の起動中のため、エンティティをまだ追加できません。"
+    },
+    "credentials_missing": {
+      "message": "保存されていたメールアドレスとパスワードがありません。統合を再接続してサインインしてください。"
+    },
+    "credentials_rejected": {
+      "message": "Octopus Energy Japan が保存されたメールアドレスとパスワードを受け付けませんでした。現在のパスワードで再接続してください。"
+    },
+    "discovery_failed": {
+      "message": "アカウントと供給地点を取得できませんでした。診断情報をご確認ください。"
+    },
+    "discovery_unavailable": {
+      "message": "アカウントと供給地点の取得が一時的に利用できません。Home Assistant が再試行します。"
+    },
+    "metadata_unavailable": {
+      "message": "Octopus Energy Japan のサインインサービスが一時的に利用できません。Home Assistant が再試行します。"
+    },
+    "oauth_implementation_unavailable": {
+      "message": "このエントリの OAuth 認証情報を読み込めませんでした。アプリケーション認証情報を確認してください。"
+    },
+    "oauth_server_unavailable": {
+      "message": "Octopus Energy Japan の OAuth サーバーが一時的に利用できません。Home Assistant が再試行します。"
+    },
+    "oauth_token_invalid": {
+      "message": "保存されていたトークンが拒否されました。統合を再接続してください。"
+    },
+    "oauth_token_request_failed": {
+      "message": "Octopus Energy Japan へのトークン要求が失敗しました。Home Assistant が再試行します。"
+    },
+    "readings_failed": {
+      "message": "使用量データを取得できませんでした。診断情報をご確認ください。"
+    },
+    "readings_unavailable": {
+      "message": "使用量データが一時的に利用できません。次回の更新で再試行します。"
+    },
+    "reauth_required": {
+      "message": "Octopus Energy Japan の認可が失効しました。統合を再接続してください。"
+    },
+    "shutting_down": {
+      "message": "統合が終了処理中のため、新しいデータは取得されませんでした。"
+    },
+    "sign_in_unavailable": {
+      "message": "Octopus Energy Japan へのサインインが一時的に利用できません。Home Assistant が再試行します。"
+    },
+    "storage_unavailable": {
+      "message": "Home Assistant が自身のストレージに書き込めなかったため、今回の更新は保存されていません。ディスクと設定ディレクトリをご確認ください。"
+    },
+    "unsupported_auth_method": {
+      "message": "このエントリはこのバージョンが認識しないサインイン方法（{method}）を使用しています。新しいバージョンの統合で作成された可能性があります。"
+    }
   }
 }

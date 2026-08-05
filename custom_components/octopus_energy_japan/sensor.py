@@ -33,7 +33,7 @@ from .api import (
     ResourceLifecycle,
 )
 from .commercial_coordinator import OejpCommercialCoordinator
-from .const import CURRENCY_JPY
+from .const import CURRENCY_JPY, DOMAIN
 from .coordinator import (
     OejpDataUpdateCoordinator,
     entity_directions,
@@ -230,7 +230,11 @@ async def async_setup_entry(
     """Set up current and future discovered OEJP sensors."""
     runtime = entry.runtime_data
     if not isinstance(runtime, OejpRuntimeData) or runtime.coordinator is None:
-        raise PlatformNotReady("OEJP runtime coordinator is unavailable")
+        raise PlatformNotReady(
+            "OEJP runtime coordinator is unavailable",
+            translation_domain=DOMAIN,
+            translation_key="coordinator_unavailable",
+        )
     coordinator = runtime.coordinator
     commercial_coordinator = runtime.commercial_coordinator
     created: set[str] = set()
