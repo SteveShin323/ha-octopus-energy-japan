@@ -74,12 +74,21 @@ def test_shipped_component_contains_every_required_file() -> None:
 def test_the_brand_images_are_where_hacs_looks_for_them() -> None:
     """HACS reads these two from inside the component, and fails the build without them.
 
-    Home Assistant itself serves brand images from `brands.home-assistant.io`, which makes
-    an in-component copy look redundant — it is not. HACS validation checks
-    `custom_components/<domain>/brand/icon.png` first and falls back to querying the brands
-    repository, and this integration is not listed there yet, so moving these out failed
-    the `hacs` check with "does not provide brand assets and is not listed in the Home
-    Assistant brands repository".
+    Home Assistant itself serves brand images from `brands.home-assistant.io`, which makes an
+    in-component copy look redundant. It is not, and moving them out breaks three separate
+    jobs — measured on a throwaway branch rather than reasoned about:
+
+    - `hacs` warns "does not contain brands assets at
+      custom_components/octopus_energy_japan/brand/icon.png. Falling back to checking the
+      brands repository", then fails with "does not provide brand assets and is not listed in
+      the Home Assistant brands repository". This integration is not listed there yet.
+    - `links` fails, because the README and the Japanese guide show the logo from this path.
+    - `python` fails at `pip install -e .`, with "Multiple top-level packages discovered in a
+      flat-layout: ['brand', 'custom_components']". A sibling directory of
+      `custom_components` breaks the package build outright.
+
+    The third has nothing to do with HACS and is the one worth knowing: a top-level `brand/`
+    is not merely redundant, it is unbuildable.
     """
     brand = Path("custom_components/octopus_energy_japan/brand")
 
