@@ -41,7 +41,7 @@ Everything below lives in your Home Assistant's own storage.
 | Half-hourly readings with version, quality, and the cost figure Octopus Energy Japan returns | totals and statistics that can be corrected later | yes |
 | Synchronisation checkpoints | resuming background work after a restart | yes |
 | An installation-local secret | deriving the private identifiers used for devices and statistics | with the last entry |
-| Energy Dashboard statistics | long-term energy history | **no**, see below |
+| Energy Dashboard statistics | long-term energy history | yes |
 | Application credentials (client ID) | re-adding without retyping | **no**, see below |
 
 Two things are deliberately **not** in the table, because they are never written to storage.
@@ -95,15 +95,22 @@ verbose, so please attach diagnostics rather than logs when reporting a problem.
 
 Deleting the entry deletes every row marked yes above, rather than orphaning it.
 
-**Energy Dashboard statistics** stay in the recorder, because deleting an integration
-should not destroy your energy history. Remove them under **Developer tools →
-Statistics**. **Application credentials** stay so you can re-add without retyping the
-client ID; remove them under **Settings → Devices & services → Application
+**Application credentials** are the one exception. They stay so you can re-add without
+retyping the client ID; remove them under **Settings → Devices & services → Application
 credentials**.
 
-If you removed an entry from a build before deletion was implemented, files named
-`octopus_energy_japan.ledger.*` and `octopus_energy_japan.sync.*` may remain in your
-storage directory and can be deleted by hand.
+**Energy Dashboard statistics used to stay, and no longer do.** A config entry does not own
+its statistics, so Home Assistant leaves them in the recorder, and keeping them was meant to
+protect your energy history. It did not: the installation secret goes with the last entry and
+every statistic id is derived from it, so re-adding produces new ids and the old rows become
+unreachable. They kept the same display name as the new ones, which left two identically
+named series in the Energy dashboard picker with no way to tell them apart. They are now
+deleted with the entry.
+
+If you removed an entry from a build before this, look under **Developer tools →
+Statistics** for series named after a supply point you no longer have and delete them there.
+Files named `octopus_energy_japan.ledger.*` and `octopus_energy_japan.sync.*` may also remain
+in your storage directory and can be deleted by hand.
 
 **Removing an email and password entry cannot revoke its token.** Octopus Energy Japan does
 not let a customer invalidate a refresh token, so it expires seven days after the sign-in

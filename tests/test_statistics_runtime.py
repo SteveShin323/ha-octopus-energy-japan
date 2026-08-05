@@ -515,10 +515,10 @@ def test_the_energy_dashboard_cannot_price_an_external_statistic() -> None:
     """
     from custom_components.octopus_energy_japan.api import ReadingDirection
     from custom_components.octopus_energy_japan.statistics import StatisticKind
-    from custom_components.octopus_energy_japan.statistics_runtime import _statistic_id
+    from custom_components.octopus_energy_japan.statistics_runtime import statistic_id_for
     from homeassistant.core import valid_entity_id
 
-    statistic_id = _statistic_id(
+    statistic_id = statistic_id_for(
         "supply-point-" + "ab" * 32,
         ReadingDirection.IMPORT,
         StatisticKind.ENERGY,
