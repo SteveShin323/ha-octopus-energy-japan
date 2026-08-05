@@ -6,7 +6,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from functools import partial
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 from custom_components.octopus_energy_japan.api import (
@@ -685,6 +685,309 @@ async def test_the_cost_sum_continues_across_a_correction(hass: HomeAssistant) -
     # Only the dirty hour is republished, and its sum still includes the earlier day.
     assert len(rows) == 1
     assert rows[0]["sum"] > rows[0]["state"]
+
+
+class _RangedLedger(_Ledger):
+    """A ledger that honours the requested window, so truncation is observable."""
+
+    def __init__(
+        self,
+        records: tuple[LedgerRecord, ...],
+        partitions: frozenset[str] = frozenset({"2026-07", "2026-08"}),
+    ) -> None:
+        super().__init__(records)
+        self.known_partitions = partitions
+
+    async def async_records(
+        self,
+        start_at: datetime,
+        end_at: datetime,
+    ) -> tuple[LedgerRecord, ...]:
+        self.requested = (start_at, end_at)
+        return tuple(
+            record for record in self.records if start_at <= record.reading.start_at < end_at
+        )
+
+
+def _record_at(moment: datetime, value: str) -> LedgerRecord:
+    return replace(
+        _record(value=value),
+        reading=replace(
+            _record(value=value).reading,
+            start_at=moment,
+            end_at=moment + timedelta(minutes=30),
+        ),
+    )
+
+
+# 2026-07-31T15:00Z is 2026-08-01 00:00 JST, the boundary a projection may be truncated at
+# for anything dirtied during August.
+AUGUST_JST = datetime(2026, 7, 31, 15, tzinfo=UTC)
+JULY_HOUR = datetime(2026, 7, 15, tzinfo=UTC)
+AUGUST_HOUR = datetime(2026, 8, 3, tzinfo=UTC)
+
+
+def _sum_at(published: list[tuple[object, ...]], suffix: str, start: datetime) -> float:
+    for args in published:
+        if not str(args[1]["statistic_id"]).endswith(suffix):  # type: ignore[index]
+            continue
+        for row in args[2]:  # type: ignore[index]
+            if row["start"] == start:
+                return float(row["sum"])
+    raise AssertionError(f"No {suffix} row published for {start}")
+
+
+async def test_a_truncated_projection_does_not_restart_the_cumulative_sum(
+    hass: HomeAssistant,
+) -> None:
+    """The defect this guards against made a corrected hour look like the first ever recorded.
+
+    Reading the whole ledger for every correction costs a pass over every month collected, so
+    a later pass starts at the period boundary instead. Its sums have to resume from what the
+    previous pass reached there, or the Energy dashboard reads the total as going backwards.
+    """
+    hass.config.components.add(RECORDER)
+    published: list[tuple[object, ...]] = []
+    projector = HomeAssistantStatisticsProjector(
+        hass,
+        SECRET,
+        publisher=lambda *args: published.append(args),
+    )
+    ledger = _RangedLedger((_record_at(JULY_HOUR, "1.0"), _record_at(AUGUST_HOUR, "0.5")))
+
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+
+    assert ledger.requested == (datetime(2026, 7, 1, tzinfo=UTC), NOW)
+    assert _sum_at(published, "_import_energy", AUGUST_HOUR) == pytest.approx(1.5)
+
+    published.clear()
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=AUGUST_HOUR,
+    )
+
+    # Only August was read, and July's kilowatt-hour is still in the total.
+    assert ledger.requested == (AUGUST_JST, NOW)
+    assert _sum_at(published, "_import_energy", AUGUST_HOUR) == pytest.approx(1.5)
+
+
+async def test_a_correction_older_than_the_remembered_boundaries_reads_everything(
+    hass: HomeAssistant,
+) -> None:
+    """Two boundaries are remembered, which is what the refresh cadence reaches.
+
+    An older correction is rare and must still be right, so it falls back to the whole
+    ledger rather than resuming from a total that was never recorded.
+    """
+    hass.config.components.add(RECORDER)
+    projector = HomeAssistantStatisticsProjector(hass, SECRET, publisher=Mock())
+    partitions = frozenset({"2026-05", "2026-06", "2026-07", "2026-08"})
+    ledger = _RangedLedger((_record_at(AUGUST_HOUR, "0.5"),), partitions)
+
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=datetime(2026, 6, 10, tzinfo=UTC),
+    )
+
+    assert ledger.requested == (datetime(2026, 5, 1, tzinfo=UTC), NOW)
+
+
+async def test_a_correction_in_the_earliest_month_reads_everything(
+    hass: HomeAssistant,
+) -> None:
+    """There is nothing before the first month to resume from, so truncating buys nothing."""
+    hass.config.components.add(RECORDER)
+    projector = HomeAssistantStatisticsProjector(hass, SECRET, publisher=Mock())
+    ledger = _RangedLedger((_record_at(JULY_HOUR, "1.0"),))
+
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=JULY_HOUR,
+    )
+
+    # July's boundary is 2026-06-30T15:00Z, before the ledger begins.
+    assert ledger.requested == (datetime(2026, 7, 1, tzinfo=UTC), NOW)
+
+
+async def test_a_total_is_remembered_when_every_hour_precedes_the_boundary(
+    hass: HomeAssistant,
+) -> None:
+    """The first reading of a new period has to continue from the previous one's total."""
+    hass.config.components.add(RECORDER)
+    published: list[tuple[object, ...]] = []
+    projector = HomeAssistantStatisticsProjector(
+        hass,
+        SECRET,
+        publisher=lambda *args: published.append(args),
+    )
+    ledger = _RangedLedger((_record_at(JULY_HOUR, "1.0"),))
+
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+
+    # August arrives after the boundary was remembered, which is the ordinary case.
+    ledger.records = (*ledger.records, _record_at(AUGUST_HOUR, "0.5"))
+    published.clear()
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=AUGUST_HOUR,
+    )
+
+    assert ledger.requested == (AUGUST_JST, NOW)
+    assert _sum_at(published, "_import_energy", AUGUST_HOUR) == pytest.approx(1.5)
+
+
+async def test_a_boundary_the_cadence_no_longer_reaches_is_forgotten(
+    hass: HomeAssistant,
+) -> None:
+    """Two boundaries are kept, so the memory is bounded and cannot go stale.
+
+    A total recorded at an old boundary stops being trustworthy once a correction can rewrite
+    the hours before it, and keeping one per month collected would grow without limit.
+    """
+    hass.config.components.add(RECORDER)
+    projector = HomeAssistantStatisticsProjector(hass, SECRET, publisher=Mock())
+    october = datetime(2026, 10, 3, 3, tzinfo=UTC)
+    ledger = _RangedLedger(
+        (_record_at(JULY_HOUR, "1.0"), _record_at(AUGUST_HOUR, "0.5")),
+        frozenset({"2026-07", "2026-08", "2026-09", "2026-10"}),
+    )
+
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+    assert AUGUST_JST in projector._baselines[("A-1", "SP-1")]
+
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        october,
+        dirty_from=None,
+    )
+
+    assert set(projector._baselines[("A-1", "SP-1")]) == {
+        datetime(2026, 8, 31, 15, tzinfo=UTC),
+        datetime(2026, 9, 30, 15, tzinfo=UTC),
+    }
+
+
+async def test_a_deletion_driven_rebuild_still_reads_everything(hass: HomeAssistant) -> None:
+    """A reset clears the series, so its replacement cannot resume from a stored total."""
+    hass.config.components.add(RECORDER)
+    projector = HomeAssistantStatisticsProjector(hass, SECRET, publisher=Mock())
+    ledger = _RangedLedger((_record_at(JULY_HOUR, "1.0"), _record_at(AUGUST_HOUR, "0.5")))
+
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+    with patch("custom_components.octopus_energy_japan.statistics_runtime.get_instance"):
+        await projector.async_project_supply_point(
+            ledger,  # type: ignore[arg-type]
+            "A-1",
+            "SP-1",
+            NOW,
+            dirty_from=AUGUST_HOUR,
+            reset_directions=frozenset({ReadingDirection.IMPORT}),
+        )
+
+    assert ledger.requested == (datetime(2026, 7, 1, tzinfo=UTC), NOW)
+
+
+async def test_a_quiet_tariff_lookup_does_not_lose_the_cost_total(
+    hass: HomeAssistant,
+) -> None:
+    """A refresh that cannot read the tariff publishes no cost rows, and must not forget.
+
+    Dropping the cost total would make the next truncated pass publish sums starting again
+    from zero, which the Energy dashboard reads as the cost history collapsing.
+    """
+    hass.config.components.add(RECORDER)
+    published: list[tuple[object, ...]] = []
+    tariff: list[object | None] = [_priceable_tariff()]
+    projector = HomeAssistantStatisticsProjector(
+        hass,
+        SECRET,
+        publisher=lambda *args: published.append(args),
+        tariff_lookup=lambda _account, _point: tariff[0],  # type: ignore[arg-type,return-value]
+    )
+    ledger = _RangedLedger((_record_at(JULY_HOUR, "1.0"), _record_at(AUGUST_HOUR, "0.5")))
+
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+    whole_history = _sum_at(published, "_tariff_cost", AUGUST_HOUR)
+
+    tariff[0] = None
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=AUGUST_HOUR,
+    )
+
+    tariff[0] = _priceable_tariff()
+    published.clear()
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=AUGUST_HOUR,
+    )
+
+    assert ledger.requested == (AUGUST_JST, NOW)
+    assert _sum_at(published, "_tariff_cost", AUGUST_HOUR) == pytest.approx(whole_history)
 
 
 async def test_export_energy_never_gets_a_cost_series(hass: HomeAssistant) -> None:

@@ -19,6 +19,7 @@ code, so it can be grepped.
 | **the background worker** | `_async_background_worker`, which drains queued windows behind the poll |
 | **window** | a start and end time one request covers |
 | **capability** | a field or query discovery confirmed this account can use, held in `CapabilitySnapshot` |
+| **period** | the span a stepped tariff's cumulative kWh accumulates over, from `billing_period.py`. Currently the Asia/Tokyo calendar month |
 
 ## Where the code lives
 
@@ -31,7 +32,7 @@ Grouped by responsibility. This is not a strict layering — see the dependency 
 | Operations | `api/discovery.py`, `api/readings.py`, `api/commercial.py`, `api/tariff.py`, `api/operations.py` | query documents and parsers, returning typed models |
 | Ledger | `ledger.py`, `ledger_store.py` | store every interval, keyed so a correction replaces it |
 | Aggregation | `aggregation.py` | Asia/Tokyo calendar totals over the ledger |
-| Statistics | `statistics.py`, `statistics_runtime.py`, `tariff_cost.py` | external long-term statistics, energy and cost |
+| Statistics | `statistics.py`, `statistics_runtime.py`, `tariff_cost.py`, `billing_period.py` | external long-term statistics, energy and cost |
 | Coordination | `coordinator.py`, `commercial_coordinator.py`, `sync.py`, `sync_runtime.py`, `sync_store.py`, `background_sync.py` | the poll, the background worker, checkpoints |
 | Presentation | `sensor.py`, `binary_sensor.py`, `entity.py`, `runtime.py`, `diagnostics.py`, `issues.py` | entities, devices, diagnostics, repair issues |
 
@@ -111,9 +112,26 @@ Energy and cost are published as Home Assistant **external statistics**, not as 
 history behind a sensor, because external statistics can be rewritten when a correction
 arrives.
 
-The whole ledger is projected in one pass and filtered at publication. Projecting only from
-the corrected interval onwards was a defect: the corrected hour looked like the first hour
-ever recorded and the cumulative sum restarted from it.
+A pass computes every cumulative sum from every record it reads, and filters only at
+publication. Projecting from the corrected interval onwards *with no starting total* was a
+defect: the corrected hour looked like the first hour ever recorded and the cumulative sum
+restarted from it.
+
+**A pass reads from the current period boundary, not from the first month ever collected.**
+Reading everything each time costs one pass over the whole ledger for every correction, which
+grows without bound as history accumulates. Truncating is only sound on a period boundary,
+because that is where the cost formula's cumulative kWh restarts — begin anywhere else and
+every later hour is priced from a partial total. `billing_period.py` names those boundaries.
+The projector remembers the total each series had reached at the two most recent ones and
+resumes from it, so the sums are identical to a whole-ledger pass. It falls back to the whole
+ledger when the boundary has no remembered total, which is the first pass after a restart and
+also what makes an older correction correct. Two boundaries are what the refresh cadence
+reaches; keeping one per month would grow without bound, and an older total stops being
+trustworthy once a correction can rewrite the hours before it.
+
+The totals are held in memory rather than read back from the recorder. The projector is the
+only writer of these series, so its own last pass is the authority, and an empty cache costs
+one whole-ledger pass rather than a wrong number.
 
 Cost per hour is:
 

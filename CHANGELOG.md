@@ -9,6 +9,18 @@ published client ID before they can be completed.
 
 ## [Unreleased]
 
+### Changed
+
+- a statistics pass now reads the ledger from the current period boundary instead of from the
+  first month ever collected, resuming each cumulative sum from the total the previous pass
+  reached there. Reading everything cost one pass over the whole ledger for every correction,
+  which grows without bound as history accumulates — and every refresh that adds an interval
+  is a correction. Truncating is only sound on a period boundary, because that is where the
+  cost formula's cumulative kWh restarts; a new `billing_period.py` names those boundaries.
+  Sums are identical to a whole-ledger pass, and the pass falls back to reading everything
+  whenever the boundary has no remembered total, which covers the first pass after a restart
+  and any correction older than the two boundaries kept.
+
 ### Fixed
 
 - removing an entry now deletes the Energy Dashboard statistics it published. They were left
