@@ -147,6 +147,30 @@ The recorder is listed in `after_dependencies`, which orders setup but does not 
 recorder is loaded. Statistics publication checks for it and logs one warning rather than
 failing.
 
+## Migrations
+
+Three things are versioned and each is handled differently, because losing them costs
+different amounts.
+
+| What | Version | On an unrecognised version |
+|---|---|---|
+| The config entry | `ConfigFlow.VERSION` | `async_migrate_entry` in `__init__.py`. Nothing needs migrating yet; it exists because Home Assistant refuses to load an entry whose major version differs when no handler is defined, so its absence — not the schema change — would be what breaks entries at the next bump. An entry from a newer version is refused rather than read with older code |
+| A ledger partition | `LEDGER_SCHEMA_VERSION` | migrated forward, record by record. A newer version is treated as corrupt and isolated, and a repair issue names the partition. The ledger is the only source of truth, so it is never discarded |
+| A sync checkpoint | `CHECKPOINT_SCHEMA_VERSION` | discarded, and planning starts again from the current month |
+
+**A checkpoint is discarded rather than migrated on purpose.** It records which windows were
+already fetched, which is derived from the ledger, so throwing one away costs re-reading those
+windows and loses no readings — the ledger is keyed, so a re-fetched interval replaces itself.
+Failing instead is what the code used to do: `from_dict` raises on an unknown version, the poll
+turns that into `UpdateFailed`, and the entry could never synchronise again, so raising the
+checkpoint version would have broken every installation until the user deleted the entry and
+lost the history with it. `diagnostics` counts the discards, so re-reading old windows has a
+visible cause.
+
+When a future checkpoint schema holds state worth carrying forward, migrate it inside
+`SyncCheckpoint.from_dict` the way a ledger partition is migrated. The discard stays as the net
+underneath that.
+
 ## Commercial data
 
 Account status, agreements, and billing are three independent requests. Each records its own

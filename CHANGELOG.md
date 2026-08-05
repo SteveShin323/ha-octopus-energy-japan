@@ -9,6 +9,19 @@ published client ID before they can be completed.
 
 ## [Unreleased]
 
+### Added
+
+- migration handling, which the version scheme names as a condition for `1.0.0` and which
+  did not exist. `async_migrate_entry` is defined: nothing needs migrating yet, but Home
+  Assistant refuses to load an entry whose major version differs when no handler exists, so
+  its absence — rather than the schema change — is what would have broken every entry at the
+  next bump. An entry from a newer version is refused instead of being read with older code;
+- a sync checkpoint that cannot be read is discarded and planning starts again, instead of
+  raising. Raising the checkpoint's schema version would previously have left every
+  installation permanently unable to synchronise, escapable only by deleting the entry and
+  losing its history. A checkpoint is derived from the ledger, so discarding one costs
+  re-reading those windows and loses no readings. `diagnostics` counts the discards.
+
 ## [0.8.0] - 2026-08-05
 
 First release. Beta under this project's version scheme: everything the README describes is

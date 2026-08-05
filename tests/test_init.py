@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from custom_components.octopus_energy_japan import (
     _async_discover_state,
+    async_migrate_entry,
     async_remove_entry,
     async_setup_entry,
     async_unload_entry,
@@ -28,6 +29,9 @@ from custom_components.octopus_energy_japan.api import (
     OejpQueryValidationError,
     OejpRateLimitError,
     OejpSupplyPoint,
+)
+from custom_components.octopus_energy_japan.config_flow import (
+    OctopusEnergyJapanConfigFlow,
 )
 from custom_components.octopus_energy_japan.const import DOMAIN
 from custom_components.octopus_energy_japan.coordinator import OejpCoordinatorData
@@ -1157,3 +1161,40 @@ async def test_removal_tolerates_a_missing_storage_directory(hass: HomeAssistant
     # Nothing of this entry's was stored, but it was the last entry, so the shared
     # secret is still attempted.
     assert all(entry.entry_id not in key for key in removed)
+
+
+async def test_a_current_entry_migrates_without_change(hass: HomeAssistant) -> None:
+    """Nothing needs migrating yet, and the handler must say so rather than fail.
+
+    Its value is that it exists: Home Assistant refuses to load an entry whose major version
+    differs from the flow's when no handler is defined, logging "Migration handler not found".
+    Without this function the next increase of `ConfigFlow.VERSION` would break every existing
+    entry, and the cause would be the missing handler rather than the schema change.
+    """
+    entry = MockConfigEntry(domain=DOMAIN, version=OctopusEnergyJapanConfigFlow.VERSION)
+    entry.add_to_hass(hass)
+
+    assert await async_migrate_entry(hass, entry) is True
+
+
+async def test_an_entry_from_a_newer_version_is_refused(hass: HomeAssistant) -> None:
+    """A downgrade must not load an entry this build cannot understand.
+
+    Returning True would accept whatever the newer version stored and then read it with the
+    older code, which is how a config entry silently loses fields.
+    """
+    entry = MockConfigEntry(domain=DOMAIN, version=OctopusEnergyJapanConfigFlow.VERSION + 1)
+    entry.add_to_hass(hass)
+
+    assert await async_migrate_entry(hass, entry) is False
+
+
+async def test_home_assistant_finds_the_migration_handler() -> None:
+    """The handler has to be reachable as `<component>.async_migrate_entry`.
+
+    Home Assistant looks it up with `hasattr` on the component module, so a correct function
+    in the wrong place would leave the entry unloadable exactly as if it were absent.
+    """
+    import custom_components.octopus_energy_japan as component
+
+    assert hasattr(component, "async_migrate_entry")
