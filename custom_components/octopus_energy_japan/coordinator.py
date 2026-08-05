@@ -505,9 +505,17 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
 
     async def _async_update_data(self) -> OejpCoordinatorData:
         if self._reauth_pending:
-            raise ConfigEntryAuthFailed("OEJP OAuth authorization must be renewed")
+            raise ConfigEntryAuthFailed(
+                "OEJP OAuth authorization must be renewed",
+                translation_domain=DOMAIN,
+                translation_key="reauth_required",
+            )
         if self._closing:
-            raise UpdateFailed("OEJP runtime is shutting down")
+            raise UpdateFailed(
+                "OEJP runtime is shutting down",
+                translation_domain=DOMAIN,
+                translation_key="shutting_down",
+            )
         self._poll_pending = True
         self._poll_idle.clear()
         self._worker_wakeup.set()
@@ -588,9 +596,11 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                     successful_directions.add(key)
 
             if attempts and not successful_directions and shared_transient is not None:
-                raise UpdateFailed("OEJP reading synchronization is temporarily unavailable") from (
-                    shared_transient
-                )
+                raise UpdateFailed(
+                    "OEJP reading synchronization is temporarily unavailable",
+                    translation_domain=DOMAIN,
+                    translation_key="readings_unavailable",
+                ) from (shared_transient)
 
             if self._background_started:
                 await self._async_schedule_background_work(now)
@@ -605,18 +615,30 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                 await self._async_publish_pending_statistics(now)
                 return snapshot
         except OejpAuthenticationError as err:
-            raise ConfigEntryAuthFailed("OEJP OAuth authorization must be renewed") from err
+            raise ConfigEntryAuthFailed(
+                "OEJP OAuth authorization must be renewed",
+                translation_domain=DOMAIN,
+                translation_key="reauth_required",
+            ) from err
         except UpdateFailed:
             raise
         except (OejpError, LedgerError, ValueError) as err:
-            raise UpdateFailed("OEJP reading synchronization failed") from err
+            raise UpdateFailed(
+                "OEJP reading synchronization failed",
+                translation_domain=DOMAIN,
+                translation_key="readings_failed",
+            ) from err
         except OSError as err:
             # Storage, not the network: the config directory momentarily unwritable, or a
             # full disk, reaching this through a checkpoint or ledger write. Home Assistant
             # logs anything that is not `UpdateFailed` as "Unexpected error fetching …" with
             # a traceback, which reads as an integration bug rather than a disk problem. The
             # background worker already treats the same fault as retryable.
-            raise UpdateFailed("OEJP local storage is unavailable") from err
+            raise UpdateFailed(
+                "OEJP local storage is unavailable",
+                translation_domain=DOMAIN,
+                translation_key="storage_unavailable",
+            ) from err
         finally:
             self._poll_pending = False
             self._poll_idle.set()

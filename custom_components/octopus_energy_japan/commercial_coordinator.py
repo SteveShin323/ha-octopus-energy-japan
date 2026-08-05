@@ -101,7 +101,11 @@ class OejpCommercialCoordinator(DataUpdateCoordinator[OejpCommercialData]):
                     observed_at=observed_at,
                 )
             except OejpAuthenticationError as err:
-                raise ConfigEntryAuthFailed("OEJP OAuth authorization must be renewed") from err
+                raise ConfigEntryAuthFailed(
+                    "OEJP OAuth authorization must be renewed",
+                    translation_domain=DOMAIN,
+                    translation_key="reauth_required",
+                ) from err
             except OejpError:
                 snapshot = _failed_snapshot(
                     account.number, previous.get(account.number), observed_at
@@ -113,7 +117,11 @@ class OejpCommercialCoordinator(DataUpdateCoordinator[OejpCommercialData]):
             try:
                 tariffs.extend(await async_fetch_supply_point_tariffs(self._client, account.number))
             except OejpAuthenticationError as err:
-                raise ConfigEntryAuthFailed("OEJP OAuth authorization must be renewed") from err
+                raise ConfigEntryAuthFailed(
+                    "OEJP OAuth authorization must be renewed",
+                    translation_domain=DOMAIN,
+                    translation_key="reauth_required",
+                ) from err
             except OejpError:
                 # A tariff this account cannot read costs only the cost series. Keeping
                 # whatever was read before is better than dropping a working price.

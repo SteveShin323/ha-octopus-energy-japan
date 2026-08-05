@@ -198,5 +198,58 @@
       "title": "Octopus Energy Japan has not sent new readings",
       "description": "{count} reading series has produced nothing for more than {hours} hours. Half-hourly readings normally arrive several hours late, so a short gap is expected, but a longer silence usually means the meter data has not reached Octopus Energy Japan yet. No action is needed here; the integration keeps retrying and fills the gap once the data appears."
     }
+  },
+  "exceptions": {
+    "coordinator_unavailable": {
+      "message": "The integration is still starting, so its entities cannot be added yet."
+    },
+    "credentials_missing": {
+      "message": "The stored email and password are gone. Reconnect the integration to sign in again."
+    },
+    "credentials_rejected": {
+      "message": "Octopus Energy Japan rejected the stored email and password. Reconnect with your current password."
+    },
+    "discovery_failed": {
+      "message": "Your accounts and supply points could not be read. Check the diagnostics download."
+    },
+    "discovery_unavailable": {
+      "message": "Reading your accounts and supply points is temporarily unavailable. Home Assistant will retry."
+    },
+    "metadata_unavailable": {
+      "message": "Octopus Energy Japan's sign-in service is temporarily unavailable. Home Assistant will retry."
+    },
+    "oauth_implementation_unavailable": {
+      "message": "The OAuth credentials for this entry could not be loaded. Check Application credentials."
+    },
+    "oauth_server_unavailable": {
+      "message": "Octopus Energy Japan's OAuth server is temporarily unavailable. Home Assistant will retry."
+    },
+    "oauth_token_invalid": {
+      "message": "The stored token was rejected. Reconnect the integration."
+    },
+    "oauth_token_request_failed": {
+      "message": "Requesting a token from Octopus Energy Japan failed. Home Assistant will retry."
+    },
+    "readings_failed": {
+      "message": "Consumption data could not be read. Check the diagnostics download."
+    },
+    "readings_unavailable": {
+      "message": "Consumption data is temporarily unavailable. Home Assistant will retry on the next update."
+    },
+    "reauth_required": {
+      "message": "The authorization for Octopus Energy Japan has expired. Reconnect the integration."
+    },
+    "shutting_down": {
+      "message": "The integration is shutting down, so no new data was fetched."
+    },
+    "sign_in_unavailable": {
+      "message": "Signing in to Octopus Energy Japan is temporarily unavailable. Home Assistant will retry."
+    },
+    "storage_unavailable": {
+      "message": "Home Assistant could not write to its own storage, so this update was not saved. Check the disk and the configuration directory."
+    },
+    "unsupported_auth_method": {
+      "message": "This entry uses a sign-in method this version does not know: {method}. It was most likely created by a newer version of the integration."
+    }
   }
 }

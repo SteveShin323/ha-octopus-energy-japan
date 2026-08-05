@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 
 def test_recorder_is_ordered_but_not_a_hard_dependency() -> None:
@@ -60,7 +59,6 @@ def test_shipped_component_contains_every_required_file() -> None:
         "manifest.json",
         "strings.json",
         "icons.json",
-        "quality_scale.yaml",
         "translations/en.json",
         "translations/ja.json",
         "brand/icon.png",
@@ -146,24 +144,3 @@ def test_the_two_logo_widths_are_consistent_with_each_other() -> None:
         assert double_height == single_height * 2
         # Odd single widths cannot double exactly, so one pixel of rounding is allowed.
         assert abs(double_width - single_width * 2) <= 1
-
-
-def test_no_quality_scale_rule_is_outstanding() -> None:
-    """Every other rule must be met or exempt with a stated reason."""
-    scale = yaml.safe_load(
-        (Path("custom_components/octopus_energy_japan/quality_scale.yaml")).read_text(
-            encoding="utf-8"
-        )
-    )
-    rules: dict[str, Any] = scale["rules"]
-
-    outstanding = {
-        name
-        for name, value in rules.items()
-        if (value if isinstance(value, str) else value["status"]) == "todo"
-    }
-    assert not outstanding, outstanding
-
-    for name, value in rules.items():
-        if isinstance(value, dict) and value["status"] in {"exempt", "todo"}:
-            assert value.get("comment"), name

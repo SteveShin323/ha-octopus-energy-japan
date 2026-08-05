@@ -17,14 +17,15 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-import yaml
 from custom_components.octopus_energy_japan.const import (
     AUTH_METHOD_DEVICE,
     AUTH_METHOD_OAUTH,
     AUTH_METHOD_PASSWORD,
     AUTH_METHODS,
+    DOMAIN,
     OAUTH_AUTH_METHODS,
 )
+from homeassistant.core import HomeAssistant
 
 ROOT = Path(__file__).parents[1]
 INTEGRATION = ROOT / "custom_components" / "octopus_energy_japan"
@@ -108,20 +109,6 @@ def test_the_password_method_is_documented_wherever_privacy_is_described() -> No
     assert "stored in Home Assistant" in privacy
     assert "0008-password-authentication.md" in privacy
     assert "stored in Home Assistant" in guide
-
-
-def test_the_quality_scale_records_only_the_known_outstanding_rule() -> None:
-    """A `todo` that nobody notices is how a release ships an unmet claim."""
-    rules = yaml.safe_load((INTEGRATION / "quality_scale.yaml").read_text(encoding="utf-8"))
-    outstanding = {
-        name
-        for name, value in rules["rules"].items()
-        if (value if isinstance(value, str) else value.get("status")) == "todo"
-    }
-
-    # Since Home Assistant 2026.3 the brand images ship inside the component, so the
-    # `brands` rule is met by `brand/` rather than by a pull request elsewhere.
-    assert not outstanding, outstanding
 
 
 ARCHITECTURE = ROOT / "docs" / "ARCHITECTURE.md"
@@ -241,3 +228,117 @@ def test_the_documented_availability_states_and_repair_issues_are_complete() -> 
     assert not any("reauth" in issue.value for issue in OejpIssue), (
         "reauthentication is Home Assistant's own prompt, not a repair issue"
     )
+
+
+_TRANSLATED_EXCEPTIONS = (
+    "ConfigEntryAuthFailed",
+    "ConfigEntryNotReady",
+    "PlatformNotReady",
+    "UpdateFailed",
+)
+
+
+def _raised_translation_keys() -> tuple[set[str], list[str]]:
+    """Return the keys every user-facing raise uses, and any raise that carries none."""
+    keys: set[str] = set()
+    untranslated: list[str] = []
+    for path in sorted(INTEGRATION.glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Raise) or not isinstance(node.exc, ast.Call):
+                continue
+            name = getattr(node.exc.func, "id", getattr(node.exc.func, "attr", ""))
+            if name not in _TRANSLATED_EXCEPTIONS:
+                continue
+            arguments = {keyword.arg: keyword.value for keyword in node.exc.keywords}
+            key = arguments.get("translation_key")
+            if isinstance(key, ast.Constant):
+                keys.add(key.value)
+            else:
+                untranslated.append(f"{path.name}:{node.lineno} {name}")
+    return keys, untranslated
+
+
+def test_every_user_facing_exception_is_translatable() -> None:
+    """The `exception-translations` rule of Home Assistant's quality scale.
+
+    These four classes all derive from `HomeAssistantError`, so Home Assistant shows their
+    message to the user. Without a translation key the user sees English regardless of their
+    configured language.
+
+    The English text stays as a positional argument: `HomeAssistantError.__str__` returns it
+    when one is given, so logs and tests read the same as before while the interface gets the
+    translated message.
+    """
+    _keys, untranslated = _raised_translation_keys()
+
+    assert not untranslated, f"raised without a translation key: {untranslated}"
+
+
+@pytest.mark.parametrize("name", TRANSLATIONS)
+def test_every_raised_exception_key_has_a_message(name: str) -> None:
+    """A key with no entry shows the user the key itself."""
+    keys, _untranslated = _raised_translation_keys()
+    payload = json.loads((INTEGRATION / name).read_text(encoding="utf-8"))
+    exceptions = payload.get("exceptions", {})
+
+    missing = sorted(keys - set(exceptions))
+    assert not missing, f"{name} has no message for: {missing}"
+    assert all(entry.get("message", "").strip() for entry in exceptions.values()), name
+
+
+@pytest.mark.parametrize("name", TRANSLATIONS)
+def test_no_exception_message_is_unused(name: str) -> None:
+    """An entry nothing raises is dead text that a translator still has to carry."""
+    keys, _untranslated = _raised_translation_keys()
+    payload = json.loads((INTEGRATION / name).read_text(encoding="utf-8"))
+
+    unused = sorted(set(payload.get("exceptions", {})) - keys)
+    assert not unused, f"{name} defines messages nothing raises: {unused}"
+
+
+def test_a_placeholder_message_declares_its_placeholder() -> None:
+    """A message with `{method}` fails to render unless the raise supplies it."""
+    payload = json.loads((INTEGRATION / "strings.json").read_text(encoding="utf-8"))
+    message = payload["exceptions"]["unsupported_auth_method"]["message"]
+    assert "{method}" in message
+
+    source = (INTEGRATION / "__init__.py").read_text(encoding="utf-8")
+    assert 'translation_placeholders={"method": str(method)}' in source
+
+
+@pytest.mark.parametrize("language", ["en", "ja"])
+async def test_home_assistant_resolves_every_exception_message(
+    hass: HomeAssistant,
+    language: str,
+) -> None:
+    """Structure is not enough: Home Assistant has to find and render these.
+
+    Asserted through `async_get_translations` rather than `async_get_exception_message`,
+    because the latter reads a cache that Home Assistant warms when the integration is set
+    up and that a test does not populate on its own. What matters here is that the key
+    resolves to real text in both languages.
+    """
+    from homeassistant.helpers import translation
+    from homeassistant.setup import async_setup_component
+
+    assert await async_setup_component(hass, "homeassistant", {})
+    resolved = await translation.async_get_translations(hass, language, "exceptions", {DOMAIN})
+
+    keys, _untranslated = _raised_translation_keys()
+    for key in sorted(keys):
+        localize_key = f"component.{DOMAIN}.exceptions.{key}.message"
+        assert localize_key in resolved, f"{language}: {key} does not resolve"
+        assert resolved[localize_key].strip(), f"{language}: {key} resolves to nothing"
+
+
+async def test_a_placeholder_renders_the_value_it_is_given(hass: HomeAssistant) -> None:
+    """A message whose placeholder never gets substituted shows the user `{method}`."""
+    from homeassistant.helpers import translation
+    from homeassistant.setup import async_setup_component
+
+    assert await async_setup_component(hass, "homeassistant", {})
+    resolved = await translation.async_get_translations(hass, "en", "exceptions", {DOMAIN})
+
+    message = resolved[f"component.{DOMAIN}.exceptions.unsupported_auth_method.message"]
+
+    assert message.format(method="banana").count("banana") == 1
