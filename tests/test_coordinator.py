@@ -55,6 +55,8 @@ from custom_components.octopus_energy_japan.const import (
 from custom_components.octopus_energy_japan.coordinator import (
     _TRIAGE_EXCEPTIONS,
     _TRIAGE_RULES,
+    _WORKER_EXCEPTIONS,
+    _WORKER_RULES,
     DirectionErrorClass,
     DirectionSyncStatus,
     OejpDataUpdateCoordinator,
@@ -62,6 +64,8 @@ from custom_components.octopus_energy_japan.coordinator import (
     _StatisticsPending,
     _SupplyPointRuntime,
     _triage,
+    _worker_rule,
+    _WorkerDisposition,
     enabled_supply_points,
     entity_directions,
     iter_supply_points,
@@ -1956,3 +1960,99 @@ def test_each_exception_is_triaged_the_way_the_ladder_did(
     assert rule.scope.value == scope
     assert rule.queryable is queryable
     assert rule.interrupts_poll is interrupts
+
+
+async def test_a_storage_failure_during_a_poll_is_a_clean_update_failure(
+    hass: HomeAssistant,
+) -> None:
+    """Measured before fixing: this used to escape as a raw `OSError`.
+
+    Home Assistant logs anything that is not `UpdateFailed` as "Unexpected error fetching …"
+    with a full traceback, so a full disk read as an integration bug. The background worker
+    already treats the same fault as retryable, and the poll now agrees with it.
+    """
+    coordinator = _coordinator(hass)
+    router = AsyncMock()
+    router.async_get_readings.return_value = _direction_result(ReadingDirection.IMPORT)
+    _install_state(coordinator, _point(), router=router)
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+    state.checkpoint_backend.async_save.side_effect = OSError("disk unavailable")
+    coordinator._background_started = True
+
+    with pytest.raises(UpdateFailed, match="local storage is unavailable"):
+        await coordinator._async_update_data()
+
+
+def test_the_worker_table_is_ordered_most_specific_first() -> None:
+    """Same invariant as the poll's table, and the same reason it was previously unchecked.
+
+    `OejpNonRetryableHttpError` is an `OejpTransportError`; if the transport entry came first
+    a permanently failing request would be retried forever with backoff.
+    """
+    for index, rule in enumerate(_WORKER_RULES):
+        for later in _WORKER_RULES[index + 1 :]:
+            assert not issubclass(later.exception, rule.exception), (
+                f"{later.exception.__name__} is a subclass of {rule.exception.__name__} "
+                f"and would never be reached"
+            )
+
+
+def test_the_worker_table_describes_every_exception_it_catches() -> None:
+    assert set(_WORKER_EXCEPTIONS) == {rule.exception for rule in _WORKER_RULES}
+
+
+@pytest.mark.parametrize(
+    ("error", "disposition"),
+    [
+        (OejpAuthenticationError(()), "reauth"),
+        (OejpNonRetryableHttpError(400), "permanent"),
+        (OejpRateLimitError(()), "retry"),
+        (OejpTransportError("offline"), "retry"),
+        # The table lists no timeout or transient-HTTP entry; `OejpTransportError` covers
+        # both, which the ladder spelled out separately for identical treatment.
+        (OejpTimeoutError("timed out"), "retry"),
+        (OejpTransientHttpError(503), "retry"),
+        (OSError("disk unavailable"), "retry"),
+        (OejpAuthorizationError(()), "permanent"),
+        (OejpQueryValidationError(()), "permanent"),
+        (OejpNotFoundError(()), "permanent"),
+        (OejpInvalidResponseError("bad"), "permanent"),
+        (ValueError("invalid"), "permanent"),
+        (LedgerError("ledger"), "permanent"),
+        (OejpError("unknown"), "permanent"),
+    ],
+    ids=lambda value: type(value).__name__ if isinstance(value, BaseException) else str(value),
+)
+def test_each_exception_is_disposed_of_the_way_the_worker_ladder_did(
+    error: BaseException,
+    disposition: str,
+) -> None:
+    """The table replaced twelve `except` clauses, so every one of them is pinned."""
+    assert _worker_rule(error).disposition.value == disposition
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        OejpNonRetryableHttpError(400),
+        OejpAuthorizationError(()),
+        OejpQueryValidationError(()),
+        OejpNotFoundError(()),
+        OejpInvalidResponseError("bad"),
+        ValueError("invalid"),
+        LedgerError("ledger"),
+        OejpError("unknown"),
+    ],
+    ids=lambda value: type(value).__name__,
+)
+def test_every_permanent_worker_failure_is_classified_by_the_poll_table(
+    error: BaseException,
+) -> None:
+    """The worker records a permanent failure with the class `_triage` assigns.
+
+    That is what keeps the two paths from disagreeing about what an exception means, and it
+    only works if every permanently-failing exception is described by the poll's table too.
+    """
+    assert _worker_rule(error).disposition is _WorkerDisposition.PERMANENT
+    assert isinstance(error, _TRIAGE_EXCEPTIONS)
+    assert _triage(error).error_class is not None

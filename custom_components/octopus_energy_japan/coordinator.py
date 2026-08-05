@@ -39,7 +39,6 @@ from .api import (
     OejpQueryValidationError,
     OejpRateLimitError,
     OejpSupplyPoint,
-    OejpTimeoutError,
     OejpTransientHttpError,
     OejpTransportError,
     ReadingDirection,
@@ -228,6 +227,65 @@ def _triage(error: BaseException) -> _TriageRule:
     # replacing that derivation with a hand-written tuple.
     raise AssertionError(  # pragma: no cover - _TRIAGE_EXCEPTIONS makes this unreachable
         "A caught exception must be described by the triage table"
+    )
+
+
+class _WorkerDisposition(StrEnum):
+    """What the background worker does with a failed item, beyond recording it."""
+
+    # Requeue and let the retry controller decide when to try again.
+    RETRY = "retry"
+    # Stop retrying: resolve the scope and record the class `_triage` assigns.
+    PERMANENT = "permanent"
+    # Requeue, hand over to Home Assistant's reauthentication flow, and stop the worker.
+    REAUTH = "reauth"
+
+
+@dataclass(frozen=True, slots=True)
+class _WorkerRule:
+    """What one exception class means for a background item."""
+
+    exception: type[BaseException]
+    disposition: _WorkerDisposition
+
+
+# Most specific first, same as `_TRIAGE_RULES`, and asserted by the same kind of test. One
+# ordering is load-bearing: `OejpNonRetryableHttpError` is an `OejpTransportError`, and
+# retrying it forever would be wrong, so it must come first.
+#
+# `OejpTransportError` covers `OejpTimeoutError` and `OejpTransientHttpError`, which the
+# ladder listed separately for identical treatment. Only the retry delay differs, and that is
+# read from the exception rather than the table.
+#
+# Failure *categories* are not repeated here. A permanent failure is recorded with the class
+# `_triage` assigns, so the poll and the worker cannot disagree about what an exception means.
+_WORKER_RULES: Final = (
+    _WorkerRule(OejpAuthenticationError, _WorkerDisposition.REAUTH),
+    _WorkerRule(OejpNonRetryableHttpError, _WorkerDisposition.PERMANENT),
+    _WorkerRule(OejpRateLimitError, _WorkerDisposition.RETRY),
+    _WorkerRule(OejpTransportError, _WorkerDisposition.RETRY),
+    _WorkerRule(OSError, _WorkerDisposition.RETRY),
+    _WorkerRule(OejpAuthorizationError, _WorkerDisposition.PERMANENT),
+    _WorkerRule(OejpQueryValidationError, _WorkerDisposition.PERMANENT),
+    _WorkerRule(OejpNotFoundError, _WorkerDisposition.PERMANENT),
+    _WorkerRule(OejpInvalidResponseError, _WorkerDisposition.PERMANENT),
+    _WorkerRule(ValueError, _WorkerDisposition.PERMANENT),
+    _WorkerRule(LedgerError, _WorkerDisposition.PERMANENT),
+    _WorkerRule(OejpError, _WorkerDisposition.PERMANENT),
+)
+
+# Derived from the table, for the same reason as `_TRIAGE_EXCEPTIONS`.
+_WORKER_EXCEPTIONS: Final = tuple(rule.exception for rule in _WORKER_RULES)
+
+
+def _worker_rule(error: BaseException) -> _WorkerRule:
+    """Return what the background worker does with a failed item."""
+    for rule in _WORKER_RULES:
+        if isinstance(error, rule.exception):
+            return rule
+    # Unreachable: the caught set is derived from this table.
+    raise AssertionError(  # pragma: no cover - _WORKER_EXCEPTIONS makes this unreachable
+        "A caught exception must be described by the worker table"
     )
 
 
@@ -552,6 +610,13 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             raise
         except (OejpError, LedgerError, ValueError) as err:
             raise UpdateFailed("OEJP reading synchronization failed") from err
+        except OSError as err:
+            # Storage, not the network: the config directory momentarily unwritable, or a
+            # full disk, reaching this through a checkpoint or ledger write. Home Assistant
+            # logs anything that is not `UpdateFailed` as "Unexpected error fetching …" with
+            # a traceback, which reads as an integration bug rather than a disk problem. The
+            # background worker already treats the same fault as retryable.
+            raise UpdateFailed("OEJP local storage is unavailable") from err
         finally:
             self._poll_pending = False
             self._poll_idle.set()
@@ -1122,84 +1187,37 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                     )
                 self.async_set_updated_data(snapshot)
             except asyncio.CancelledError:
+                # A shutdown, not a failure. The item is requeued so it survives, and the
+                # cancellation propagates — swallowing it would keep the worker alive.
                 self._background_queue.enqueue_item(item)
                 raise
-            except OejpAuthenticationError:
-                self._background_queue.enqueue_item(item)
-                self._reauth_pending = True
-                self._entry.async_start_reauth(self.hass)
-                return
-            except (OejpRateLimitError, OejpTimeoutError, OejpTransientHttpError) as err:
-                self._background_queue.enqueue_item(item)
-                retry_after = (
-                    err.retry_after
-                    if isinstance(err, (OejpRateLimitError, OejpTransientHttpError))
-                    else None
-                )
-                self._retry.record_transient(
-                    item.scope,
-                    self._utc_now(),
-                    retry_after=retry_after,
-                    rate_limited=isinstance(err, OejpRateLimitError),
-                )
-            except OejpTransportError as err:
-                if isinstance(err, OejpNonRetryableHttpError):
+            except _WORKER_EXCEPTIONS as err:
+                rule = _worker_rule(err)
+                if rule.disposition is _WorkerDisposition.PERMANENT:
+                    # Recorded with the class the poll would assign, so the two paths cannot
+                    # disagree about what an exception means.
                     await self._async_resolve_permanent_failure(
                         state,
                         item,
-                        DirectionErrorClass.NON_RETRYABLE_HTTP,
+                        _triage(err).error_class,
                     )
                     continue
                 self._background_queue.enqueue_item(item)
+                if rule.disposition is _WorkerDisposition.REAUTH:
+                    self._reauth_pending = True
+                    self._entry.async_start_reauth(self.hass)
+                    return
                 self._retry.record_transient(
                     item.scope,
                     self._utc_now(),
-                    retry_after=None,
-                    rate_limited=False,
-                )
-            except OSError:
-                self._background_queue.enqueue_item(item)
-                self._retry.record_transient(
-                    item.scope,
-                    self._utc_now(),
-                    retry_after=None,
-                    rate_limited=False,
-                )
-            except OejpAuthorizationError:
-                await self._async_resolve_permanent_failure(
-                    state,
-                    item,
-                    DirectionErrorClass.AUTHORIZATION,
-                )
-            except OejpQueryValidationError:
-                await self._async_resolve_permanent_failure(
-                    state,
-                    item,
-                    DirectionErrorClass.VALIDATION,
-                )
-            except OejpNotFoundError:
-                await self._async_resolve_permanent_failure(
-                    state,
-                    item,
-                    DirectionErrorClass.NOT_FOUND,
-                )
-            except OejpInvalidResponseError, ValueError:
-                await self._async_resolve_permanent_failure(
-                    state,
-                    item,
-                    DirectionErrorClass.INVALID_RESPONSE,
-                )
-            except LedgerError:
-                await self._async_resolve_permanent_failure(
-                    state,
-                    item,
-                    DirectionErrorClass.LEDGER,
-                )
-            except OejpError:
-                await self._async_resolve_permanent_failure(
-                    state,
-                    item,
-                    DirectionErrorClass.UNAVAILABLE,
+                    # Only the provider states a delay; a transport or storage fault leaves
+                    # the interval to the retry controller.
+                    retry_after=(
+                        err.retry_after
+                        if isinstance(err, OejpRateLimitError | OejpTransientHttpError)
+                        else None
+                    ),
+                    rate_limited=isinstance(err, OejpRateLimitError),
                 )
             else:
                 self._retry.resolve(item.scope)
