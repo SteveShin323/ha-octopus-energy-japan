@@ -89,8 +89,10 @@ silently.
 
 **Every interval is stored, not a running total.** When a billing period closes, the API
 re-publishes its intervals with a new `version` and the values can change. A running total
-cannot be corrected. Each interval is keyed by supply point, direction, and start time, so a
-later version replaces the earlier one in place.
+cannot be corrected. An interval's key covers the series it belongs to — account, supply
+point, direction, unit, source, and device or register — plus its start and end. The key
+deliberately excludes `version`, so a re-published interval replaces the earlier one in place
+instead of being stored beside it.
 
 Storage is split into one partition per month. A partition that fails to load is skipped
 rather than failing setup, and a repair issue reports which one.
