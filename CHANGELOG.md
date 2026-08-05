@@ -25,16 +25,17 @@ The entries below record what went into it.
   **device code** are OAuth and never see the password; the device code needs no
   redirect URI, so it does not require My Home Assistant and is the better of the two
   once a client ID exists. One OEJP login owns one config entry
-  under either method, so an entry can be promoted to OAuth in place — keeping its
+  under either method, so an entry can be switched to OAuth in place — keeping its
   readings and statistics, and deleting the stored password. Removing such an entry
-  deletes the local credential but cannot revoke the token, because an account user may
-  not invalidate a refresh token; it expires within seven days. See [ADR 0008](docs/adr/0008-password-authentication.md);
+  deletes the local credential but cannot revoke the token, because Octopus Energy Japan does not let a
+  customer invalidate a refresh token; it expires within seven days. See [ADR 0008](docs/adr/0008-password-authentication.md);
 - read-only OEJP integration: OAuth with PKCE, account and supply-point discovery,
   generic and legacy reading providers with an explicit fallback policy;
 - a persistent correction-aware interval ledger and Asia/Tokyo calendar aggregation;
 - consumption, timestamp, delay, and lifecycle entities per supply point and
   direction, plus data-availability binary sensors;
-- correction-safe Energy Dashboard external statistics rebuilt from the ledger;
+- Energy Dashboard external statistics rebuilt from the ledger, so a reading corrected
+  later also corrects every total that used it;
 - optional account, contract, product, and billing summaries, with financial
   entities disabled by default;
 - privacy-preserving diagnostics and four informational repair issues;
@@ -45,10 +46,7 @@ The entries below record what went into it.
   through `my.home-assistant.io`, the only redirect address submitted to OEJP for
   registration. Without it Home Assistant builds the instance's own callback URL
   and the user would meet the provider's unregistered-redirect error part-way
-  through sign-in, with nothing naming this integration as the cause.
-
-### Added
-
+  through sign-in, with nothing naming this integration as the cause;
 - **electricity cost on the Energy Dashboard.** The tariff is read from the agreement in
   force — the stepped prices with their kWh boundaries, the daily standing charge, the
   monthly fuel-cost adjustment and the annual renewable levy — and an hourly cost statistic
@@ -57,7 +55,9 @@ The entries below record what went into it.
   Measured at 104% of one real bill, for the two reasons recorded in
   [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md);
 
-### Fixed
+### Corrected during development
+
+Recorded because each was a real defect and the reasoning is worth keeping.
 
 - documentation said to leave the Energy dashboard's cost field empty because a fixed
   price would be wrong. It is worse than wrong: Home Assistant builds a cost sensor only
@@ -123,8 +123,8 @@ The entries below record what went into it.
   generic reading path;
 - a rejected credential is reported as `VALIDATION` with `KT-CT-1138`, not as an
   authentication error;
-- `halfHourlyReadings` caps one response at roughly 1476 intervals and narrows the
-  window silently, so every planned request stays well inside it;
+- one response returns at most 1488 intervals and drops the oldest beyond that silently,
+  so every planned request stays well inside it;
 - reading `version` switches from `DAILY` to `MONTHLY` when a billing period closes,
   which is the correction the ledger absorbs;
 - provider monetary values are whole yen; and
@@ -132,9 +132,14 @@ The entries below record what went into it.
 
 ### Deliberately absent
 
-- electricity cost. OEJP's per-interval `costEstimate` follows a simplified rate
-  model that does not reproduce the billed tariff, so presenting it as cost would
-  carry provider authority for a figure no line of the bill supports;
-- tariff unit prices, because rate attribution is expressed through an untyped
-  provider payload; and
-- any `kWh × unit price` estimate.
+- **the per-interval cost figure Octopus Energy Japan returns.** Cost is published, but it
+  is computed from the tariff. The provider's own figure applies one tier boundary where the
+  tariff has two, combines the fuel-cost adjustment and the renewable levy into a single
+  number, and cannot express the daily standing charge, so it does not add up to a billed
+  total;
+- any `kWh × unit price` estimate. One unit price cannot express tiered pricing, a daily
+  standing charge, a monthly adjustment, an annual levy, and tax;
+- a *current power* entity, because the API publishes 30-minute totals and an average
+  presented as an instantaneous value would be wrong; and
+- a *next meter reading* entity. The API exposes two such dates and both were measured in
+  the past, disagreeing with the reading day on the same supply point.
