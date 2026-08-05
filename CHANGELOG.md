@@ -9,6 +9,12 @@ published client ID before they can be completed.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-08-05
+
+Migration handling, which the version scheme names as a condition for `1.0.0`. No user-visible
+change: nothing in 0.8.0 is broken today, and this removes a hazard that a future schema
+change would otherwise have created.
+
 ### Added
 
 - migration handling, which the version scheme names as a condition for `1.0.0` and which
