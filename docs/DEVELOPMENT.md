@@ -40,6 +40,25 @@ it affects stored data, entity identity, GraphQL documents, or user configuratio
 - A user-visible change needs the README and the Japanese guide updated together.
   English is the normative documentation language; no other translations are maintained.
 
+## Verifying against a real account
+
+`tests/test_live_account.py` drives a real setup and two real refreshes and asserts the
+coordinator reaches a healthy state. It skips unless `OEJP_EMAIL` and `OEJP_PASSWORD` are
+both set, so CI never runs it:
+
+```bash
+OEJP_EMAIL=... OEJP_PASSWORD=... python -m pytest tests/test_live_account.py -s
+```
+
+It exists as a committed test rather than a throwaway script because three separate network
+blocks have to come off for a request to leave the harness — `pytest-socket`, the test
+plugin's `getaddrinfo` replacement, and Home Assistant's shared session, whose DNS resolver
+is bound to another event loop. Only the session is substituted; the integration still calls
+`async_get_clientsession(hass)` exactly as it does live.
+
+Run it after changing the coordinator, the reading providers, or authentication. The unit
+suite proves the rules; this proves a real account still reaches them.
+
 ## Live API investigation
 
 The repository never stores live credentials or raw customer responses. Fixtures are

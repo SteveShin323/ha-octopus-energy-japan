@@ -53,11 +53,15 @@ from custom_components.octopus_energy_japan.const import (
     DOMAIN,
 )
 from custom_components.octopus_energy_japan.coordinator import (
+    _TRIAGE_EXCEPTIONS,
+    _TRIAGE_RULES,
     DirectionErrorClass,
     DirectionSyncStatus,
     OejpDataUpdateCoordinator,
+    _previous_local_month_start,
     _StatisticsPending,
     _SupplyPointRuntime,
+    _triage,
     enabled_supply_points,
     entity_directions,
     iter_supply_points,
@@ -1724,3 +1728,231 @@ def test_coordinator_exposes_discovery_and_rejects_naive_clock(
 
     with pytest.raises(ValueError, match="timezone-aware"):
         coordinator._utc_now()
+
+
+@pytest.mark.parametrize(
+    ("moment", "expected"),
+    [
+        # Mid-month and month start resolve to the same previous month.
+        (datetime(2026, 3, 15, 3, tzinfo=UTC), datetime(2026, 1, 31, 15, tzinfo=UTC)),
+        (datetime(2026, 2, 28, 15, tzinfo=UTC), datetime(2026, 1, 31, 15, tzinfo=UTC)),
+        # 2026-01-15 in Tokyo: the branch that has to cross a year.
+        (datetime(2026, 1, 15, 3, tzinfo=UTC), datetime(2025, 11, 30, 15, tzinfo=UTC)),
+        # 2025-12-31 16:00 UTC is already 2026-01-01 in Tokyo, so the year crosses even
+        # though the UTC date is still December.
+        (datetime(2025, 12, 31, 16, tzinfo=UTC), datetime(2025, 11, 30, 15, tzinfo=UTC)),
+        # One hour earlier is still December in Tokyo.
+        (datetime(2025, 12, 31, 14, tzinfo=UTC), datetime(2025, 10, 31, 15, tzinfo=UTC)),
+    ],
+    ids=["march", "february", "january", "new-year-in-tokyo", "still-december-in-tokyo"],
+)
+def test_the_previous_month_start_is_a_tokyo_month_and_crosses_the_year(
+    moment: datetime,
+    expected: datetime,
+) -> None:
+    """A January reconciliation window has to reach back into the previous year.
+
+    Every result is a Tokyo month start expressed in UTC, which is 15:00 on the last day of
+    the month before. Getting the year wrong would silently reconcile the wrong month, and
+    only in January.
+    """
+    assert _previous_local_month_start(moment) == expected
+
+
+async def test_a_month_pair_roll_supersedes_the_previous_initial_obligations(
+    hass: HomeAssistant,
+) -> None:
+    """Scheduling twice across a month-pair boundary must not leave the old windows queued.
+
+    They describe months the rolled checkpoint no longer tracks, so leaving them enqueued
+    would spend requests re-reading a period the new pair already covers. The rolled
+    checkpoint also carries no initial obligations of its own, so the planner's have to be
+    registered or the new month pair would have nothing to fetch.
+    """
+    coordinator = _coordinator(hass)
+    point = _point()
+    _install_state(coordinator, point, router=AsyncMock())
+    # Nothing is enqueued for a direction that has never been queryable — the poll
+    # establishes that first — so one is seeded the way a successful poll would leave it.
+    coordinator._direction_statuses[(ACCOUNT_ID, SUPPLY_POINT_ID, ReadingDirection.IMPORT)] = (
+        DirectionSyncStatus(
+            account_identity=stable_account_identity(SECRET, ACCOUNT_ID),
+            supply_point_identity=stable_supply_point_identity(
+                SECRET,
+                ACCOUNT_ID,
+                SUPPLY_POINT_ID,
+            ),
+            direction=ReadingDirection.IMPORT,
+            queryable=True,
+        )
+    )
+
+    await coordinator._async_schedule_background_work(NOW)
+
+    first_pair = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)].checkpoint
+    initial_reasons = {
+        BackgroundSyncReason.INITIAL_CURRENT_MONTH,
+        BackgroundSyncReason.INITIAL_PREVIOUS_MONTH,
+    }
+    superseded = {
+        generation.obligation.generation
+        for generation in first_pair.generations
+        if generation.obligation.reason in initial_reasons
+    }
+    assert superseded, "the first scheduling pass should plan initial windows"
+    assert superseded <= {
+        obligation.generation
+        for item in coordinator._background_queue.snapshot()
+        for obligation in item.obligations
+    }
+
+    # Two months later is a different month pair, which is what triggers the roll.
+    await coordinator._async_schedule_background_work(NOW + timedelta(days=62))
+
+    rolled = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)].checkpoint
+    assert rolled.month_pair_generation != first_pair.month_pair_generation
+    queued = {
+        obligation.generation
+        for item in coordinator._background_queue.snapshot()
+        for obligation in item.obligations
+    }
+    assert not superseded & queued, "the superseded initial obligations should be gone"
+    assert any(
+        generation.obligation.reason in initial_reasons for generation in rolled.generations
+    ), "the rolled pair should have initial windows of its own"
+
+
+async def test_a_marker_that_arrives_during_projection_is_not_dropped(
+    hass: HomeAssistant,
+) -> None:
+    """This is the invariant that makes two lock disciplines safe, so it is pinned here.
+
+    `_async_publish_pending_statistics` runs under the mutation lock in the background
+    worker but outside it in the poll, and the worker only re-checks `_poll_pending` before
+    its network call, not after. A ledger change can therefore be marked dirty while a
+    projection for the same supply point is already awaiting.
+
+    Clearing the marker unconditionally after projection would discard that change, and
+    those statistics would stay stale until something else happened to dirty the same supply
+    point. The re-check before popping is what prevents it.
+    """
+    coordinator = _coordinator(hass)
+    point = _point()
+    _install_state(coordinator, point, router=AsyncMock())
+    key = (ACCOUNT_ID, SUPPLY_POINT_ID)
+    projector = AsyncMock()
+    coordinator._statistics_projector = projector
+    coordinator._statistics_pending[key] = _StatisticsPending(NOW)
+
+    arrived = _StatisticsPending(NOW - timedelta(hours=3))
+
+    async def _project_and_dirty_again(*_args: object, **_kwargs: object) -> None:
+        coordinator._statistics_pending[key] = arrived
+
+    projector.async_project_supply_point.side_effect = _project_and_dirty_again
+
+    await coordinator._async_publish_pending_statistics(NOW)
+
+    assert coordinator._statistics_pending[key] is arrived
+
+
+async def test_an_unchanged_marker_is_cleared_after_projection(
+    hass: HomeAssistant,
+) -> None:
+    """The other side of the re-check: nothing new arrived, so the marker must not persist.
+
+    A marker that survived its own projection would reproject the same supply point on every
+    subsequent poll, forever.
+    """
+    coordinator = _coordinator(hass)
+    _install_state(coordinator, _point(), router=AsyncMock())
+    key = (ACCOUNT_ID, SUPPLY_POINT_ID)
+    coordinator._statistics_projector = AsyncMock()
+    coordinator._statistics_pending[key] = _StatisticsPending(NOW)
+
+    await coordinator._async_publish_pending_statistics(NOW)
+
+    assert key not in coordinator._statistics_pending
+
+
+def test_the_triage_table_is_ordered_most_specific_first() -> None:
+    """`isinstance` takes the first match, so a superclass placed early shadows the rest.
+
+    Two orderings are load-bearing and were previously implicit in the order of `except`
+    clauses, where nothing checked them: `OejpNonRetryableHttpError` is an
+    `OejpTransportError` but must not be recorded as transient, and `OejpError` is the
+    catch-all so nothing may follow it. `ValueError` is outside the provider hierarchy
+    entirely, which the check has to tolerate.
+    """
+    for index, rule in enumerate(_TRIAGE_RULES):
+        for later in _TRIAGE_RULES[index + 1 :]:
+            assert not issubclass(later.exception, rule.exception), (
+                f"{later.exception.__name__} is a subclass of {rule.exception.__name__} "
+                f"and would never be reached"
+            )
+
+
+def test_the_triage_table_describes_every_exception_it_catches() -> None:
+    """The caught set is derived from the table, so drift is structurally impossible.
+
+    Asserting it anyway keeps the derivation from being replaced by a hand-written tuple.
+    """
+    assert set(_TRIAGE_EXCEPTIONS) == {rule.exception for rule in _TRIAGE_RULES}
+
+
+def test_authentication_is_not_in_the_triage_table() -> None:
+    """It is re-raised before the table is consulted.
+
+    `OejpAuthenticationError` is an `OejpError`, so the catch-all entry would classify it as
+    `unavailable` and swallow the reauthentication Home Assistant owns.
+    """
+    assert OejpAuthenticationError not in _TRIAGE_EXCEPTIONS
+    assert not any(rule.exception is OejpAuthenticationError for rule in _TRIAGE_RULES)
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_class", "scope", "queryable", "interrupts"),
+    [
+        (
+            OejpNonRetryableHttpError(400),
+            DirectionErrorClass.NON_RETRYABLE_HTTP,
+            "direction",
+            False,
+            False,
+        ),
+        (OejpRateLimitError(()), DirectionErrorClass.RATE_LIMIT, "direction", None, True),
+        (OejpTransportError("offline"), DirectionErrorClass.TRANSIENT, "direction", None, True),
+        (OejpAuthorizationError(()), DirectionErrorClass.AUTHORIZATION, "direction", False, False),
+        (OejpQueryValidationError(()), DirectionErrorClass.VALIDATION, "direction", False, False),
+        (OejpNotFoundError(()), DirectionErrorClass.NOT_FOUND, "point", False, False),
+        (
+            OejpInvalidResponseError("bad"),
+            DirectionErrorClass.INVALID_RESPONSE,
+            "point",
+            False,
+            False,
+        ),
+        (LedgerError("ledger"), DirectionErrorClass.LEDGER, "point", False, False),
+        (ValueError("invalid"), DirectionErrorClass.INVALID_RESPONSE, "point", False, False),
+        (OejpError("unknown"), DirectionErrorClass.UNAVAILABLE, "direction", False, False),
+    ],
+    ids=lambda value: type(value).__name__ if isinstance(value, BaseException) else str(value),
+)
+def test_each_exception_is_triaged_the_way_the_ladder_did(
+    error: BaseException,
+    expected_class: DirectionErrorClass,
+    scope: str,
+    queryable: bool | None,
+    interrupts: bool,
+) -> None:
+    """The table replaced nine `except` clauses, so every one of them is pinned here.
+
+    `queryable` is the value that matters most: it drives whether the direction is reported
+    stale, so a wrong entry would change reported freshness without failing anything else.
+    """
+    rule = _triage(error)
+
+    assert rule.error_class is expected_class
+    assert rule.scope.value == scope
+    assert rule.queryable is queryable
+    assert rule.interrupts_poll is interrupts
