@@ -10,7 +10,10 @@ A prose audit catches those once. These checks catch them every run.
 
 from __future__ import annotations
 
+import ast
 import json
+import re
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -118,3 +121,122 @@ def test_the_quality_scale_records_only_the_known_outstanding_rule() -> None:
 
     # `brands` needs the domain to be public in home-assistant/brands first.
     assert outstanding == {"brands"}
+
+
+ARCHITECTURE = ROOT / "docs" / "ARCHITECTURE.md"
+
+
+def test_every_module_the_architecture_table_names_exists() -> None:
+    """A map that points at a file which moved is worse than no map."""
+    table = ARCHITECTURE.read_text(encoding="utf-8")
+    table = table.split("## Where the code lives")[1].split("**The dependency rule")[0]
+    modules = sorted(set(re.findall(r"`([a-z_]+(?:/[a-z_]+)?\.py)`", table)))
+
+    assert len(modules) > 25, f"the table stopped listing modules: {modules}"
+    missing = [name for name in modules if not (INTEGRATION / name).is_file()]
+    assert not missing, f"named in ARCHITECTURE.md but absent: {missing}"
+
+
+def test_nothing_under_api_imports_home_assistant() -> None:
+    """Invariant 7. `api/` is a standalone client, testable without Home Assistant.
+
+    Stated in `ARCHITECTURE.md` as the one dependency rule that holds, so it is checked here
+    rather than trusted. An import added anywhere under `api/` would make that claim false and
+    couple the client to the framework.
+    """
+    offenders: list[str] = []
+    for path in sorted((INTEGRATION / "api").glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                # `level > 1` is a parent-package import: `from .. import x`.
+                if module.startswith("homeassistant") or (node.level or 0) > 1:
+                    offenders.append(f"{path.name}: from {'.' * (node.level or 0)}{module}")
+            elif isinstance(node, ast.Import):
+                offenders.extend(
+                    f"{path.name}: import {alias.name}"
+                    for alias in node.names
+                    if alias.name.startswith("homeassistant")
+                )
+
+    assert not offenders, f"api/ must not depend on Home Assistant: {offenders}"
+
+
+def test_the_documented_refresh_intervals_are_the_ones_the_code_uses() -> None:
+    """Both the README and `ARCHITECTURE.md` publish a cadence table.
+
+    A reader plans around these numbers, and nothing else would fail if a constant changed.
+    """
+    from custom_components.octopus_energy_japan.commercial_coordinator import (
+        COMMERCIAL_UPDATE_INTERVAL,
+    )
+    from custom_components.octopus_energy_japan.const import DEFAULT_SCAN_INTERVAL_MINUTES
+    from custom_components.octopus_energy_japan.sync import (
+        BILLING_INTERVAL,
+        CONTRACT_INTERVAL,
+        DISCOVERY_INTERVAL,
+        POLL_OVERLAP,
+    )
+
+    assert DEFAULT_SCAN_INTERVAL_MINUTES == 30
+    assert timedelta(hours=72) == POLL_OVERLAP
+    assert timedelta(hours=24) == DISCOVERY_INTERVAL
+    assert CONTRACT_INTERVAL == BILLING_INTERVAL == COMMERCIAL_UPDATE_INTERVAL
+    assert timedelta(hours=12) == CONTRACT_INTERVAL
+
+    for document in (ROOT / "README.md", ARCHITECTURE, ROOT / "docs" / "ja" / "README.md"):
+        text = document.read_text(encoding="utf-8")
+        assert "30" in text and "72" in text and "24" in text and "12" in text, document.name
+
+
+def test_the_ledger_key_excludes_version_so_a_correction_replaces() -> None:
+    """`ARCHITECTURE.md` says a re-published interval replaces the earlier one in place.
+
+    That only holds while `version` stays out of the key. Adding it would store both versions
+    side by side, and every total would double-count the corrected hour.
+    """
+    from custom_components.octopus_energy_japan.api.models import ReadingSeriesKey
+    from custom_components.octopus_energy_japan.ledger import LedgerIntervalKey
+
+    assert "version" not in ReadingSeriesKey.__dataclass_fields__
+    assert "version" not in LedgerIntervalKey.__dataclass_fields__
+    # The fields the document enumerates, so the prose and the dataclass stay in step.
+    assert set(ReadingSeriesKey.__dataclass_fields__) == {
+        "account_id",
+        "supply_point_id",
+        "direction",
+        "unit",
+        "source",
+        "device_id",
+        "register_id",
+    }
+
+
+def test_partitions_are_one_per_month_as_documented() -> None:
+    from custom_components.octopus_energy_japan.ledger import partition_id_for
+
+    assert partition_id_for(datetime(2026, 8, 5, 23, 30, tzinfo=UTC)) == "2026-08"
+    assert partition_id_for(datetime(2026, 1, 1, 0, 0, tzinfo=UTC)) == "2026-01"
+
+
+def test_the_documented_availability_states_and_repair_issues_are_complete() -> None:
+    """`ARCHITECTURE.md` enumerates both sets. An added member would go undocumented."""
+    from custom_components.octopus_energy_japan.api import CommercialAvailability
+    from custom_components.octopus_energy_japan.issues import OejpIssue
+
+    assert {state.value for state in CommercialAvailability} == {
+        "available",
+        "partial",
+        "forbidden",
+        "unsupported",
+        "failed",
+    }
+    architecture = ARCHITECTURE.read_text(encoding="utf-8")
+    for state in CommercialAvailability:
+        assert state.value in architecture, state
+
+    assert len(list(OejpIssue)) == 4, [issue.value for issue in OejpIssue]
+    assert not any("reauth" in issue.value for issue in OejpIssue), (
+        "reauthentication is Home Assistant's own prompt, not a repair issue"
+    )
