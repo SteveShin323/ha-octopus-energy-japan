@@ -1133,6 +1133,196 @@ async def test_removing_one_of_two_entries_keeps_the_shared_secret(
     }
 
 
+_SCOPE_DIGEST = "a" * 64
+_OTHER_DIGEST = "b" * 64
+
+
+async def _cleared_statistics(
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    *,
+    listed: tuple[str, ...] = (),
+) -> tuple[list[str], int]:
+    """Remove `entry` and report which statistic ids were cleared, and how often listed."""
+    cleared: list[str] = []
+    listings = 0
+
+    def clear(statistic_ids: list[str]) -> None:
+        cleared.extend(statistic_ids)
+
+    async def list_ids(_hass: HomeAssistant) -> list[dict[str, str]]:
+        nonlocal listings
+        listings += 1
+        return [
+            {"statistic_id": statistic_id, "source": statistic_id.split(":", 1)[0]}
+            for statistic_id in listed
+        ]
+
+    hass.config.components.add("recorder")
+    instance = Mock()
+    instance.async_clear_statistics = clear
+    with (
+        patch("homeassistant.helpers.recorder.get_instance", return_value=instance),
+        patch(
+            "homeassistant.components.recorder.statistics.async_list_statistic_ids",
+            list_ids,
+        ),
+        patch("homeassistant.helpers.storage.Store.async_remove", AsyncMock()),
+    ):
+        await hass.config_entries.async_remove(entry.entry_id)
+        await hass.async_block_till_done()
+    return cleared, listings
+
+
+async def test_removing_an_entry_deletes_the_statistics_it_published(
+    hass: HomeAssistant,
+) -> None:
+    """Statistics are not owned by the entry, so Home Assistant leaves them behind.
+
+    Keeping them would not preserve anything usable: the installation secret goes with the
+    last entry and every statistic id is an HMAC of it, so a re-install derives new ids and
+    the old rows become permanently unreachable clutter in the Energy dashboard picker.
+    """
+    entry = _password_entry()
+    entry.add_to_hass(hass)
+    scope = f"supply-point-{_SCOPE_DIGEST}"
+    _seed_storage(
+        hass,
+        (
+            f"{DOMAIN}.ledger.{entry.entry_id}.{scope}.index",
+            f"{DOMAIN}.ledger.{entry.entry_id}.{scope}.2026-08",
+            f"{DOMAIN}.sync.{entry.entry_id}.{scope}",
+            f"{DOMAIN}.ledger.other-entry.supply-point-{_OTHER_DIGEST}.2026-08",
+        ),
+    )
+    orphan = f"{DOMAIN}:sp_{'c' * 64}_import_energy"
+
+    cleared, listings = await _cleared_statistics(
+        hass,
+        entry,
+        listed=(orphan, "sensor.something_else"),
+    )
+
+    assert f"{DOMAIN}:sp_{_SCOPE_DIGEST}_import_energy" in cleared
+    assert f"{DOMAIN}:sp_{_SCOPE_DIGEST}_export_tariff_cost" in cleared
+    # This was the last entry, so what an earlier removal orphaned is swept as well.
+    assert listings == 1
+    assert orphan in cleared
+    # Another integration's statistics are never touched.
+    assert "sensor.something_else" not in cleared
+
+
+async def test_removing_one_of_two_entries_keeps_the_others_statistics(
+    hass: HomeAssistant,
+) -> None:
+    """The sweep is only safe when no entry remains.
+
+    Scoping by the store filenames is what keeps a two-account installation from losing the
+    surviving entry's energy history.
+    """
+    first = _password_entry()
+    first.add_to_hass(hass)
+    second = _password_entry()
+    second.add_to_hass(hass)
+    _seed_storage(
+        hass,
+        (
+            f"{DOMAIN}.sync.{first.entry_id}.supply-point-{_SCOPE_DIGEST}",
+            f"{DOMAIN}.sync.{second.entry_id}.supply-point-{_OTHER_DIGEST}",
+        ),
+    )
+
+    cleared, listings = await _cleared_statistics(hass, first)
+
+    assert f"{DOMAIN}:sp_{_SCOPE_DIGEST}_import_energy" in cleared
+    assert all(_OTHER_DIGEST not in statistic_id for statistic_id in cleared)
+    # Listing every statistic under this source would have included the surviving entry's.
+    assert listings == 0
+
+
+async def test_a_recorder_that_cannot_answer_still_deletes_the_readings(
+    hass: HomeAssistant,
+) -> None:
+    """A database that is not answering must not keep the stored readings on disk.
+
+    The readings hold the account number, the supply-point number, and every value, so they
+    are deleted first and the statistics are attempted afterwards.
+    """
+    from sqlalchemy.exc import OperationalError
+
+    entry = _password_entry()
+    entry.add_to_hass(hass)
+    key = f"{DOMAIN}.sync.{entry.entry_id}.supply-point-{_SCOPE_DIGEST}"
+    _seed_storage(hass, (key,))
+
+    async def unavailable(_hass: HomeAssistant) -> list[dict[str, str]]:
+        raise OperationalError("SELECT 1", {}, Exception("database is locked"))
+
+    hass.config.components.add("recorder")
+    with (
+        patch(
+            "homeassistant.components.recorder.statistics.async_list_statistic_ids",
+            unavailable,
+        ),
+        patch("homeassistant.helpers.recorder.get_instance", Mock()),
+    ):
+        removed = await _removed_keys(hass, entry)
+
+    assert key in removed
+    assert not hass.config_entries.async_entries(DOMAIN)
+
+
+async def test_removing_an_entry_that_stored_nothing_clears_no_statistics(
+    hass: HomeAssistant,
+) -> None:
+    """An entry removed before it ever collected a reading has no statistics to delete.
+
+    Its stores carry no supply-point identity, so there is no id to build, and another entry
+    remains so the sweep must not run either.
+    """
+    first = _password_entry()
+    first.add_to_hass(hass)
+    second = _password_entry()
+    second.add_to_hass(hass)
+    _seed_storage(hass, (f"{DOMAIN}.sync.{first.entry_id}.pending",))
+
+    def fail(_hass: HomeAssistant) -> object:
+        raise AssertionError("The recorder instance must not be requested")
+
+    hass.config.components.add("recorder")
+    with (
+        patch("homeassistant.helpers.recorder.get_instance", fail),
+        patch("homeassistant.helpers.storage.Store.async_remove", AsyncMock()),
+    ):
+        await hass.config_entries.async_remove(first.entry_id)
+        await hass.async_block_till_done()
+
+    assert [entry.entry_id for entry in hass.config_entries.async_entries(DOMAIN)] == [
+        second.entry_id
+    ]
+
+
+async def test_removal_without_the_recorder_clears_no_statistics(
+    hass: HomeAssistant,
+) -> None:
+    """Nothing was ever published, and asking for the instance would raise."""
+    entry = _password_entry()
+    entry.add_to_hass(hass)
+    _seed_storage(hass, (f"{DOMAIN}.sync.{entry.entry_id}.supply-point-{_SCOPE_DIGEST}",))
+
+    def fail(_hass: HomeAssistant) -> object:
+        raise AssertionError("The recorder instance must not be requested")
+
+    with (
+        patch("homeassistant.helpers.recorder.get_instance", fail),
+        patch("homeassistant.helpers.storage.Store.async_remove", AsyncMock()),
+    ):
+        await hass.config_entries.async_remove(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert not hass.config_entries.async_entries(DOMAIN)
+
+
 async def test_removal_completes_when_a_store_cannot_be_deleted(
     hass: HomeAssistant,
 ) -> None:

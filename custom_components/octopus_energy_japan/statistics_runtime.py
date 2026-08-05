@@ -247,7 +247,7 @@ class HomeAssistantStatisticsProjector:
         if self._include_official_cost:
             kinds.append(StatisticKind.OFFICIAL_COST)
         statistic_ids = [
-            _statistic_id(identity, direction, kind)
+            statistic_id_for(identity, direction, kind)
             for direction in sorted(directions, key=lambda value: value.value)
             for kind in kinds
         ]
@@ -313,7 +313,7 @@ def _metadata(
             has_sum=True,
             name=_statistic_name(hass, supply_point_identity, series, "energy"),
             source=DOMAIN,
-            statistic_id=_statistic_id(
+            statistic_id=statistic_id_for(
                 supply_point_identity,
                 series.key.direction,
                 series.key.kind,
@@ -330,7 +330,7 @@ def _metadata(
         has_sum=True,
         name=_statistic_name(hass, supply_point_identity, series, what),
         source=DOMAIN,
-        statistic_id=_statistic_id(
+        statistic_id=statistic_id_for(
             supply_point_identity,
             series.key.direction,
             series.key.kind,
@@ -340,10 +340,16 @@ def _metadata(
     )
 
 
-def _statistic_id(
+def statistic_id_for(
     supply_point_identity: str,
     direction: ReadingDirection,
     kind: StatisticKind,
 ) -> str:
+    """Name the external statistic one supply point's direction and kind publishes to.
+
+    Public because entry removal has to delete these rows, and by then the entry is
+    unloaded: the id is rebuilt from the identity encoded in the store filenames rather
+    than from the runtime data, which is gone.
+    """
     digest = supply_point_identity.rsplit("-", maxsplit=1)[-1]
     return f"{DOMAIN}:sp_{digest}_{direction.value}_{kind.value}"

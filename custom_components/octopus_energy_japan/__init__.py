@@ -423,9 +423,11 @@ async def _async_purge_stored_data(hass: HomeAssistant, entry: ConfigEntry) -> N
         )
 
     keys = await hass.async_add_executor_job(_matching_keys)
-    if not hass.config_entries.async_entries(DOMAIN):
-        # `async_remove_entry` runs after the entry is gone from the registry, so an
-        # empty list here means this was the last one.
+    # `async_remove_entry` runs after the entry is gone from the registry, so an empty
+    # list here means this was the last one.
+    last_entry = not hass.config_entries.async_entries(DOMAIN)
+    store_keys = tuple(keys)
+    if last_entry:
         keys.append(IDENTITY_STORAGE_KEY)
 
     for key in keys:
@@ -433,6 +435,79 @@ async def _async_purge_stored_data(hass: HomeAssistant, entry: ConfigEntry) -> N
             await Store[dict[str, object]](hass, 1, key).async_remove()
         except OSError:
             _LOGGER.warning("Unable to delete stored OEJP data for %s during removal", key)
+
+    # After the files, because the statistics live in the recorder's database and a database
+    # that cannot be reached must not stop the readings themselves from being deleted.
+    await _async_purge_statistics(hass, store_keys, last_entry=last_entry)
+
+
+async def _async_purge_statistics(
+    hass: HomeAssistant,
+    store_keys: tuple[str, ...],
+    *,
+    last_entry: bool,
+) -> None:
+    """Delete the Energy Dashboard statistics this entry published.
+
+    A config entry does not own its external statistics. `async_add_external_statistics`
+    writes them into the recorder under this integration's source name, and Home Assistant
+    leaves them there when the entry is removed. Keeping them was deliberate once — removing
+    an integration should not destroy an energy history — but the installation secret is
+    deleted with the last entry and every statistic id is an HMAC of it, so a re-install
+    derives new ids and can never reach the old rows again. They would stay in the recorder
+    with nothing able to read them, and appear as leftovers in the Energy dashboard picker.
+
+    The ids come from the store filenames, which encode the supply-point identity, because
+    the entry is already unloaded here and its runtime data is gone. When this was the last
+    entry, every remaining statistic under this source is swept as well, which also clears
+    what an earlier removal orphaned.
+    """
+    import re
+
+    from homeassistant.components.recorder.statistics import async_list_statistic_ids
+    from homeassistant.helpers.recorder import get_instance
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from .api import ReadingDirection
+    from .const import DOMAIN
+    from .statistics import StatisticKind
+    from .statistics_runtime import statistic_id_for
+
+    if "recorder" not in hass.config.components:
+        # Nothing was ever published, so there is nothing to delete. Asking for the
+        # instance without the recorder raises.
+        return
+
+    scope = re.compile(
+        rf"^{re.escape(DOMAIN)}\.(?:ledger|sync)\.[^.]+\.(supply-point-[0-9a-f]{{64}})(?:\.|$)"
+    )
+    statistic_ids = {
+        statistic_id_for(match.group(1), direction, kind)
+        for key in store_keys
+        if (match := scope.match(key))
+        for direction in ReadingDirection
+        for kind in StatisticKind
+    }
+    try:
+        if last_entry:
+            statistic_ids.update(
+                str(row["statistic_id"])
+                for row in await async_list_statistic_ids(hass)
+                if row.get("source") == DOMAIN
+            )
+        if not statistic_ids:
+            return
+
+        # The clear is queued on the recorder's own FIFO queue. Waiting for it would block
+        # removal for no benefit, and would deadlock if the recorder is stopping.
+        get_instance(hass).async_clear_statistics(sorted(statistic_ids))
+    except KeyError, OSError, SQLAlchemyError:
+        # The recorder is present but its database is not answering, which is a state
+        # removal cannot resolve. Everything else is already deleted by now.
+        _LOGGER.warning(
+            "Unable to delete the OEJP Energy Dashboard statistics during removal. "
+            "Remove them under Developer tools, Statistics"
+        )
 
 
 async def _async_discover_state(
