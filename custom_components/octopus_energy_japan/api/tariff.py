@@ -247,11 +247,11 @@ class SupplyPointTariff:
         which price applies depends on sort order rather than on the date. Selecting the
         generation that covers the moment prices each hour with the rates that applied then.
 
-        A moment no generation covers is priced with the nearest one — the earliest for an hour
-        before the first window, the latest for an hour after the last. Refusing to price those
-        hours would leave holes in the cost series, and reaching across the whole range for a
-        price is a larger error than reaching to the near end of it. This is the same rule the
-        stored fuel-cost adjustments follow.
+        A moment no generation covers is priced with the last generation that had begun by then,
+        which is the one whose prices were most recently in force. Before any of them had begun
+        the earliest is used. Refusing to price those hours would leave holes in the cost series,
+        and carrying the last known price forward is a smaller error than reaching past a gap for
+        a later one. This is the same rule the stored fuel-cost adjustments follow.
         """
         windows: dict[tuple[datetime | None, datetime | None], list[TariffStep]] = {}
         for step in self.steps:
@@ -260,16 +260,17 @@ class SupplyPointTariff:
             return self.steps
 
         ordered = sorted(windows.items(), key=lambda item: item[0][0] or _DISTANT_PAST)
+        started: list[TariffStep] | None = None
         for (valid_from, valid_to), steps in ordered:
-            covers_start = valid_from is None or valid_from <= moment
-            covers_end = valid_to is None or moment < valid_to
-            if covers_start and covers_end:
+            if valid_from is not None and valid_from > moment:
+                break
+            started = steps
+            if valid_to is None or moment < valid_to:
                 return tuple(steps)
-        earliest_start = ordered[0][0][0]
-        nearest = (
-            ordered[0] if earliest_start is not None and moment < earliest_start else ordered[-1]
-        )
-        return tuple(nearest[1])
+        # Either the moment falls in a gap between two generations, in which case the last one
+        # that had begun carries forward, or it precedes every generation and the earliest is
+        # the nearest thing to it.
+        return tuple(started if started is not None else ordered[0][1])
 
     def marginal_price(self, cumulative_kwh: Decimal, moment: datetime) -> Decimal | None:
         """Return the price of the next kWh at this period-cumulative total."""

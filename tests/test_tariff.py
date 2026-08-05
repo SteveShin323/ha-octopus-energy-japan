@@ -765,3 +765,39 @@ def test_a_price_that_is_not_a_scalar_is_dropped(value: object) -> None:
     (tariff,) = parse_supply_point_tariffs(_payload(_agreement(product=product)), ACCOUNT)
 
     assert tariff.unpriceable_reason is TariffUnpriceable.NO_CONSUMPTION_CHARGES
+
+
+def test_an_hour_in_a_gap_between_generations_keeps_the_last_price_in_force() -> None:
+    """A gap means no published rate, not that a future rate applied.
+
+    Reaching past the gap for the later generation would price an hour with prices that had not
+    been announced yet. Carrying the last one that had begun forward is the smaller error.
+    """
+    product = _product(
+        consumptionCharges=[
+            *_generation("2026-01-31T15:00:00+00:00", "2026-03-31T15:00:00+00:00", "10.00"),
+            *_generation("2026-06-30T15:00:00+00:00", None, "20.00"),
+        ]
+    )
+    (tariff,) = parse_supply_point_tariffs(_payload(_agreement(product=product)), ACCOUNT)
+
+    in_the_gap = datetime(2026, 5, 1, tzinfo=UTC)
+
+    assert tariff.marginal_price(Decimal(0), in_the_gap) == Decimal("10.00")
+    # Before either generation began, the earliest is still the nearest thing to the hour.
+    assert tariff.marginal_price(Decimal(0), datetime(2025, 1, 1, tzinfo=UTC)) == Decimal("10.00")
+    # And after the later one began, it applies.
+    assert tariff.marginal_price(Decimal(0), datetime(2026, 8, 1, tzinfo=UTC)) == Decimal("20.00")
+
+
+def test_an_hour_after_every_generation_ended_keeps_the_last_one() -> None:
+    """Every published rate can carry an end date, leaving later hours uncovered."""
+    product = _product(
+        consumptionCharges=[
+            *_generation("2026-01-31T15:00:00+00:00", "2026-03-31T15:00:00+00:00", "10.00"),
+            *_generation("2026-03-31T15:00:00+00:00", "2026-06-30T15:00:00+00:00", "20.00"),
+        ]
+    )
+    (tariff,) = parse_supply_point_tariffs(_payload(_agreement(product=product)), ACCOUNT)
+
+    assert tariff.marginal_price(Decimal(0), datetime(2026, 8, 1, tzinfo=UTC)) == Decimal("20.00")
