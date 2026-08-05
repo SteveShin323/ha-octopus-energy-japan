@@ -237,8 +237,11 @@ standing charge, so it does not add up to a billed total either.
 retrievable and is fetched in the background afterwards.
 
 **Calendar totals are not billing periods.** Every total here uses Asia/Tokyo calendar days,
-weeks, and months. Your bill uses the period between two meter reads. They will not match,
-by design.
+weeks, and months, whatever timezone your Home Assistant is set to. Japan has one timezone and
+no daylight saving, and your consumption is measured and billed in it, so a total on your own
+timezone's day boundary would match nothing the provider reports. Your bill uses the period
+between two meter reads, so calendar totals will not match it either, by design. The cost
+statistic does follow the meter-reading period.
 
 **Contract information may be unavailable.** Some accounts are not authorised for
 agreement data. Consumption is unaffected; those entities stay unavailable and a
