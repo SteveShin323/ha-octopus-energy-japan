@@ -99,7 +99,7 @@ def project_hourly_cost(
         period = periods.period_start(moment)
         cumulative = cumulative_by_period.get(period, Decimal(0))
 
-        energy = _price_across_steps(tariff, cumulative, kwh)
+        energy = _price_across_steps(tariff.steps_at(moment), cumulative, kwh)
         cumulative_by_period[period] = cumulative + kwh
         adders = kwh * tariff.adders_at(moment)
 
@@ -117,28 +117,28 @@ def project_hourly_cost(
 
 
 def _price_across_steps(
-    tariff: SupplyPointTariff,
+    steps: tuple[TariffStep, ...],
     cumulative_kwh: Decimal,
     kwh: Decimal,
 ) -> Decimal:
     """Price one hour's kWh, splitting it if it crosses a step boundary.
 
-    An hour that takes the month past 120 kWh is partly at the lower price and partly at
-    the higher one. Pricing the whole hour at either would be wrong by the size of the
-    hour, every month, at the boundary.
+    An hour that takes the period past a step boundary is partly at the lower price and
+    partly at the higher one. Pricing the whole hour at either would be wrong by the size of
+    the hour, every period, at the boundary.
     """
     if kwh <= 0:
-        price = tariff.marginal_price(cumulative_kwh)
+        price = _marginal_price(steps, cumulative_kwh)
         return kwh * price if price is not None else Decimal(0)
 
     remaining = kwh
     position = cumulative_kwh
     total = Decimal(0)
     while remaining > 0:
-        price = tariff.marginal_price(position)
+        price = _marginal_price(steps, position)
         if price is None:
             break
-        boundary = _next_boundary(tariff.steps, position)
+        boundary = _next_boundary(steps, position)
         take = remaining if boundary is None else min(remaining, boundary - position)
         if take <= 0:
             # A degenerate step definition would otherwise spin here.
@@ -147,6 +147,14 @@ def _price_across_steps(
         position += take
         remaining -= take
     return total
+
+
+def _marginal_price(steps: tuple[TariffStep, ...], cumulative_kwh: Decimal) -> Decimal | None:
+    """Return the price of the next kWh at this period-cumulative total."""
+    for step in steps:
+        if step.contains(cumulative_kwh):
+            return step.price_inc_tax
+    return steps[-1].price_inc_tax if steps else None
 
 
 def _next_boundary(steps: Iterable[TariffStep], position: Decimal) -> Decimal | None:
