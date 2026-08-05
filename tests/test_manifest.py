@@ -81,7 +81,8 @@ def test_the_brand_images_are_where_hacs_looks_for_them() -> None:
     - `hacs` warns "does not contain brands assets at
       custom_components/octopus_energy_japan/brand/icon.png. Falling back to checking the
       brands repository", then fails with "does not provide brand assets and is not listed in
-      the Home Assistant brands repository". This integration is not listed there yet.
+      the Home Assistant brands repository", because HACS checks the in-component path
+      first and only then the brands repository, where this domain is not listed.
     - `links` fails, because the README and the Japanese guide show the logo from this path.
     - `python` fails at `pip install -e .`, with "Multiple top-level packages discovered in a
       flat-layout: ['brand', 'custom_components']". A sibling directory of
@@ -96,7 +97,7 @@ def test_the_brand_images_are_where_hacs_looks_for_them() -> None:
     assert (brand / "logo.png").is_file()
 
 
-# What `home-assistant/brands` requires. A submission with a wrong size is rejected, and
+# The sizes Home Assistant accepts. A wrong one is rejected by the frontend rather than by
 # the only place that is discovered is the pull request, so it is checked here instead.
 BRAND = Path("custom_components/octopus_energy_japan/brand")
 BRAND_IMAGES = {
@@ -147,7 +148,7 @@ def test_the_two_logo_widths_are_consistent_with_each_other() -> None:
         assert abs(double_width - single_width * 2) <= 1
 
 
-def test_only_brands_remains_outstanding_in_the_quality_scale() -> None:
+def test_no_quality_scale_rule_is_outstanding() -> None:
     """Every other rule must be met or exempt with a stated reason."""
     scale = yaml.safe_load(
         (Path("custom_components/octopus_energy_japan/quality_scale.yaml")).read_text(
@@ -161,7 +162,7 @@ def test_only_brands_remains_outstanding_in_the_quality_scale() -> None:
         for name, value in rules.items()
         if (value if isinstance(value, str) else value["status"]) == "todo"
     }
-    assert outstanding == {"brands"}
+    assert not outstanding, outstanding
 
     for name, value in rules.items():
         if isinstance(value, dict) and value["status"] in {"exempt", "todo"}:
