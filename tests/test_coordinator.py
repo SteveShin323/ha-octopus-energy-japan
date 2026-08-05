@@ -2056,3 +2056,92 @@ def test_every_permanent_worker_failure_is_classified_by_the_poll_table(
     assert _worker_rule(error).disposition is _WorkerDisposition.PERMANENT
     assert isinstance(error, _TRIAGE_EXCEPTIONS)
     assert _triage(error).error_class is not None
+
+
+async def test_an_unreadable_checkpoint_is_discarded_rather_than_failing_forever(
+    hass: HomeAssistant,
+) -> None:
+    """Raising a checkpoint's schema version used to break an entry permanently.
+
+    `SyncCheckpoint.from_dict` rejects a version it does not recognise, the poll turns that
+    `ValueError` into `UpdateFailed`, and every later poll did the same — so the only way out
+    was to delete the entry, which takes the stored readings with it.
+
+    A checkpoint records which windows were already fetched. It is derived from the ledger, so
+    discarding one costs re-reading those windows and loses nothing: the ledger is keyed, so a
+    re-fetched interval replaces itself.
+    """
+    coordinator = _coordinator(hass)
+    backend = AsyncMock()
+    ledger = Mock()
+    ledger.async_initialize = AsyncMock()
+    ledger.corrupt_partitions = frozenset()
+    checkpoint_backend = AsyncMock()
+    stored = SyncCheckpoint.empty(NOW).as_dict()
+    stored["schema_version"] = 99
+
+    checkpoint_backend.async_load.return_value = stored
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.coordinator.HomeAssistantLedgerBackend",
+            return_value=backend,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.coordinator.PersistentIntervalLedger",
+            return_value=ledger,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.coordinator.HomeAssistantSyncCheckpointBackend",
+            return_value=checkpoint_backend,
+        ),
+        patch.object(coordinator, "_reading_router", return_value=Mock()),
+    ):
+        await coordinator._async_prepare_enabled_supply_points(NOW)
+
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+    assert state.checkpoint.schema_version == 1
+    assert state.checkpoint.month_pair_generation == "2026-06_2026-07"
+    # Visible in diagnostics, so re-reading old windows has a stated cause.
+    assert coordinator._discarded_checkpoints == {(ACCOUNT_ID, SUPPLY_POINT_ID)}
+
+
+async def test_a_readable_checkpoint_is_kept_and_not_discarded(hass: HomeAssistant) -> None:
+    """The net must not swallow a checkpoint it could have used."""
+    coordinator = _coordinator(hass)
+    ledger = Mock()
+    ledger.async_initialize = AsyncMock()
+    ledger.corrupt_partitions = frozenset()
+    checkpoint_backend = AsyncMock()
+    restored = SyncCheckpoint.empty(datetime(2026, 5, 15, tzinfo=UTC))
+    checkpoint_backend.async_load.return_value = restored.as_dict()
+
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.coordinator.HomeAssistantLedgerBackend",
+            return_value=AsyncMock(),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.coordinator.PersistentIntervalLedger",
+            return_value=ledger,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.coordinator.HomeAssistantSyncCheckpointBackend",
+            return_value=checkpoint_backend,
+        ),
+        patch.object(coordinator, "_reading_router", return_value=Mock()),
+    ):
+        await coordinator._async_prepare_enabled_supply_points(NOW)
+
+    assert not coordinator._discarded_checkpoints
+
+
+async def test_a_discarded_checkpoint_is_counted_in_the_snapshot(hass: HomeAssistant) -> None:
+    coordinator = _coordinator(hass)
+    _install_state(coordinator, _point(), router=AsyncMock())
+    coordinator._discarded_checkpoints.add((ACCOUNT_ID, SUPPLY_POINT_ID))
+
+    data = await coordinator._async_build_snapshot(
+        NOW, coordinator._enabled_states(), CorrectionResult()
+    )
+
+    assert data.discarded_checkpoint_count == 1

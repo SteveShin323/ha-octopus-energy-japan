@@ -283,6 +283,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Bring a config entry up to the version this build expects.
+
+    Nothing needs migrating yet: `ConfigFlow.VERSION` has been 2 since before the first
+    release, so every entry a released build created is already current.
+
+    This exists anyway because Home Assistant refuses to load an entry whose major version
+    differs from the flow's when the integration defines no handler — it logs "Migration
+    handler not found" and setup fails. Without this function, the next increase of
+    `ConfigFlow.VERSION` would break every existing entry, and the breakage would come from
+    the missing handler rather than from whatever the new version changed.
+
+    A newer entry is refused rather than loaded. It means the integration was downgraded, and
+    this build cannot know what the newer version stored.
+    """
+    from .config_flow import OctopusEnergyJapanConfigFlow
+
+    if entry.version > OctopusEnergyJapanConfigFlow.VERSION:
+        _LOGGER.error(
+            "This config entry was created by a newer version of the integration "
+            "(entry version %s, this build supports %s). Update the integration again.",
+            entry.version,
+            OctopusEnergyJapanConfigFlow.VERSION,
+        )
+        return False
+
+    # No older version exists to migrate from. When one does, convert it here and call
+    # `hass.config_entries.async_update_entry(entry, version=...)`.
+    return True
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload platforms and durably flush ledger writes."""
     from .runtime import OejpRuntimeData

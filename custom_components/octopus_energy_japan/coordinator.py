@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import Final
+from typing import Any, Final
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -319,6 +319,7 @@ class OejpCoordinatorData:
     correction_count: int = 0
     last_refresh_change_count: int = 0
     corrupt_partition_count: int = 0
+    discarded_checkpoint_count: int = 0
 
     def supply_point_aggregation(
         self,
@@ -492,6 +493,9 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
         self._statistics_projector = statistics_projector
         self._statistics_pending: dict[SupplyPointKey, _StatisticsPending] = {}
         self._statistics_failures: set[SupplyPointKey] = set()
+        # Supply points whose stored checkpoint could not be read and was replaced.
+        # Surfaced in diagnostics so re-reading old windows has a visible cause.
+        self._discarded_checkpoints: set[SupplyPointKey] = set()
 
     @property
     def accounts(self) -> tuple[OejpAccount, ...]:
@@ -735,6 +739,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             corrupt_partition_count=sum(
                 len(state.ledger.corrupt_partitions) for state in self._supply_points.values()
             ),
+            discarded_checkpoint_count=len(self._discarded_checkpoints),
         )
 
     async def async_start_background_sync(self) -> None:
@@ -881,11 +886,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                 try:
                     await ledger.async_initialize(now)
                     payload = await checkpoint_backend.async_load()
-                    checkpoint = (
-                        SyncCheckpoint.from_dict(payload)
-                        if payload is not None
-                        else SyncCheckpoint.empty(now)
-                    )
+                    checkpoint = self._restore_checkpoint(payload, now, key)
                     rolled = checkpoint.roll_month_pair(now)
                     if rolled != checkpoint:
                         checkpoint = rolled
@@ -909,6 +910,41 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             else:
                 state.supply_point = point
                 state.router = self._reading_router()
+
+    def _restore_checkpoint(
+        self,
+        payload: Mapping[str, Any] | None,
+        now: datetime,
+        key: SupplyPointKey,
+    ) -> SyncCheckpoint:
+        """Return the stored checkpoint, or a fresh one when it cannot be read.
+
+        A checkpoint records which windows have already been fetched. It is derived from the
+        ledger rather than a source of truth, so discarding one costs re-reading those windows
+        and loses no data: the ledger is keyed, so a re-fetched interval replaces itself.
+
+        Failing instead is what used to happen. `from_dict` raises `ValueError` on a schema
+        version it does not recognise, the poll turns that into `UpdateFailed`, and the entry
+        can never synchronise again — so raising the checkpoint's schema version would have
+        broken every installation until the user deleted and re-added the entry, losing the
+        history that the delete takes with it.
+
+        When a future schema has state worth carrying forward, migrate it inside
+        `SyncCheckpoint.from_dict` the way the ledger migrates a partition. This stays as the
+        net underneath that.
+        """
+        if payload is None:
+            return SyncCheckpoint.empty(now)
+        try:
+            return SyncCheckpoint.from_dict(payload)
+        except ValueError:
+            _LOGGER.warning(
+                "Discarding an unreadable OEJP synchronization checkpoint for one supply "
+                "point and planning again from the current month. Stored readings are "
+                "unaffected; the windows it recorded will be re-read"
+            )
+            self._discarded_checkpoints.add(key)
+            return SyncCheckpoint.empty(now)
 
     def _mark_statistics_dirty(self, correction: CorrectionResult) -> None:
         """Retain the earliest unprojected ledger change for each supply point."""
