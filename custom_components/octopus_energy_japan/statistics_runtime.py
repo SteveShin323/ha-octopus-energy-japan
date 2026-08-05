@@ -51,17 +51,18 @@ _LOGGER = logging.getLogger(__name__)
 # Dashboard statistics do, so those are skipped rather than allowed to fail the refresh.
 _RECORDER_DOMAIN = "recorder"
 
-# Tariff steps accumulate over the Asia/Tokyo month. The provider's own rate validity
-# windows are JST calendar months — the fuel adjustment observed on 2026-08-04 ran from
-# 2026-08-01 00:00 JST to 2026-09-01 00:00 JST, and the levy from 2026-05-01 JST — so that
-# is the boundary this follows. It is not the billing period, which ends at a meter read a
-# few hours after midnight; `docs/ARCHITECTURE.md` records the measured difference.
+# The provider's timezone, which is a property of the provider rather than an assumption about
+# a region: Japan has one timezone and no daylight saving, and the rate validity windows
+# observed on a real account were JST calendar months — the fuel adjustment ran 2026-08-01 to
+# 2026-09-01 JST and the levy from 2026-05-01 JST. Tariff steps restart on the account's
+# reported meter-reading day within this timezone, not on its calendar month; the calendar month
+# is only the fallback when no reading day is reported.
 TOKYO = ZoneInfo("Asia/Tokyo")
 
-# The same boundary, as the object that decides where a projection may be truncated. Steps
-# restart here, so a pass that starts on one of these instants computes every later hour
-# exactly as a whole-ledger pass would.
-_CALENDAR_MONTHS = BillingPeriodCalendar.calendar_months(TOKYO)
+# The fallback calendar, used when the supply start date is unknown. It is also what decides
+# where a projection may be truncated: steps restart on a period boundary, so a pass starting
+# on one computes every later hour exactly as a whole-ledger pass would.
+CALENDAR_MONTHS = BillingPeriodCalendar.calendar_months(TOKYO)
 
 
 def _hour_start(value: datetime) -> datetime:
@@ -94,8 +95,9 @@ class StatisticsProjector(Protocol):
         *,
         dirty_from: datetime | None,
         reset_directions: frozenset[ReadingDirection] = frozenset(),
+        billing_periods: BillingPeriodCalendar = CALENDAR_MONTHS,
     ) -> None:
-        """Project one supply point from its complete available ledger."""
+        """Project one supply point, pricing its steps over `billing_periods`."""
 
 
 class HomeAssistantStatisticsProjector:
@@ -120,6 +122,8 @@ class HomeAssistantStatisticsProjector:
         # boundary. Held in memory only: the projector is the sole writer of these series,
         # so its own last pass is the truth, and an empty cache costs one whole-ledger pass.
         self._baselines: dict[tuple[str, str], dict[datetime, dict[str, Decimal]]] = {}
+        # Which calendar those totals were computed under, so a change discards them.
+        self._calendars: dict[tuple[str, str], BillingPeriodCalendar] = {}
 
     async def async_project_supply_point(
         self,
@@ -130,6 +134,7 @@ class HomeAssistantStatisticsProjector:
         *,
         dirty_from: datetime | None,
         reset_directions: frozenset[ReadingDirection] = frozenset(),
+        billing_periods: BillingPeriodCalendar = CALENDAR_MONTHS,
     ) -> None:
         """Recalculate sums and replace the affected recorder projection."""
         if not self._recorder_available():
@@ -145,7 +150,12 @@ class HomeAssistantStatisticsProjector:
         earliest, _end_at = partition_bounds(min(ledger.known_partitions))
         scope = (account_id, supply_point_id)
         effective_dirty = None if reset_directions else dirty_from
-        start_at, baseline = self._projection_start(scope, earliest, effective_dirty)
+        start_at, baseline = self._projection_start(
+            scope,
+            earliest,
+            effective_dirty,
+            billing_periods,
+        )
         records = tuple(
             record
             for record in await ledger.async_records(start_at, generated_at)
@@ -205,15 +215,24 @@ class HomeAssistantStatisticsProjector:
                 projection.series,
                 dirty_from=effective_dirty,
                 baseline=baseline,
+                periods=billing_periods,
             )
         )
-        self._remember_baselines(scope, start_at, generated_at, totals, baseline)
+        self._remember_baselines(
+            scope,
+            start_at,
+            generated_at,
+            totals,
+            baseline,
+            billing_periods,
+        )
 
     def _projection_start(
         self,
         scope: tuple[str, str],
         earliest: datetime,
         dirty_from: datetime | None,
+        periods: BillingPeriodCalendar,
     ) -> tuple[datetime, Mapping[str, Decimal]]:
         """Choose where to start projecting, and the totals to resume the sums from.
 
@@ -223,11 +242,17 @@ class HomeAssistantStatisticsProjector:
         every later hour exactly as a whole-ledger pass would.
 
         Falls back to the whole ledger whenever that boundary has no remembered totals. That
-        is the first pass after a restart, and it repairs itself by remembering them.
+        is the first pass after a restart, and it repairs itself by remembering them. Changing
+        which calendar applies discards them too: a total recorded at a boundary of the old
+        calendar says nothing about a boundary of the new one.
         """
+        if self._calendars.get(scope) != periods:
+            self._calendars[scope] = periods
+            self._baselines.pop(scope, None)
+            return earliest, {}
         if dirty_from is None:
             return earliest, {}
-        candidate = _CALENDAR_MONTHS.period_start(dirty_from)
+        candidate = periods.period_start(dirty_from)
         if candidate <= earliest:
             return earliest, {}
         remembered = self._baselines.get(scope, {}).get(candidate)
@@ -242,6 +267,7 @@ class HomeAssistantStatisticsProjector:
         generated_at: datetime,
         totals: Mapping[str, tuple[tuple[datetime, Decimal], ...]],
         baseline: Mapping[str, Decimal],
+        periods: BillingPeriodCalendar,
     ) -> None:
         """Keep the cumulative totals at the two most recent period boundaries.
 
@@ -254,8 +280,8 @@ class HomeAssistantStatisticsProjector:
         make the next truncated pass publish sums that start again from zero.
         """
         boundaries = (
-            _CALENDAR_MONTHS.previous_period_start(generated_at),
-            _CALENDAR_MONTHS.period_start(generated_at),
+            periods.previous_period_start(generated_at),
+            periods.period_start(generated_at),
         )
         remembered = self._baselines.setdefault(scope, {})
         for stale in tuple(remembered):
@@ -285,6 +311,7 @@ class HomeAssistantStatisticsProjector:
         *,
         dirty_from: datetime | None,
         baseline: Mapping[str, Decimal],
+        periods: BillingPeriodCalendar,
     ) -> tuple[tuple[str, tuple[tuple[datetime, Decimal], ...]], ...]:
         """Publish a cost series derived from the reported tariff, when one is known.
 
@@ -311,7 +338,7 @@ class HomeAssistantStatisticsProjector:
             costs = project_hourly_cost(
                 [(value.start, value.state) for value in energy.statistics],
                 tariff,
-                local_timezone=TOKYO,
+                periods=periods,
                 direction=energy.key.direction,
             )
             if not costs:

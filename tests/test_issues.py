@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 from custom_components.octopus_energy_japan.aggregation import AggregationSnapshot
 from custom_components.octopus_energy_japan.api import (
@@ -15,6 +16,11 @@ from custom_components.octopus_energy_japan.api import (
     CommercialAvailability,
     CommercialFeature,
     ReadingDirection,
+)
+from custom_components.octopus_energy_japan.api.tariff import (
+    SupplyPointTariff,
+    TariffStep,
+    TariffUnpriceable,
 )
 from custom_components.octopus_energy_japan.commercial_coordinator import OejpCommercialData
 from custom_components.octopus_energy_japan.const import DOMAIN
@@ -151,6 +157,51 @@ async def test_forbidden_commercial_features_are_reported(hass: HomeAssistant) -
     issue = _issue(hass, OejpIssue.COMMERCIAL_PERMISSION_MISSING)
     assert issue is not None
     assert issue.translation_placeholders == {"features": CommercialFeature.AGREEMENTS.value}
+
+
+def _tariff(reason: TariffUnpriceable | None) -> SupplyPointTariff:
+    return SupplyPointTariff(
+        account_number="ACCOUNT",
+        supply_point_id="POINT",
+        product_code="P",
+        product_name="P",
+        steps=() if reason else (TariffStep(Decimal(0), None, Decimal("20.62")),),
+        standing_charge_per_day=None,
+        fuel_cost_adjustment=None,
+        renewable_energy_levy=None,
+        unpriceable_reason=reason,
+    )
+
+
+async def test_a_tariff_this_formula_cannot_price_is_reported(hass: HomeAssistant) -> None:
+    """An absent cost statistic looks the same whether the plan or the integration is at fault.
+
+    The user has no other way to learn that their plan shape, not a defect, is the reason.
+    """
+    commercial = OejpCommercialData((), NOW, tariffs=(_tariff(TariffUnpriceable.TIME_OF_USE),))
+
+    _update(hass, _data(), commercial)
+
+    issue = _issue(hass, OejpIssue.TARIFF_NOT_PRICEABLE)
+    assert issue is not None
+    assert issue.translation_placeholders == {"reasons": "time_of_use"}
+
+
+async def test_a_priceable_tariff_raises_no_issue(hass: HomeAssistant) -> None:
+    commercial = OejpCommercialData((), NOW, tariffs=(_tariff(None),))
+
+    _update(hass, _data(), commercial)
+
+    assert _issue(hass, OejpIssue.TARIFF_NOT_PRICEABLE) is None
+
+
+async def test_a_supply_point_with_no_consumption_agreement_is_not_a_problem(
+    hass: HomeAssistant,
+) -> None:
+    """An export-only supply point has no consumption cost, which is expected, not a fault."""
+    _update(hass, _data(), OejpCommercialData((), NOW))
+
+    assert _issue(hass, OejpIssue.TARIFF_NOT_PRICEABLE) is None
 
 
 async def test_a_recovered_condition_clears_its_issue(hass: HomeAssistant) -> None:

@@ -197,6 +197,10 @@
     "readings_silent": {
       "title": "Octopus Energy Japan has not sent new readings",
       "description": "{count} reading series has produced nothing for more than {hours} hours. Half-hourly readings normally arrive several hours late, so a short gap is expected, but a longer silence usually means the meter data has not reached Octopus Energy Japan yet. No action is needed here; the integration keeps retrying and fills the gap once the data appears."
+    },
+    "tariff_not_priceable": {
+      "title": "A tariff Octopus Energy Japan reports cannot be priced",
+      "description": "Octopus Energy Japan reports a plan this integration cannot turn into a cost ({reasons}). Consumption, calendar totals, and the Energy Dashboard energy statistics are unaffected; only the cost statistic is not published. Nothing needs doing, and there is no setting that changes it. Pricing part of such a plan and ignoring the rest would look like a working cost while being wrong."
     }
   },
   "exceptions": {

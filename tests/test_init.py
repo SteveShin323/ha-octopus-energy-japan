@@ -123,6 +123,10 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
             AsyncMock(return_value=()),
         ),
         patch(
+            "custom_components.octopus_energy_japan.api.async_discover_supply_starts",
+            AsyncMock(return_value={}),
+        ),
+        patch(
             "custom_components.octopus_energy_japan.api.async_detect_capabilities",
             AsyncMock(return_value=CapabilitySnapshot()),
         ),
@@ -243,6 +247,10 @@ async def test_discovery_queries_generic_topology_sequentially() -> None:
             AsyncMock(return_value=accounts),
         ),
         patch(
+            "custom_components.octopus_energy_japan.api.async_discover_supply_starts",
+            AsyncMock(return_value={}),
+        ),
+        patch(
             "custom_components.octopus_energy_japan.api.async_detect_capabilities",
             AsyncMock(return_value=capabilities),
         ),
@@ -260,6 +268,111 @@ async def test_discovery_queries_generic_topology_sequentially() -> None:
         "PRIVATE-SPIN-A",
         "PRIVATE-SPIN-B",
     ]
+
+
+def _account_with_points(*spins: str) -> OejpAccount:
+    return OejpAccount(
+        number="PRIVATE-ACCOUNT",
+        properties=(
+            OejpProperty(
+                id="PRIVATE-PROPERTY",
+                supply_points=tuple(
+                    OejpSupplyPoint(
+                        id=f"PRIVATE-POINT-{index}",
+                        spin=spin,
+                        account_number="PRIVATE-ACCOUNT",
+                    )
+                    for index, spin in enumerate(spins, start=1)
+                ),
+            ),
+        ),
+    )
+
+
+async def test_a_discovered_supply_start_reaches_the_supply_point() -> None:
+    """It anchors the billing period the tariff's steps accumulate over.
+
+    Asked account-scoped because the field is refused through the viewer path the discovery
+    document uses, measured on a real account as AUTHORIZATION/KT-CT-4501.
+    """
+    accounts = (_account_with_points("PRIVATE-SPIN-A"),)
+    start = datetime(2026, 6, 17, 15, tzinfo=UTC)
+
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.api.async_discover_resources",
+            AsyncMock(return_value=accounts),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_discover_supply_starts",
+            AsyncMock(return_value={"PRIVATE-SPIN-A": start}),
+        ) as supply_starts,
+        patch(
+            "custom_components.octopus_energy_japan.api.async_detect_capabilities",
+            AsyncMock(return_value=CapabilitySnapshot()),
+        ),
+    ):
+        discovered, _capabilities = await _async_discover_state(AsyncMock())
+
+    assert [call.args[1] for call in supply_starts.await_args_list] == ["PRIVATE-ACCOUNT"]
+    points = [
+        point
+        for account in discovered
+        for property_ in account.properties
+        for point in property_.supply_points
+    ]
+    assert [point.supply_start_at for point in points] == [start]
+
+
+async def test_a_refused_supply_start_leaves_the_calendar_month_in_charge() -> None:
+    """Consumption does not need it, so a refusal must not stop the entry setting up."""
+    accounts = (_account_with_points("PRIVATE-SPIN-A"),)
+
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.api.async_discover_resources",
+            AsyncMock(return_value=accounts),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_discover_supply_starts",
+            AsyncMock(side_effect=OejpAuthorizationError((GraphQLErrorDetail("safe"),))),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_detect_capabilities",
+            AsyncMock(return_value=CapabilitySnapshot()),
+        ),
+    ):
+        discovered, _capabilities = await _async_discover_state(AsyncMock())
+
+    points = [
+        point
+        for account in discovered
+        for property_ in account.properties
+        for point in property_.supply_points
+    ]
+    assert [point.supply_start_at for point in points] == [None]
+
+
+async def test_a_supply_start_request_still_reauthenticates() -> None:
+    """An expired session is not an absent capability, so it must reach Home Assistant."""
+    accounts = (_account_with_points("PRIVATE-SPIN-A"),)
+
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.api.async_discover_resources",
+            AsyncMock(return_value=accounts),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_discover_supply_starts",
+            AsyncMock(
+                side_effect=OejpAuthenticationError(
+                    (GraphQLErrorDetail("safe", error_type="AUTHENTICATION"),)
+                )
+            ),
+        ),
+        pytest.raises(OejpAuthenticationError),
+    ):
+        await _async_discover_state(AsyncMock())
 
 
 @pytest.mark.parametrize(
@@ -313,6 +426,10 @@ async def test_generic_device_refusal_degrades_capability_instead_of_failing_set
             AsyncMock(return_value=accounts),
         ),
         patch(
+            "custom_components.octopus_energy_japan.api.async_discover_supply_starts",
+            AsyncMock(return_value={}),
+        ),
+        patch(
             "custom_components.octopus_energy_japan.api.async_detect_capabilities",
             AsyncMock(return_value=capabilities),
         ),
@@ -362,6 +479,10 @@ async def test_generic_device_rate_limit_lets_setup_retry() -> None:
         patch(
             "custom_components.octopus_energy_japan.api.async_discover_resources",
             AsyncMock(return_value=accounts),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_discover_supply_starts",
+            AsyncMock(return_value={}),
         ),
         patch(
             "custom_components.octopus_energy_japan.api.async_detect_capabilities",
@@ -449,6 +570,10 @@ async def test_setup_failure_cleans_partially_allocated_runtime_and_platforms(
             AsyncMock(return_value=()),
         ),
         patch(
+            "custom_components.octopus_energy_japan.api.async_discover_supply_starts",
+            AsyncMock(return_value={}),
+        ),
+        patch(
             "custom_components.octopus_energy_japan.api.async_detect_capabilities",
             AsyncMock(return_value=CapabilitySnapshot()),
         ),
@@ -511,6 +636,10 @@ async def test_platform_forward_failure_is_cleaned_without_masking_error(
         patch(
             "custom_components.octopus_energy_japan.api.async_discover_resources",
             AsyncMock(return_value=()),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_discover_supply_starts",
+            AsyncMock(return_value={}),
         ),
         patch(
             "custom_components.octopus_energy_japan.api.async_detect_capabilities",
@@ -733,6 +862,10 @@ async def test_setup_entry_uses_the_password_session_without_any_oauth_implement
         patch(
             "custom_components.octopus_energy_japan.api.async_discover_resources",
             AsyncMock(return_value=()),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_discover_supply_starts",
+            AsyncMock(return_value={}),
         ),
         patch(
             "custom_components.octopus_energy_japan.api.async_detect_capabilities",

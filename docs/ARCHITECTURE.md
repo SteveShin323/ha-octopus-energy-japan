@@ -19,7 +19,7 @@ code, so it can be grepped.
 | **the background worker** | `_async_background_worker`, which drains queued windows behind the poll |
 | **window** | a start and end time one request covers |
 | **capability** | a field or query discovery confirmed this account can use, held in `CapabilitySnapshot` |
-| **period** | the span a stepped tariff's cumulative kWh accumulates over, from `billing_period.py`. Currently the Asia/Tokyo calendar month |
+| **period** | the span a stepped tariff's cumulative kWh accumulates over, from `billing_period.py`. Anchored on the reported meter-reading day, or the Asia/Tokyo calendar month when none is reported |
 
 ## Where the code lives
 
@@ -104,7 +104,9 @@ complete day with a low number. These boundaries do not match a billing period, 
 a meter read a few hours after midnight.
 
 One response is capped at 1488 intervals and silently drops the oldest beyond that, so
-requests use seven-day windows to stay well inside it.
+requests use seven-day windows to stay well inside it. Measured on one account the cap binds a
+response rather than a range: the legacy query stops 31 days back however wide the window,
+while the paginated generic query returned every interval asked for.
 
 ## Statistics
 
@@ -136,17 +138,38 @@ one whole-ledger pass rather than a wrong number.
 Cost per hour is:
 
 ```
-kWh × the price step this Tokyo month's cumulative kWh has reached
+kWh × the price step this billing period's cumulative kWh has reached
   + kWh × (fuel-cost adjustment + renewable levy), for whichever is in force
   + the daily standing charge ÷ 24
 ```
 
-An hour that crosses a step boundary is split across both prices. Steps restart on the Tokyo
-calendar month. Export is never priced at a consumption rate. A charge in a unit this formula
-cannot express makes the whole tariff unusable rather than partly priced.
+An hour that crosses a step boundary is split across both prices. Export is never priced at a
+consumption rate. A charge in a unit this formula cannot express makes the whole tariff
+unusable rather than partly priced.
+
+**Steps restart on the invoiced period, anchored on the reported meter-reading day.**
+`billing_period.py` takes whichever evidence states the schedule most directly: two consecutive
+scheduled reading dates that agree on a day one month apart, else the day billable supply
+began, else the Asia/Tokyo calendar month. The anchor is clamped to the last day of a month too
+short to hold it, so each period stays adjacent to the next.
+
+The rule itself was measured on **one** account with **one** closed invoice.
+`docs/API_CONTRACTS.md` records what each candidate field reported and which were rejected. The
+diagnostics download reports the derived anchor, which evidence produced it, and whether the
+provider's own `readingDateDayOfMonth` agrees — so an account this rule is wrong for can be
+recognised from a bug report rather than guessed at.
+
+**Nothing in the cost path assumes a plan shape.** A tariff whose charges vary by time of day,
+mix two grid operators, or are measured in something other than consumed kWh is refused with a
+recorded reason rather than approximated, and an hour is priced with the rate generation the
+provider says was in force then. A single-price plan is priced from its one charge; a stepped
+plan from its ladder. What the standing charge is measured in is reported rather than acted on,
+because one account reported `YEN_AMPERE_DAY` and the set of possible values is unknown.
 
 Every price comes from the customer's own agreement, so nothing is entered by hand. Against
-one closed bill the total came to 104%; the README's known limitations say why.
+one closed bill on one account the total came to 104% — a single measurement, taken before the
+period alignment below, not a figure to expect. The README's known limitations say what still
+makes a total differ.
 
 ## Coordination
 
@@ -207,8 +230,15 @@ token, reading value, or amount appears.
 
 Repair issues are informational. Each explains a condition the user cannot fix by
 reconfiguring, and says whether anything needs doing. They cover a corrupt ledger partition,
-readings that stopped arriving, an unavailable capability, and a missing commercial
-permission. Reauthentication is not among them, because Home Assistant owns that prompt.
+readings that stopped arriving, an unavailable capability, a missing commercial permission,
+and a tariff whose shape the cost formula cannot express. Reauthentication is not among them,
+because Home Assistant owns that prompt.
+
+The last of those exists because an absent cost statistic looks the same whether the plan
+cannot be priced or the integration is broken. The `tariffs` section of the diagnostics
+download carries the same distinction in more detail: each tariff's product type, step count,
+number of rate generations, and what the provider says its standing charge is measured in.
+None of that is a monetary amount.
 
 ## Rules that look like problems
 

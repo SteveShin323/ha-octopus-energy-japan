@@ -224,7 +224,7 @@ def test_the_documented_availability_states_and_repair_issues_are_complete() -> 
     for state in CommercialAvailability:
         assert state.value in architecture, state
 
-    assert len(list(OejpIssue)) == 4, [issue.value for issue in OejpIssue]
+    assert len(list(OejpIssue)) == 5, [issue.value for issue in OejpIssue]
     assert not any("reauth" in issue.value for issue in OejpIssue), (
         "reauthentication is Home Assistant's own prompt, not a repair issue"
     )

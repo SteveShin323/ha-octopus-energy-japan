@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 from custom_components.octopus_energy_japan.api import (
+    ACCOUNT_SUPPLY_PERIODS_QUERY,
     GENERIC_DEVICES_QUERY,
     LEGACY_DISCOVERY_QUERY,
     AuthenticatedGraphQLClient,
@@ -17,16 +20,20 @@ from custom_components.octopus_energy_japan.api import (
     GraphQLResult,
     OejpInvalidResponseError,
     OejpQueryValidationError,
+    OejpSupplyPoint,
     ResourceLifecycle,
     async_detect_capabilities,
     async_discover_generic_devices,
     async_discover_resources,
+    async_discover_supply_starts,
     async_paginate,
     attach_generic_devices,
+    attach_supply_starts,
     lifecycle_from_status,
     parse_capabilities,
     parse_generic_devices,
     parse_legacy_discovery,
+    parse_supply_starts,
 )
 
 
@@ -583,3 +590,231 @@ def test_every_real_day_of_the_month_is_accepted(value: int) -> None:
         if p.id == "supply-2"
     )
     assert parsed.reading_day_of_month == value
+
+
+def _parsed_supply_point(payload: dict[str, Any], point_id: str) -> OejpSupplyPoint:
+    return next(
+        point
+        for account in parse_legacy_discovery(payload)
+        for property_ in account.properties
+        for point in property_.supply_points
+        if point.id == point_id
+    )
+
+
+def _supply_periods_payload(periods: object) -> dict[str, object]:
+    return {
+        "account": {
+            "number": "A-ACCOUNT",
+            "properties": [
+                {
+                    "electricitySupplyPoints": [
+                        {"id": "supply-1", "spin": "spin-1", "supplyPeriods": periods},
+                    ]
+                }
+            ],
+        }
+    }
+
+
+def test_supply_started_at_the_earliest_billable_period() -> None:
+    """This anchors the billing period the tariff accumulates over.
+
+    A supply point can carry several periods — a move out and back in, or a meter exchange —
+    and the charging schedule begins at the first one the customer is billed for.
+    """
+    starts = parse_supply_starts(
+        _supply_periods_payload(
+            [
+                {
+                    "supplyStartAt": "2026-09-01T15:00:00+00:00",
+                    "supplyEndAt": None,
+                    "isBillable": True,
+                },
+                {
+                    "supplyStartAt": "2026-06-17T15:00:00+00:00",
+                    "supplyEndAt": "2026-08-31T15:00:00+00:00",
+                    "isBillable": True,
+                },
+            ]
+        )
+    )
+
+    assert starts == {
+        "supply-1": datetime(2026, 6, 17, 15, tzinfo=UTC),
+        "spin-1": datetime(2026, 6, 17, 15, tzinfo=UTC),
+    }
+
+
+def test_a_period_the_customer_is_not_billed_for_cannot_start_the_schedule() -> None:
+    """A non-billable period is a gap no charge accrues over, so it anchors nothing."""
+    starts = parse_supply_starts(
+        _supply_periods_payload(
+            [
+                {"supplyStartAt": "2026-05-17T15:00:00+00:00", "isBillable": False},
+                {"supplyStartAt": "2026-06-17T15:00:00+00:00", "isBillable": True},
+            ]
+        )
+    )
+
+    assert starts["supply-1"] == datetime(2026, 6, 17, 15, tzinfo=UTC)
+
+
+def test_a_naive_supply_start_is_read_as_utc() -> None:
+    starts = parse_supply_starts(
+        _supply_periods_payload([{"supplyStartAt": "2026-06-17T15:00:00", "isBillable": True}])
+    )
+
+    assert starts["supply-1"] == datetime(2026, 6, 17, 15, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    "periods",
+    [
+        None,
+        [],
+        "not-a-list",
+        [{"supplyStartAt": "not-a-date", "isBillable": True}],
+        [{"supplyStartAt": None, "isBillable": True}],
+        [{"supplyStartAt": "2026-06-17T15:00:00+00:00", "isBillable": None}],
+        [{"supplyStartAt": "2026-06-17T15:00:00+00:00"}],
+        ["not-a-mapping"],
+    ],
+)
+def test_an_unusable_supply_period_leaves_the_calendar_month_in_charge(
+    periods: object,
+) -> None:
+    """The fallback is what the cost formula used before this field existed.
+
+    Raising would fail setup over a field consumption does not need, and consumption is the
+    part a user cannot do without.
+    """
+    assert parse_supply_starts(_supply_periods_payload(periods)) == {}
+
+
+_BILLABLE = [{"supplyStartAt": "2026-06-17T15:00:00+00:00", "isBillable": True}]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"account": None},
+        {"account": {}},
+        {"account": {"properties": None}},
+        {"account": {"properties": ["not-a-mapping"]}},
+        {"account": {"properties": [{"electricitySupplyPoints": None}]}},
+        {"account": {"properties": [{"electricitySupplyPoints": ["not-a-mapping"]}]}},
+        # A partial response can null the identifiers while still returning the periods, and
+        # a start with nothing to attach it to is not usable.
+        {"account": {"properties": [{"electricitySupplyPoints": [{"supplyPeriods": _BILLABLE}]}]}},
+    ],
+)
+def test_a_malformed_supply_period_response_yields_nothing(payload: dict[str, object]) -> None:
+    assert parse_supply_starts(payload) == {}
+
+
+async def test_supply_starts_are_optional_when_the_account_may_not_read_them() -> None:
+    """Authorization for this field depends on the path it is reached by.
+
+    Measured on a real account: `viewer.accounts` returns AUTHORIZATION/KT-CT-4501 while
+    `account(accountNumber:)` returns data, which is why it is asked account-scoped and why a
+    refusal has to degrade rather than fail.
+    """
+    client = AsyncMock(spec=AuthenticatedGraphQLClient)
+    client.execute_optional.return_value = GraphQLResult(
+        data=None,
+        errors=(
+            GraphQLErrorDetail(
+                message="Unauthorized.",
+                error_type="AUTHORIZATION",
+                error_code="KT-CT-4501",
+                path=("account", "properties", 0, "electricitySupplyPoints", 0, "supplyPeriods"),
+            ),
+        ),
+    )
+
+    assert await async_discover_supply_starts(client, "A-ACCOUNT") == {}
+    client.execute_optional.assert_awaited_once_with(
+        ACCOUNT_SUPPLY_PERIODS_QUERY,
+        {"accountNumber": "A-ACCOUNT"},
+    )
+
+
+async def test_supply_starts_are_returned_when_the_account_may_read_them() -> None:
+    client = AsyncMock(spec=AuthenticatedGraphQLClient)
+    client.execute_optional.return_value = GraphQLResult(
+        data=_supply_periods_payload(
+            [{"supplyStartAt": "2026-06-17T15:00:00+00:00", "isBillable": True}]
+        )
+    )
+
+    starts = await async_discover_supply_starts(client, "A-ACCOUNT")
+
+    assert starts["supply-1"] == datetime(2026, 6, 17, 15, tzinfo=UTC)
+
+
+def test_a_supply_start_reaches_the_supply_point_it_belongs_to() -> None:
+    accounts = parse_legacy_discovery(_discovery_payload())
+    start = datetime(2026, 6, 17, 15, tzinfo=UTC)
+
+    enriched = attach_supply_starts(accounts, {"supply-1": start})
+
+    points = {
+        point.id: point
+        for account in enriched
+        for property_ in account.properties
+        for point in property_.supply_points
+    }
+    assert points["supply-1"].supply_start_at == start
+    assert points["supply-2"].supply_start_at is None
+
+
+def test_a_supply_start_can_be_keyed_by_the_spin_instead() -> None:
+    """The discovery tree identifies a point by whichever identifier the provider returned."""
+    accounts = parse_legacy_discovery(_discovery_payload())
+    start = datetime(2026, 6, 17, 15, tzinfo=UTC)
+
+    enriched = attach_supply_starts(accounts, {"spin-2": start})
+
+    points = {
+        point.id: point
+        for account in enriched
+        for property_ in account.properties
+        for point in property_.supply_points
+    }
+    assert points["supply-2"].supply_start_at == start
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "expected"),
+    [
+        # Measured on a real account: both scheduled dates fell on the 18th, one month apart,
+        # and the closed invoice ran from the 18th to the 17th.
+        ("2026-06-18", "2026-07-18", 18),
+        (None, "2026-07-18", None),
+        ("2026-06-18", None, None),
+        # Days that disagree say nothing certain, including the short-month case.
+        ("2026-01-31", "2026-02-28", None),
+        # A gap this calendar does not model.
+        ("2026-06-18", "2026-08-18", None),
+        ("2026-07-18", "2026-06-18", None),
+        ("not-a-date", "2026-07-18", None),
+    ],
+)
+def test_the_reading_schedule_day_needs_two_dates_that_agree(
+    first: object,
+    second: object,
+    expected: int | None,
+) -> None:
+    """Two consecutive dates on the same day are the recurring schedule stated twice.
+
+    One date alone, or a pair that disagrees, is not evidence of a recurring day, and the
+    billing anchor derived from it would silently shift every step boundary.
+    """
+    payload = _discovery_payload()
+    point = payload["viewer"]["accounts"][1]["properties"][1]["electricitySupplyPoints"][0]  # type: ignore[index]
+    point["nextReadingDate"] = first
+    point["nextNextReadingDate"] = second
+
+    assert _parsed_supply_point(payload, "supply-2").reading_schedule_day == expected

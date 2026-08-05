@@ -22,9 +22,11 @@ from custom_components.octopus_energy_japan.api.tariff import (
     SupplyPointTariff,
     TariffAdder,
     TariffStep,
+    TariffUnpriceable,
     parse_supply_point_tariffs,
 )
 
+NOW = datetime(2026, 8, 3, 3, tzinfo=UTC)
 ACCOUNT = "A-1"
 
 
@@ -163,7 +165,7 @@ def test_a_real_response_parses_into_a_priceable_tariff() -> None:
 def test_the_marginal_price_steps_at_each_boundary(cumulative: Decimal, expected: str) -> None:
     (tariff,) = parse_supply_point_tariffs(_payload(_agreement()), ACCOUNT)
 
-    assert tariff.marginal_price(cumulative) == Decimal(expected)
+    assert tariff.marginal_price(cumulative, NOW) == Decimal(expected)
 
 
 def test_the_adders_apply_only_inside_the_period_the_provider_states() -> None:
@@ -234,28 +236,202 @@ def test_the_latest_starting_agreement_wins_a_mid_period_switch() -> None:
     assert tariff.product_code == "NEWER"
 
 
-def test_a_single_step_product_has_no_steps_and_is_not_priceable() -> None:
-    """A flat-rate product carries no `consumptionCharges` on this type.
-
-    Returning it as unpriceable is deliberate: inventing a step from the standing charge
-    would produce a cost with no basis.
-    """
+def _single_step_product(**overrides: Any) -> dict[str, Any]:
     product = {
         "__typename": "ElectricitySingleStepProduct",
         "code": "FLAT",
         "displayName": "Flat",
         "standingChargeUnitType": "YEN_AMPERE_DAY",
         "standingChargePricePerDay": "30.00",
+        "consumptionCharges": [
+            {
+                "pricePerUnit": "27.00",
+                "pricePerUnitIncTax": "29.70",
+                "unitType": "KWH_CONSUMPTION",
+                "timeOfUse": None,
+                "gridOperatorCode": "03",
+                "regionOfOperation": None,
+                "validFrom": "2026-03-31T15:00:00+00:00",
+                "validTo": None,
+            }
+        ],
         "fuelCostAdjustment": None,
         "renewableEnergyLevy": None,
     }
-    (tariff,) = parse_supply_point_tariffs(_payload(_agreement(product=product)), ACCOUNT)
+    product.update(overrides)
+    return product
+
+
+def test_a_single_step_product_is_priced_from_its_one_charge() -> None:
+    """`ConsumptionRate` has no step boundaries, which is not the same as having no price.
+
+    The query used to select `consumptionCharges` only on the stepped product, so every
+    account on a flat-rate plan got no cost statistic at all and no explanation. Introspection
+    shows `ElectricitySingleStepProduct.consumptionCharges` exists.
+    """
+    (tariff,) = parse_supply_point_tariffs(
+        _payload(_agreement(product=_single_step_product())),
+        ACCOUNT,
+    )
+
+    assert tariff.is_priceable
+    assert tariff.unpriceable_reason is None
+    assert len(tariff.steps) == 1
+    # One price for everything: the step runs from zero with no upper bound.
+    assert tariff.steps[0].start_kwh == Decimal(0)
+    assert tariff.steps[0].end_kwh is None
+    assert tariff.marginal_price(Decimal(10_000), NOW) == Decimal("29.70")
+
+
+def test_a_consumption_product_with_no_usable_charge_records_why() -> None:
+    (tariff,) = parse_supply_point_tariffs(
+        _payload(_agreement(product=_single_step_product(consumptionCharges=[]))),
+        ACCOUNT,
+    )
 
     assert not tariff.is_priceable
+    assert tariff.unpriceable_reason is TariffUnpriceable.NO_CONSUMPTION_CHARGES
     assert tariff.standing_charge_per_day == Decimal("30.00")
 
 
-def test_a_charge_in_a_unit_this_formula_cannot_price_drops_the_tariff() -> None:
+def test_a_stepped_charge_without_its_boundary_is_dropped_not_guessed() -> None:
+    """Only the single-step type legitimately omits the boundary."""
+    product = _product(
+        consumptionCharges=[
+            {
+                "stepStart": None,
+                "stepEnd": None,
+                "pricePerUnitIncTax": "20.62",
+                "unitType": "KWH_CONSUMPTION",
+            }
+        ]
+    )
+
+    (tariff,) = parse_supply_point_tariffs(_payload(_agreement(product=product)), ACCOUNT)
+
+    assert tariff.unpriceable_reason is TariffUnpriceable.NO_CONSUMPTION_CHARGES
+
+
+def test_a_time_of_use_rate_makes_the_tariff_unusable() -> None:
+    """This formula prices by cumulative consumption alone.
+
+    Both rate types carry `timeOfUse`. Treating rates that differ by time of day as steps
+    would misprice every hour while looking like a working cost.
+    """
+    product = _product(
+        consumptionCharges=[
+            {
+                "stepStart": 0,
+                "stepEnd": None,
+                "pricePerUnitIncTax": "20.62",
+                "unitType": "KWH_CONSUMPTION",
+                "timeOfUse": "NIGHT",
+            }
+        ]
+    )
+
+    (tariff,) = parse_supply_point_tariffs(_payload(_agreement(product=product)), ACCOUNT)
+
+    assert tariff.unpriceable_reason is TariffUnpriceable.TIME_OF_USE
+
+
+@pytest.mark.parametrize("key", ["gridOperatorCode", "regionOfOperation"])
+def test_charges_from_more_than_one_operator_make_the_tariff_unusable(key: str) -> None:
+    """Two operators' rates cannot be one step ladder."""
+    product = _product(
+        consumptionCharges=[
+            {
+                "stepStart": 0,
+                "stepEnd": 120,
+                "pricePerUnitIncTax": "20.62",
+                "unitType": "KWH_CONSUMPTION",
+                key: "03",
+            },
+            {
+                "stepStart": 120,
+                "stepEnd": None,
+                "pricePerUnitIncTax": "25.29",
+                "unitType": "KWH_CONSUMPTION",
+                key: "04",
+            },
+        ]
+    )
+
+    (tariff,) = parse_supply_point_tariffs(_payload(_agreement(product=product)), ACCOUNT)
+
+    assert tariff.unpriceable_reason is TariffUnpriceable.MIXED_OPERATOR
+
+
+def test_a_band_that_differs_per_step_is_not_a_conflict() -> None:
+    """One real account returned `CONSUMPTION_STEPPED_03_01` through `_03` for its steps.
+
+    `band` names the step, so refusing on it would refuse every stepped tariff.
+    """
+    product = _product(
+        consumptionCharges=[
+            {
+                "stepStart": 0,
+                "stepEnd": 120,
+                "pricePerUnitIncTax": "20.62",
+                "unitType": "KWH_CONSUMPTION",
+                "band": "CONSUMPTION_STEPPED_03_01",
+                "gridOperatorCode": "03",
+            },
+            {
+                "stepStart": 120,
+                "stepEnd": None,
+                "pricePerUnitIncTax": "25.29",
+                "unitType": "KWH_CONSUMPTION",
+                "band": "CONSUMPTION_STEPPED_03_02",
+                "gridOperatorCode": "03",
+            },
+        ]
+    )
+
+    (tariff,) = parse_supply_point_tariffs(_payload(_agreement(product=product)), ACCOUNT)
+
+    assert tariff.is_priceable
+    assert len(tariff.steps) == 2
+
+
+def test_an_export_agreement_does_not_hide_the_consumption_tariff() -> None:
+    """`ElectricityFitProduct` is a union member with generation credits and no charges.
+
+    Choosing the agreement with the latest start regardless of what it prices lost the
+    consumption tariff of an account that also exports.
+    """
+    fit = {
+        "__typename": "ElectricityFitProduct",
+        "code": "FIT",
+        "displayName": "FIT",
+    }
+    tariffs = parse_supply_point_tariffs(
+        _payload(
+            _agreement(product=_product(), validFrom="2026-03-31T15:00:00+00:00"),
+            _agreement(product=fit, validFrom="2026-06-30T15:00:00+00:00"),
+        ),
+        ACCOUNT,
+    )
+
+    assert len(tariffs) == 1
+    assert tariffs[0].is_priceable
+    assert tariffs[0].product_type == "ElectricitySteppedProduct"
+
+
+def test_the_standing_charge_unit_and_product_type_are_carried_not_acted_on() -> None:
+    """One real account reported `YEN_AMPERE_DAY`, so the value set is not known.
+
+    An allow-list built from one account would refuse valid tariffs, so the value is reported
+    for diagnosis instead of gating the calculation.
+    """
+    (tariff,) = parse_supply_point_tariffs(_payload(_agreement()), ACCOUNT)
+
+    assert tariff.standing_charge_unit == "YEN_AMPERE_DAY"
+    assert tariff.product_type == "ElectricitySteppedProduct"
+    assert tariff.is_priceable
+
+
+def test_a_charge_in_a_unit_this_formula_cannot_price_records_why() -> None:
     """A capacity or demand charge needs a different formula.
 
     Pricing the per-kWh part of such a tariff and ignoring the rest would look like a
@@ -272,7 +448,10 @@ def test_a_charge_in_a_unit_this_formula_cannot_price_drops_the_tariff() -> None
         ]
     )
 
-    assert parse_supply_point_tariffs(_payload(_agreement(product=product)), ACCOUNT) == ()
+    (tariff,) = parse_supply_point_tariffs(_payload(_agreement(product=product)), ACCOUNT)
+
+    assert not tariff.is_priceable
+    assert tariff.unpriceable_reason is TariffUnpriceable.UNSUPPORTED_UNIT
 
 
 def test_a_supply_point_with_no_agreement_is_skipped() -> None:
@@ -348,7 +527,7 @@ def test_a_tariff_with_no_steps_prices_nothing() -> None:
     )
 
     assert not tariff.is_priceable
-    assert tariff.marginal_price(Decimal(0)) is None
+    assert tariff.marginal_price(Decimal(0), NOW) is None
     assert tariff.adders_at(datetime(2026, 8, 4, tzinfo=UTC)) == Decimal(0)
 
 
@@ -472,3 +651,153 @@ def test_properties_that_are_not_lists_are_ignored() -> None:
     payload = {"account": {"number": ACCOUNT, "properties": "not a list"}}
 
     assert parse_supply_point_tariffs(payload, ACCOUNT) == ()
+
+
+def _generation(start: str | None, end: str | None, price: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "stepStart": 0,
+            "stepEnd": 120,
+            "pricePerUnitIncTax": price,
+            "unitType": "KWH_CONSUMPTION",
+            "validFrom": start,
+            "validTo": end,
+        },
+        {
+            "stepStart": 120,
+            "stepEnd": None,
+            "pricePerUnitIncTax": price,
+            "unitType": "KWH_CONSUMPTION",
+            "validFrom": start,
+            "validTo": end,
+        },
+    ]
+
+
+def _two_generation_tariff() -> SupplyPointTariff:
+    product = _product(
+        consumptionCharges=[
+            *_generation("2026-01-31T15:00:00+00:00", "2026-06-30T15:00:00+00:00", "10.00"),
+            *_generation("2026-06-30T15:00:00+00:00", None, "20.00"),
+        ]
+    )
+    (tariff,) = parse_supply_point_tariffs(_payload(_agreement(product=product)), ACCOUNT)
+    return tariff
+
+
+def test_an_hour_is_priced_with_the_rates_in_force_then() -> None:
+    """Two generations of rates must not be merged into one ladder.
+
+    Merged, the boundaries repeat and which price applies depends on sort order rather than on
+    the date, so an hour from either generation could be priced with the other's rates.
+    """
+    tariff = _two_generation_tariff()
+
+    old = datetime(2026, 3, 1, tzinfo=UTC)
+    new = datetime(2026, 8, 1, tzinfo=UTC)
+
+    assert tariff.marginal_price(Decimal(0), old) == Decimal("10.00")
+    assert tariff.marginal_price(Decimal(0), new) == Decimal("20.00")
+    assert len(tariff.steps_at(old)) == 2
+    assert len(tariff.steps_at(new)) == 2
+
+
+def test_an_hour_no_generation_covers_uses_the_nearest_one() -> None:
+    """The provider serves the rates it currently publishes, not every historical one.
+
+    Refusing to price an hour outside the published windows would leave holes in the cost
+    series, and reaching across the whole range would be a larger error than reaching to the
+    near end of it. Same rule as the stored fuel-cost adjustments.
+    """
+    tariff = _two_generation_tariff()
+
+    before_everything = datetime(2025, 1, 1, tzinfo=UTC)
+    assert tariff.marginal_price(Decimal(0), before_everything) == Decimal("10.00")
+
+
+def test_one_generation_of_rates_is_the_whole_ladder() -> None:
+    """The common case must not change: a single window is used for every hour."""
+    (tariff,) = parse_supply_point_tariffs(_payload(_agreement()), ACCOUNT)
+
+    assert tariff.steps_at(datetime(2020, 1, 1, tzinfo=UTC)) == tariff.steps
+    assert tariff.steps_at(datetime(2030, 1, 1, tzinfo=UTC)) == tariff.steps
+
+
+def test_a_generation_with_no_stated_start_sorts_before_a_dated_one() -> None:
+    product = _product(
+        consumptionCharges=[
+            *_generation(None, "2026-06-30T15:00:00+00:00", "10.00"),
+            *_generation("2026-06-30T15:00:00+00:00", None, "20.00"),
+        ]
+    )
+    (tariff,) = parse_supply_point_tariffs(_payload(_agreement(product=product)), ACCOUNT)
+
+    assert tariff.marginal_price(Decimal(0), datetime(2020, 1, 1, tzinfo=UTC)) == Decimal("10.00")
+    assert tariff.marginal_price(Decimal(0), datetime(2026, 8, 1, tzinfo=UTC)) == Decimal("20.00")
+
+
+def test_an_earlier_second_agreement_does_not_replace_the_one_in_force() -> None:
+    """Selection is by latest start, so order in the response must not decide it."""
+    tariffs = parse_supply_point_tariffs(
+        _payload(
+            _agreement(product=_product(code="NEWER"), validFrom="2026-06-30T15:00:00+00:00"),
+            _agreement(product=_product(code="OLDER"), validFrom="2026-01-31T15:00:00+00:00"),
+        ),
+        ACCOUNT,
+    )
+
+    assert [tariff.product_code for tariff in tariffs] == ["NEWER"]
+
+
+@pytest.mark.parametrize("value", [[], {}, ()])
+def test_a_price_that_is_not_a_scalar_is_dropped(value: object) -> None:
+    product = _product(
+        consumptionCharges=[
+            {
+                "stepStart": 0,
+                "stepEnd": None,
+                "pricePerUnitIncTax": value,
+                "unitType": "KWH_CONSUMPTION",
+            }
+        ]
+    )
+
+    (tariff,) = parse_supply_point_tariffs(_payload(_agreement(product=product)), ACCOUNT)
+
+    assert tariff.unpriceable_reason is TariffUnpriceable.NO_CONSUMPTION_CHARGES
+
+
+def test_an_hour_in_a_gap_between_generations_keeps_the_last_price_in_force() -> None:
+    """A gap means no published rate, not that a future rate applied.
+
+    Reaching past the gap for the later generation would price an hour with prices that had not
+    been announced yet. Carrying the last one that had begun forward is the smaller error.
+    """
+    product = _product(
+        consumptionCharges=[
+            *_generation("2026-01-31T15:00:00+00:00", "2026-03-31T15:00:00+00:00", "10.00"),
+            *_generation("2026-06-30T15:00:00+00:00", None, "20.00"),
+        ]
+    )
+    (tariff,) = parse_supply_point_tariffs(_payload(_agreement(product=product)), ACCOUNT)
+
+    in_the_gap = datetime(2026, 5, 1, tzinfo=UTC)
+
+    assert tariff.marginal_price(Decimal(0), in_the_gap) == Decimal("10.00")
+    # Before either generation began, the earliest is still the nearest thing to the hour.
+    assert tariff.marginal_price(Decimal(0), datetime(2025, 1, 1, tzinfo=UTC)) == Decimal("10.00")
+    # And after the later one began, it applies.
+    assert tariff.marginal_price(Decimal(0), datetime(2026, 8, 1, tzinfo=UTC)) == Decimal("20.00")
+
+
+def test_an_hour_after_every_generation_ended_keeps_the_last_one() -> None:
+    """Every published rate can carry an end date, leaving later hours uncovered."""
+    product = _product(
+        consumptionCharges=[
+            *_generation("2026-01-31T15:00:00+00:00", "2026-03-31T15:00:00+00:00", "10.00"),
+            *_generation("2026-03-31T15:00:00+00:00", "2026-06-30T15:00:00+00:00", "20.00"),
+        ]
+    )
+    (tariff,) = parse_supply_point_tariffs(_payload(_agreement(product=product)), ACCOUNT)
+
+    assert tariff.marginal_price(Decimal(0), datetime(2026, 8, 1, tzinfo=UTC)) == Decimal("20.00")

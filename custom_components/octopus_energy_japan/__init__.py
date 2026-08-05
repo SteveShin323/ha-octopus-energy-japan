@@ -527,10 +527,25 @@ async def _async_discover_state(
         async_detect_capabilities,
         async_discover_generic_devices,
         async_discover_resources,
+        async_discover_supply_starts,
         attach_generic_devices,
+        attach_supply_starts,
     )
 
     accounts = await async_discover_resources(client)
+    # One optional request per account. `supplyPeriods` is refused through the viewer path the
+    # discovery document uses, so it is asked account-scoped, where a real account answers it.
+    # Its absence leaves the cost formula on the calendar month rather than failing setup.
+    supply_starts: dict[str, Any] = {}
+    for account in accounts:
+        try:
+            supply_starts |= await async_discover_supply_starts(client, account.number)
+        except OejpAuthenticationError:
+            raise
+        except OejpError:
+            continue
+    if supply_starts:
+        accounts = attach_supply_starts(accounts, supply_starts)
     try:
         capabilities = await async_detect_capabilities(client)
     except OejpAuthenticationError:
