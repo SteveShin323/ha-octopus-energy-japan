@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from functools import partial
 from unittest.mock import Mock, patch
+from zoneinfo import ZoneInfo
 
 import pytest
 from custom_components.octopus_energy_japan.api import (
@@ -15,6 +16,7 @@ from custom_components.octopus_energy_japan.api import (
     ReadingDirection,
     ReadingSource,
 )
+from custom_components.octopus_energy_japan.billing_period import BillingPeriodCalendar
 from custom_components.octopus_energy_japan.ledger import LedgerRecord
 from custom_components.octopus_energy_japan.statistics_runtime import (
     HomeAssistantStatisticsProjector,
@@ -35,6 +37,7 @@ SECRET = "11" * 32
 # Statistics need the recorder, which `after_dependencies` orders but does not require,
 # so tests that project have to declare it. Its absence has its own test below.
 RECORDER = "recorder"
+TOKYO = ZoneInfo("Asia/Tokyo")
 
 
 class _Ledger:
@@ -911,6 +914,46 @@ async def test_a_boundary_the_cadence_no_longer_reaches_is_forgotten(
         datetime(2026, 8, 31, 15, tzinfo=UTC),
         datetime(2026, 9, 30, 15, tzinfo=UTC),
     }
+
+
+async def test_changing_the_calendar_discards_the_remembered_totals(
+    hass: HomeAssistant,
+) -> None:
+    """A total recorded at a boundary of one calendar says nothing about another's.
+
+    Discovery can report a supply start after the first pass has already run against the
+    calendar-month fallback, and resuming from the old total would place the step counter and
+    the sums at instants the new calendar does not have.
+    """
+    hass.config.components.add(RECORDER)
+    projector = HomeAssistantStatisticsProjector(hass, SECRET, publisher=Mock())
+    ledger = _RangedLedger((_record_at(JULY_HOUR, "1.0"), _record_at(AUGUST_HOUR, "0.5")))
+    anchored = BillingPeriodCalendar.from_supply_start(
+        datetime(2026, 6, 17, 15, tzinfo=UTC),
+        local_timezone=TOKYO,
+    )
+
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+    assert AUGUST_JST in projector._baselines[("A-1", "SP-1")]
+
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=AUGUST_HOUR,
+        billing_periods=anchored,
+    )
+
+    # The whole ledger, because the fallback's boundary is meaningless to the new calendar.
+    assert ledger.requested == (datetime(2026, 7, 1, tzinfo=UTC), NOW)
+    assert AUGUST_JST not in projector._baselines[("A-1", "SP-1")]
 
 
 async def test_a_deletion_driven_rebuild_still_reads_everything(hass: HomeAssistant) -> None:

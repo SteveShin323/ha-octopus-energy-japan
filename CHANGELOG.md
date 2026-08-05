@@ -9,6 +9,35 @@ published client ID before they can be completed.
 
 ## [Unreleased]
 
+### Added
+
+- stepped charges restart on the invoiced period instead of the Asia/Tokyo calendar month. The
+  anchor is whichever the account reports that states the meter-reading schedule most directly:
+  two consecutive scheduled reading dates that agree on a day one month apart, else the day
+  billable supply began, else the calendar month as before. The rule was measured on one account
+  with one closed invoice, so the derived anchor, the evidence behind it, and whether the
+  provider's own reported reading day agrees are all in the diagnostics download;
+- a repair message when the reported plan cannot be priced at all, with the reason, and a
+  `tariffs` section in the diagnostics download carrying each plan's shape — product type, step
+  count, rate generations, and what the standing charge is measured in. An absent cost statistic
+  previously looked the same whether the plan could not be expressed or the integration was
+  broken.
+
+### Fixed
+
+- accounts on a single-price plan got no cost statistic at all. The query asked for consumption
+  charges only on the stepped product, and the parser then required a step boundary that a
+  single-price charge does not have;
+- an account that also exports could lose its consumption prices. The agreement in force was
+  chosen by start date alone, so a later-starting export agreement — whose product carries
+  generation credits and no consumption charges — won;
+- a plan whose prices vary by time of day, or whose charges come from more than one grid
+  operator, was treated as a step ladder and mispriced. Both are now refused with a recorded
+  reason, as a charge in an unsupported unit already was;
+- more than one published generation of rates became overlapping steps whose price depended on
+  sort order rather than on the date. An hour is now priced with the generation in force then,
+  and an hour no generation covers uses the nearest one.
+
 ### Changed
 
 - a statistics pass now reads the ledger from the current period boundary instead of from the

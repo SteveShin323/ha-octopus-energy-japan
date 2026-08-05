@@ -198,11 +198,20 @@ class OejpSupplyPoint:
     lifecycle: ResourceLifecycle = ResourceLifecycle.UNKNOWN
     property_id: str | None = None
     spin: str | None = None
-    # The day of the month the meter is read on. `nextReadingDate` and
-    # `nextNextReadingDate` are deliberately not carried: measured on a real account they
-    # were a stale snapshot, both dates in the past, so a sensor called "next reading" would
-    # have shown a date weeks gone. This one is the stable schedule and agrees with them.
+    # The day of the month the meter is read on, as the provider reports it. Measured on one
+    # real account it agreed with neither the invoiced period nor either scheduled reading
+    # date, so it is published as a diagnostic sensor and nothing is derived from it.
     reading_day_of_month: int | None = None
+    # The day of the month two consecutive scheduled reading dates agree on, when they are one
+    # month apart. This is the recurring schedule stated twice, and it anchors the billing
+    # period. The dates themselves are not carried: measured on the same account they were a
+    # stale snapshot, both already in the past, so a sensor called "next reading" would have
+    # shown a date weeks gone. A day of the month survives that staleness; a date does not.
+    reading_schedule_day: int | None = None
+    # When supply began, from the earliest billable supply period. This is what anchors the
+    # billing period a stepped tariff accumulates over: measured against a closed invoice, the
+    # period ran from this day of the month to the day before it in the following month.
+    supply_start_at: datetime | None = None
     meters: tuple[OejpMeter, ...] = ()
     devices: tuple[OejpDevice, ...] = ()
 

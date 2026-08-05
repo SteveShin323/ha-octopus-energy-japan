@@ -33,17 +33,64 @@ to read that field.
 
 **One response returns at most 1488 intervals — 31 days of half-hourly data — and drops the
 oldest beyond that with no error and no flag.** An over-wide window therefore looks like
-missing history. Requests use seven-day windows. There is no retention limit: every interval
-since supply started can still be fetched.
+missing history. Requests use seven-day windows.
+
+Measured on one account: the legacy `halfHourlyReadings` returns a fixed count and always
+stops exactly 31 days back however wide the window, dropping the oldest rows silently. The
+generic `readings` connection paginates and returned every interval of a 48-day window across
+24 pages, so the cap binds a response rather than a range. **No retention limit was observed**
+— intervals were present back to the start of that account's supply, which is 48 days. Whether
+a longer-lived account can reach further back is untested; the code assumes only that what the
+provider returns is what exists.
 
 **A reading's `version` marks the billing lifecycle.** Intervals are reissued with a new
 version when a period closes, and values change. This is why the ledger stores keyed
 intervals rather than a running total, and why statistics are external rather than
 recorder-backed.
 
-**A billing period ends at the meter read, not at midnight.** Calendar projections use
-Asia/Tokyo boundaries and will not equal an invoiced period. That is a presentation
-choice, not a defect.
+**A billing period appears to run from one meter reading to the day before the next.** The
+whole evidence is one account with one closed invoice, so treat it as a measurement rather than
+a documented contract:
+
+| Field | Reported | Used |
+|---|---|---|
+| `nextReadingDate`, `nextNextReadingDate` | both day 18, one month apart | **yes** — two agreeing dates are the recurring schedule stated twice |
+| `supplyPeriods.supplyStartAt` | 2026-06-18 00:00 JST | **yes**, as the weaker fallback |
+| the closed invoice | 6/18 to 7/17 | the thing both were checked against |
+| `readingDateDayOfMonth` | 19 | no — agrees with neither the invoice nor either scheduled date |
+| `bills.fromDate` / `toDate` | 6/17 to 7/22, issued 7/23 | no — the document's own period |
+| `statements.startAt` / `endAt` | 6/17 to 7/23 JST | no — likewise, and a day out from `bills` |
+
+The supply start is the weaker of the two used because it lands on the read day only when
+service happened to begin on one. Both are `DateTime`s: `supplyStartAt` reads as the 17th until
+converted to JST, which is a day's error if it is not.
+
+`readingDateDayOfMonth` is rejected on one account's evidence, which is thin. It is published
+as a diagnostic sensor and the diagnostics download reports whether it agrees with the derived
+anchor, so a contradicting account can be recognised rather than guessed at.
+
+**`StatementType.consumptionStartDate` and `consumptionEndDate` exist and are unverified.**
+They would be the reading period stated outright. On the one account measured the newest bill
+resolves as `PeriodBasedDocumentType`, so everything behind the `StatementType` fragment is
+null and they could not be observed. An account whose documents do resolve as `StatementType`
+would be better evidence than any derivation here.
+
+Calendar day, week, and month totals still use Asia/Tokyo boundaries and will not equal an
+invoiced period, which is a presentation choice rather than a defect.
+
+**Asia/Tokyo is a property of the provider, not an assumption about a region.** Japan has one
+timezone and no daylight saving, the provider bills in JST, and its rate validity windows were
+observed as JST calendar months. Nothing in the integration assumes a service area, a grid
+operator, or a plan shape: rates arrive scoped to the agreement, and `gridOperatorCode` and
+`regionOfOperation` are read only to refuse a response that mixes two of them.
+
+**Authorization can depend on the path a field is reached by, not only on the field.** The same
+`supplyPeriods` selection returns data through `account(accountNumber:)` and
+`AUTHORIZATION/KT-CT-4501` through `viewer.accounts`. Both were measured on the same account in
+the same session. That is why the supply start is asked account-scoped rather than added to the
+viewer document the resource discovery uses: a strict execution there turned one nulled optional
+field into a failed setup. Do not conclude that a field is unavailable to an account from one
+path alone.
 
 **The market name needs a territory prefix.** `JPN_ELECTRICITY`, not `ELECTRICITY`.
 
