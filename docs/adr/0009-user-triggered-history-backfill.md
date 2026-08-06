@@ -60,8 +60,16 @@ lower-priority ready item overtake a held one.
 
 **Nothing is projected until the walk ends.** A walked window flushes the ledger and moves the
 cursor. It does not project statistics, rebuild the snapshot, or wake the entities — each of
-those is what would make hundreds of windows unusable. One destructive rebuild is requested when
-the walk finishes, and the ordinary poll runs it within the half hour.
+those is what would make hundreds of windows unusable.
+
+The two edges of the walk do all three, once each: the press, so that starting is visible, and
+whatever ends it — complete, refused, or failed — so that the collected history reaches the
+Energy Dashboard immediately. Deferring the end to the ordinary poll was the first design, and
+it was wrong for the same reason the rest of this is right: the walk already costs the user
+hours, and a further half hour of a button that looks like it did nothing is not a cost worth
+saving one snapshot for. The saving was never in the edges; it is in the hundreds of windows
+between them. Neither edge reaches the provider — the snapshot is built from ledgers already
+on disk — so the whole walk still costs one projection and two snapshots.
 
 **A legacy answer stops the walk.** That path returns the most recent 31 days however far back
 it is asked, so advancing on its answer would record coverage the account does not have and then
