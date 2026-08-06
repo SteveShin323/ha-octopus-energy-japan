@@ -7,6 +7,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
+from hashlib import sha256
 from typing import Protocol
 from zoneinfo import ZoneInfo
 
@@ -34,12 +35,14 @@ from .statistics import (
     project_hourly_statistics,
 )
 from .tariff_cost import project_hourly_cost
+from .tariff_history import AdderSchedule, live_schedule
 
 type StatisticsPublisher = Callable[
     [HomeAssistant, StatisticMetaData, tuple[StatisticData, ...]],
     None,
 ]
 type TariffLookup = Callable[[str, str], SupplyPointTariff | None]
+type AdderLookup = Callable[[str, str], AdderSchedule]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -67,6 +70,31 @@ CALENDAR_MONTHS = BillingPeriodCalendar.calendar_months(TOKYO)
 
 def _hour_start(value: datetime) -> datetime:
     return value.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
+
+
+def _pricing_fingerprint(
+    priced: tuple[SupplyPointTariff, AdderSchedule] | None,
+    periods: BillingPeriodCalendar,
+) -> str:
+    """Return a stable digest of everything one hour's cost is computed from."""
+    if priced is None:
+        return "unpriced"
+    tariff, schedule = priced
+    parts: list[str] = [
+        str(periods.anchor_day),
+        periods.source.value,
+        str(periods.local_timezone),
+        str(tariff.standing_charge_per_day),
+    ]
+    parts += [
+        f"{step.start_kwh}:{step.end_kwh}:{step.price_inc_tax}:{step.valid_from}:{step.valid_to}"
+        for step in tariff.steps
+    ]
+    parts += [
+        f"{record.kind.value}:{record.valid_from}:{record.valid_to}:{record.price_inc_tax}"
+        for record in sorted(schedule.records)
+    ]
+    return sha256("\n".join(parts).encode()).hexdigest()
 
 
 def _cumulative_before(
@@ -111,12 +139,14 @@ class HomeAssistantStatisticsProjector:
         include_official_cost: bool = False,
         publisher: StatisticsPublisher = async_add_external_statistics,
         tariff_lookup: TariffLookup | None = None,
+        adder_lookup: AdderLookup | None = None,
     ) -> None:
         self._hass = hass
         self._identity_secret = identity_secret
         self._include_official_cost = include_official_cost
         self._publisher = publisher
         self._tariff_lookup = tariff_lookup
+        self._adder_lookup = adder_lookup
         self._warned_about_recorder = False
         # Per supply point, the cumulative total each statistic had reached at a period
         # boundary. Held in memory only: the projector is the sole writer of these series,
@@ -124,6 +154,9 @@ class HomeAssistantStatisticsProjector:
         self._baselines: dict[tuple[str, str], dict[datetime, dict[str, Decimal]]] = {}
         # Which calendar those totals were computed under, so a change discards them.
         self._calendars: dict[tuple[str, str], BillingPeriodCalendar] = {}
+        # What each supply point's cost was last computed from, so a change to any of it
+        # republishes the whole cost series instead of only the recent hours.
+        self._fingerprints: dict[tuple[str, str], str] = {}
 
     async def async_project_supply_point(
         self,
@@ -149,11 +182,17 @@ class HomeAssistantStatisticsProjector:
             return
         earliest, _end_at = partition_bounds(min(ledger.known_partitions))
         scope = (account_id, supply_point_id)
+        # A change to a price, a period boundary, or an archived adjustment only moves the cost
+        # series. The energy rows are unaffected, so `dirty_from` still governs them and only
+        # the cost series is republished in full.
+        repriced = self._repricing(scope, billing_periods)
         effective_dirty = None if reset_directions else dirty_from
         start_at, baseline = self._projection_start(
             scope,
             earliest,
-            effective_dirty,
+            # Republishing the cost series needs the whole history projected, not just the
+            # tail, or there would be nothing to republish.
+            None if repriced else effective_dirty,
             billing_periods,
         )
         records = tuple(
@@ -213,7 +252,7 @@ class HomeAssistantStatisticsProjector:
                 supply_point_id,
                 identity,
                 projection.series,
-                dirty_from=effective_dirty,
+                dirty_from=None if repriced else effective_dirty,
                 baseline=baseline,
                 periods=billing_periods,
             )
@@ -302,6 +341,49 @@ class HomeAssistantStatisticsProjector:
                 },
             }
 
+    def _pricing_inputs(
+        self,
+        account_id: str,
+        supply_point_id: str,
+    ) -> tuple[SupplyPointTariff, AdderSchedule] | None:
+        """Return what one supply point's cost is computed from, or None if it has no price."""
+        if self._tariff_lookup is None:
+            return None
+        tariff = self._tariff_lookup(account_id, supply_point_id)
+        if tariff is None or not tariff.is_priceable:
+            return None
+        # An empty archive is the ordinary state of a fresh install, and it prices every hour
+        # with whatever the provider reports now. That is what the archive exists to improve on
+        # as it fills, and it is already better than the nothing an uncovered hour used to get.
+        schedule = (
+            self._adder_lookup(account_id, supply_point_id)
+            if self._adder_lookup is not None
+            else live_schedule(tariff, observed_at=datetime.now(UTC))
+        )
+        return tariff, schedule
+
+    def _repricing(
+        self,
+        scope: tuple[str, str],
+        periods: BillingPeriodCalendar,
+    ) -> bool:
+        """Report whether anything a cost is computed from has changed since the last pass.
+
+        `dirty_from` limits publication to recent hours, so a change to a price, a period
+        boundary, or an archived adjustment would be computed for the whole history and then
+        discarded at publication — the corrected past would never reach the recorder. When the
+        inputs change the whole cost series is republished once instead.
+
+        Held in memory, so the first pass after a restart republishes. That is deliberate: it
+        is what lets a correction to this formula reach rows an earlier version wrote.
+        """
+        priced = self._pricing_inputs(*scope)
+        fingerprint = _pricing_fingerprint(priced, periods)
+        if self._fingerprints.get(scope) == fingerprint:
+            return False
+        self._fingerprints[scope] = fingerprint
+        return True
+
     def _publish_tariff_cost(
         self,
         account_id: str,
@@ -322,12 +404,10 @@ class HomeAssistantStatisticsProjector:
         Returns the cumulative total each cost series reached, so the caller can remember it
         at the next period boundary.
         """
-        if self._tariff_lookup is None:
+        priced = self._pricing_inputs(account_id, supply_point_id)
+        if priced is None:
             return ()
-        tariff = self._tariff_lookup(account_id, supply_point_id)
-        if tariff is None or not tariff.is_priceable:
-            return ()
-
+        tariff, schedule = priced
         totals: list[tuple[str, tuple[tuple[datetime, Decimal], ...]]] = []
         for energy in series:
             if energy.key.kind is not StatisticKind.ENERGY:
@@ -339,6 +419,7 @@ class HomeAssistantStatisticsProjector:
                 [(value.start, value.state) for value in energy.statistics],
                 tariff,
                 periods=periods,
+                adders=schedule,
                 direction=energy.key.direction,
             )
             if not costs:

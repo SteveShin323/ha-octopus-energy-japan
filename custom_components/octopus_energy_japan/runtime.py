@@ -23,6 +23,7 @@ from .identity import stable_account_identity, stable_supply_point_identity
 if TYPE_CHECKING:
     from .commercial_coordinator import OejpCommercialCoordinator
     from .coordinator import OejpDataUpdateCoordinator
+    from .tariff_history_store import TariffHistoryArchive
 
 
 @dataclass(slots=True)
@@ -35,6 +36,9 @@ class OejpRuntimeData:
     identity_secret: str
     coordinator: OejpDataUpdateCoordinator | None = None
     commercial_coordinator: OejpCommercialCoordinator | None = None
+    # The archive of rate adjustments the provider stops serving. Held here so diagnostics and
+    # the repair issues can report what it holds and whether any of it failed to load.
+    tariff_archive: TariffHistoryArchive | None = None
 
     def historical_resource_options(self) -> dict[str, str]:
         """Return safe labels keyed by installation-local resource identities."""

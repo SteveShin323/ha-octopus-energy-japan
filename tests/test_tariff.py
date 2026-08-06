@@ -610,7 +610,12 @@ def test_a_charge_without_a_step_start_is_skipped_not_guessed() -> None:
     assert [step.start_kwh for step in tariff.steps] == [Decimal(120)]
 
 
-def test_a_malformed_timestamp_is_ignored_rather_than_failing_the_read() -> None:
+def test_an_adder_whose_stated_bound_cannot_be_read_is_refused() -> None:
+    """An absent bound means open-ended, so an unreadable one must not be read that way.
+
+    Treating them alike produced an adder that applied to every moment in history, and the
+    archive of past adjustments would have filed it under no period at all.
+    """
     product = _product(
         renewableEnergyLevy={
             "pricePerUnitIncTax": "4.18",
@@ -618,6 +623,16 @@ def test_a_malformed_timestamp_is_ignored_rather_than_failing_the_read() -> None
             "validFrom": "not a timestamp",
             "validTo": None,
         }
+    )
+    (tariff,) = parse_supply_point_tariffs(_payload(_agreement(product=product)), ACCOUNT)
+
+    assert tariff.renewable_energy_levy is None
+
+
+def test_an_adder_with_no_stated_bounds_is_still_open_ended() -> None:
+    """The provider omits the bound on rates it considers current."""
+    product = _product(
+        renewableEnergyLevy={"pricePerUnitIncTax": "4.18", "unitType": "KWH_CONSUMPTION"}
     )
     (tariff,) = parse_supply_point_tariffs(_payload(_agreement(product=product)), ACCOUNT)
 

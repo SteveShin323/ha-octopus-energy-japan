@@ -474,11 +474,21 @@ def _parse_adder(value: object) -> TariffAdder | None:
     price = _optional_decimal(value.get("pricePerUnitIncTax"))
     if price is None:
         return None
+    stated_from, stated_to = value.get("validFrom"), value.get("validTo")
+    valid_from = _optional_datetime(stated_from)
+    valid_to = _optional_datetime(stated_to)
+    if (stated_from is not None and valid_from is None) or (
+        stated_to is not None and valid_to is None
+    ):
+        # A bound the provider stated and this cannot read. An absent bound means open-ended,
+        # so treating an unreadable one the same way would produce an adder that applies to
+        # every moment in history — and it would be archived under no period at all.
+        return None
     return TariffAdder(
         price_inc_tax=price,
         price_ex_tax=_optional_decimal(value.get("pricePerUnit")),
-        valid_from=_optional_datetime(value.get("validFrom")),
-        valid_to=_optional_datetime(value.get("validTo")),
+        valid_from=valid_from,
+        valid_to=valid_to,
     )
 
 
