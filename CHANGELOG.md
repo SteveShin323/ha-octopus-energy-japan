@@ -9,6 +9,23 @@ published client ID before they can be completed.
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-08-06
+
+### Added
+
+- screenshots in the README, in both languages: the Energy Dashboard, a supply-point device,
+  and an account device. Every figure in them is invented — they were taken from a throwaway
+  Home Assistant holding synthetic statistics, with the device serial numbers replaced, so no
+  real consumption, cost, account number, supply-point number, or address is published.
+
+### Fixed
+
+- **`tests/test_diagnostics.py` held a real account's number, supply-point number, bill
+  amount, and product name.** They were the needles it searches the diagnostics report for,
+  so the test that exists to keep those values out of a public place was the thing putting
+  them there. Replaced with invented values of the same shape; the assertions are unchanged
+  and still fail if any of them reaches the report.
+
 ## [0.9.5] - 2026-08-06
 
 From a review of whether this integration copes with account shapes other than the one it

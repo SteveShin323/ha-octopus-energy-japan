@@ -55,7 +55,10 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 NOW = datetime(2026, 8, 4, 12, tzinfo=UTC)
 SECRET = "01" * 32
 
-# Every value a real installation must never publish.
+# Every value a real installation must never publish. Invented, and deliberately so: these
+# are the needles the assertions below search the report for, and using a real account's
+# number, supply-point number, product name, or bill amount would have put exactly what this
+# test defends into a public repository.
 ACCOUNT_NUMBER = "A-DEMO0001"
 SPIN = "03-0000-0000-0000-0000-0000"
 SUPPLY_POINT_ID = "PRIVATE-SUPPLY-POINT"
