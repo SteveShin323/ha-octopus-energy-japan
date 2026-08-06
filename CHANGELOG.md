@@ -9,6 +9,14 @@ published client ID before they can be completed.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-06
+
+Full history and prices that match the invoice. A supply point's readings can now be walked
+back to the day supply began, stepped charges restart on the invoiced period rather than the
+calendar month, and the two adjustments the provider only ever serves for the current period
+are archived as they are observed so an earlier hour can still be priced with the figure that
+applied to it. Still beta: `1.0.0` waits on a published OAuth client ID.
+
 ### Added
 
 - **Import full history.** A button on each supply point's device page walks that supply point's
