@@ -11,7 +11,12 @@ from homeassistant.helpers.config_entry_oauth2_flow import (
     LocalOAuth2ImplementationWithPkce,
 )
 
-from .oauth_metadata import OAuthMetadataUnavailableError, require_oauth_metadata
+from .const import DOMAIN
+from .oauth_metadata import (
+    OEJP_OAUTH_CLIENT_ID,
+    OAuthMetadataUnavailableError,
+    require_oauth_metadata,
+)
 
 
 class OejpOAuth2Implementation(LocalOAuth2ImplementationWithPkce):
@@ -54,3 +59,32 @@ async def async_get_auth_implementation(
         return OejpOAuth2Implementation(hass, auth_domain, credential)
     except OAuthMetadataUnavailableError as err:
         raise ImplementationUnavailableError(str(err)) from err
+
+
+def async_built_in_implementation(hass: HomeAssistant) -> OejpOAuth2Implementation | None:
+    """Return the implementation built from the shipped client ID, when there is one.
+
+    The client identifies this integration, not the customer, so it is the same for every
+    installation and belongs in the code. Returns `None` while no client has been issued,
+    which is what leaves the OAuth methods unavailable and saying so.
+
+    No secret: Home Assistant omits `client_secret` from the token request when it is empty,
+    which is what a public client needs. A credential added by hand still wins — see
+    `oauth_metadata.OEJP_OAUTH_CLIENT_ID` for why that escape hatch is kept.
+    """
+    if not OEJP_OAUTH_CLIENT_ID:
+        return None
+    try:
+        return OejpOAuth2Implementation(
+            hass,
+            DOMAIN,
+            ClientCredential(
+                client_id=OEJP_OAUTH_CLIENT_ID,
+                client_secret="",
+                name="Octopus Energy Japan",
+            ),
+        )
+    except OAuthMetadataUnavailableError:
+        # Metadata and the client ID are confirmed separately; without metadata there is
+        # nothing to register, and the sign-in methods stay unavailable as they already were.
+        return None

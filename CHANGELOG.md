@@ -9,6 +9,34 @@ published client ID before they can be completed.
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-08-06
+
+### Changed
+
+- **The OAuth client ships in the code, and nobody types anything.** It identifies this
+  integration, not the customer, so one client serves every installation — asking each user
+  to copy it from a README was a setup step that could only be got wrong, and Application
+  Credentials additionally demands a client *secret* that a public client does not have.
+  `oauth_metadata.OEJP_OAUTH_CLIENT_ID` is empty until Octopus Energy Japan issues one, and
+  filling it in is the only change needed to make browser and device-code sign-in work.
+
+  Registering it takes two places, both needed: `async_setup` for loading an existing entry
+  after a restart, and the config flow itself, because a config-entry-only integration with
+  no entries is never set up — measured against a real instance, a flow started there found
+  the integration absent from `hass.config.components` and aborted for want of a client.
+
+  Application Credentials stays as the override. The provider's discovery document advertises
+  neither a `none` token-endpoint auth method nor `code_challenge_methods_supported`, so a
+  public client is what its documentation describes rather than what its metadata proves; if
+  the issued client turns out to be confidential, a credential added by hand is the way
+  through, and it is offered alongside the shipped one.
+
+  Verified end to end on a real Home Assistant with a placeholder client and no credential
+  added: the browser method reached the provider's authorization page carrying the client id,
+  PKCE `S256`, the fourteen read-only scopes and no `client_secret`, and the device method
+  reached the provider and was refused for the placeholder — where both had previously
+  stopped at "add an application credential first".
+
 ## [0.9.3] - 2026-08-06
 
 ### Fixed

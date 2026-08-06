@@ -19,6 +19,38 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor", "binary_sensor", "button"]
 
 
+def _config_schema() -> Any:
+    from homeassistant.helpers import config_validation as cv
+
+    from .const import DOMAIN
+
+    return cv.config_entry_only_config_schema(DOMAIN)
+
+
+CONFIG_SCHEMA = _config_schema()
+
+
+async def async_setup(hass: HomeAssistant, config: Any) -> bool:
+    """Register the OAuth client this integration ships with, if it has one.
+
+    One client serves every installation, so nobody should have to type it in. Registering it
+    here rather than through `application_credentials` is what makes the OAuth sign-in methods
+    work out of the box; a credential added by hand is still offered alongside it, and wins.
+
+    While no client has been issued this registers nothing, and the sign-in methods stay
+    unavailable with the message that already explains why.
+    """
+    from homeassistant.helpers import config_entry_oauth2_flow
+
+    from .application_credentials import async_built_in_implementation
+    from .const import DOMAIN
+
+    implementation = async_built_in_implementation(hass)
+    if implementation is not None:
+        config_entry_oauth2_flow.async_register_implementation(hass, DOMAIN, implementation)
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Octopus Energy Japan from an OAuth config entry."""
     from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
