@@ -776,6 +776,24 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             discarded_checkpoint_count=len(self._discarded_checkpoints),
         )
 
+    async def _async_publish_state(self) -> None:
+        """Rebuild the snapshot from what is already on disk and wake the entities.
+
+        Reaches no provider: `_async_build_snapshot` reads ledgers already written. That is
+        what makes it affordable at the two edges of a walk — the press and whatever ends it —
+        and still too expensive to run for each of the hundreds of windows in between, which
+        is why the cursor advance does not call it.
+
+        Must be called without the mutation lock held; it takes the lock itself.
+        """
+        async with self._mutation_lock:
+            snapshot = await self._async_build_snapshot(
+                self._utc_now(),
+                self._enabled_states(),
+                CorrectionResult(),
+            )
+        self.async_set_updated_data(snapshot)
+
     async def async_start_background_sync(self) -> None:
         """Plan and start backfill only after the entry has finished setup."""
         if self._background_started:
@@ -1027,7 +1045,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
         A finished walk has inserted years of hours older than everything already published, so
         every cumulative sum moves. A `dirty_from` boundary cannot express that; clearing the
         series and rebuilding it can, and it also removes rows the walk's authoritative
-        reconciliation deleted. The poll runs it within the half hour.
+        reconciliation deleted. The caller publishes it; the poll is the backstop.
         """
         key = (state.supply_point.account_number, state.supply_point.id)
         pending = self._statistics_pending.get(key)
@@ -1226,6 +1244,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
         if state is None:
             return
         floor = initial_floor(self._utc_now())
+        started = False
         async with self._mutation_lock:
             checkpoint = state.checkpoint
             for direction in self._previously_queryable_directions(state):
@@ -1242,9 +1261,15 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             if checkpoint != state.checkpoint:
                 await state.checkpoint_backend.async_save(checkpoint.as_dict())
                 state.checkpoint = checkpoint
+                started = True
             self._enqueue_backfill(state)
             self._apply_checkpoint_coverage(state)
         self._ensure_background_worker()
+        if started:
+            # A walk runs for hours. Leaving the button's only feedback to the next poll
+            # would mean up to half an hour in which pressing it appears to have done
+            # nothing at all.
+            await self._async_publish_state()
 
     def backfill_cursor(self, supply_point_identity: str) -> datetime | None:
         """Return the oldest instant any direction of one supply point has walked back to.
@@ -1447,11 +1472,13 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
     ) -> None:
         """Store one walked window, move the cursor, and queue the next at a polite pace.
 
-        Deliberately does not project statistics, rebuild the snapshot, or wake the entities.
-        Each of those reads the whole ledger or every enabled supply point, and a walk is
-        hundreds of windows, so doing them per window is what would make this unusable. One
-        projection is requested when the walk ends; until then the readings are durable in the
+        A window that only moves the cursor deliberately does not project statistics, rebuild
+        the snapshot, or wake the entities. Each of those reads the whole ledger or every
+        enabled supply point, and a walk is hundreds of windows, so doing them per window is
+        what would make this unusable. Until the walk ends the readings are durable in the
         ledger, which is the only place they need to be.
+
+        Whatever ends the walk does all three, once.
         """
         direction = item.scope.direction
         window = item.scope.window
@@ -1464,6 +1491,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                     state,
                     state.checkpoint.stop_backfill(direction, BackfillState.UNSUPPORTED),
                 )
+            await self._async_publish_state()
             return
 
         async with self._mutation_lock:
@@ -1487,9 +1515,13 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                 self._enqueue_backfill(state)
                 await self._async_pace_backfill(state, direction, record.cursor)
                 return
-            # The walk is done. One projection covers everything it collected, and the poll
-            # runs it within the half hour whether or not anything else happens.
+            # The walk is done. One projection covers everything it collected, and it runs
+            # here rather than waiting for the poll: the collected history is the whole point
+            # of pressing the button, and a walk that has already taken hours should not owe
+            # the user another half hour before its result reaches the Energy Dashboard.
             self._mark_statistics_reset(state, direction)
+            await self._async_publish_pending_statistics(self._utc_now())
+        await self._async_publish_state()
 
     async def _async_store_backfill_checkpoint(
         self,
@@ -1556,6 +1588,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                         error_class.value,
                     ),
                 )
+            await self._async_publish_state()
             return
         async with self._mutation_lock:
             checkpoint = state.checkpoint.mark_failed(item, error_class.value)
