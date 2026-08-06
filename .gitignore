@@ -222,3 +222,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local Home Assistant runs used for release verification write their recorder
+# database next to the config they are given. One was committed by accident.
+release-check.db
+home-assistant_v2.db*
