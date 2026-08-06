@@ -1,5 +1,24 @@
 {
   "entity": {
+    "binary_sensor": {
+      "import_data_available": {
+        "default": "mdi:database-check",
+        "state": {
+          "off": "mdi:database-off"
+        }
+      },
+      "export_data_available": {
+        "default": "mdi:database-check",
+        "state": {
+          "off": "mdi:database-off"
+        }
+      }
+    },
+    "button": {
+      "import_full_history": {
+        "default": "mdi:history"
+      }
+    },
     "sensor": {
       "account_balance": {
         "default": "mdi:wallet"
@@ -39,6 +58,9 @@
       },
       "export_yesterday": {
         "default": "mdi:solar-power"
+      },
+      "history_collected_from": {
+        "default": "mdi:clock-start"
       },
       "import_data_delay": {
         "default": "mdi:timer-sand"
@@ -81,20 +103,6 @@
       },
       "supply_point_status": {
         "default": "mdi:transmission-tower"
-      }
-    },
-    "binary_sensor": {
-      "import_data_available": {
-        "default": "mdi:database-check",
-        "state": {
-          "off": "mdi:database-off"
-        }
-      },
-      "export_data_available": {
-        "default": "mdi:database-check",
-        "state": {
-          "off": "mdi:database-off"
-        }
       }
     }
   }

@@ -52,6 +52,7 @@ from custom_components.octopus_energy_japan.sensor import (
     ENERGY_DESCRIPTIONS,
     OejpAccountCommercialSensor,
     OejpConsumptionSensor,
+    OejpHistoryCollectedFromSensor,
     OejpSupplyPointAddressSensor,
     OejpSupplyPointReadingDaySensor,
     OejpSupplyPointStatusSensor,
@@ -67,9 +68,10 @@ NOW = datetime(2026, 7, 29, 12, tzinfo=UTC)
 SECRET = "01" * 32
 ACCOUNT_ID = "PRIVATE-ACCOUNT"
 SUPPLY_POINT_ID = "PRIVATE-SUPPLY-POINT"
-# Status, meter reading day, and address describe the supply point itself, so they are
-# created once per supply point however many directions it reports.
-SUPPLY_POINT_DESCRIBING_SENSORS = 3
+# Status, meter reading day, how far a history walk has reached, and address describe the
+# supply point itself, so they are created once per supply point however many directions it
+# reports.
+SUPPLY_POINT_DESCRIBING_SENSORS = 4
 
 
 def _account(
@@ -617,6 +619,7 @@ async def test_capability_or_topology_alone_creates_only_status_sensor(
     assert [type(entity) for entity in entities] == [
         OejpSupplyPointStatusSensor,
         OejpSupplyPointReadingDaySensor,
+        OejpHistoryCollectedFromSensor,
         OejpSupplyPointAddressSensor,
     ]
 

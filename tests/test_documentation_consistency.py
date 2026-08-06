@@ -224,16 +224,21 @@ def test_the_documented_availability_states_and_repair_issues_are_complete() -> 
     for state in CommercialAvailability:
         assert state.value in architecture, state
 
-    assert len(list(OejpIssue)) == 6, [issue.value for issue in OejpIssue]
+    assert len(list(OejpIssue)) == 7, [issue.value for issue in OejpIssue]
     assert not any("reauth" in issue.value for issue in OejpIssue), (
         "reauthentication is Home Assistant's own prompt, not a repair issue"
     )
 
 
+# Every exception class this integration raises that carries a translated message. A class
+# missing from here makes its message look unused, which is how a key added for one of them
+# would go unnoticed.
 _TRANSLATED_EXCEPTIONS = (
     "ConfigEntryAuthFailed",
     "ConfigEntryNotReady",
+    "HomeAssistantError",
     "PlatformNotReady",
+    "ServiceValidationError",
     "UpdateFailed",
 )
 

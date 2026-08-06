@@ -234,8 +234,16 @@ unaffected. Pricing part of such a plan would look like it worked while being wr
 fuel-cost adjustment and the renewable levy into one number and cannot express the daily
 standing charge, so it does not add up to a billed total either.
 
-**A first install starts with the current and previous month.** Older history is
-retrievable and is fetched in the background afterwards.
+**A first install starts with the current and previous month.** Everything older is collected
+only when you press **Import full history** on a supply point's device page. It takes hours, it
+paces itself to about a third of the request allowance your account is given, and it stops on
+its own once it reaches the point where your readings begin.
+
+What it collects reaches the Energy Dashboard statistics. It does **not** change the today,
+this week, this month, or last month sensors, which only ever aggregate the current and previous
+month. If your readings arrive through Octopus Energy Japan's legacy path — which returns only
+the most recent 31 days however far back it is asked — the collection stops rather than record a
+month as a complete history, and a repair message says so.
 
 **Calendar totals are not billing periods.** Every total here uses Asia/Tokyo calendar days,
 weeks, and months, whatever timezone your Home Assistant is set to. Japan has one timezone and

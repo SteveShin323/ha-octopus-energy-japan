@@ -34,6 +34,7 @@ from custom_components.octopus_energy_japan.api import (
     OejpTimeoutError,
     OejpTransientHttpError,
     OejpTransportError,
+    PointsAllowance,
     ReadingDirection,
     ReadingProviderName,
     ReadingSeriesKey,
@@ -41,6 +42,7 @@ from custom_components.octopus_energy_japan.api import (
     ResourceLifecycle,
 )
 from custom_components.octopus_energy_japan.background_sync import (
+    BackfillState,
     BackgroundSyncItem,
     BackgroundSyncReason,
     BackgroundSyncScope,
@@ -49,6 +51,7 @@ from custom_components.octopus_energy_japan.background_sync import (
     PlannedGeneration,
     SyncCheckpoint,
     SyncObligation,
+    initial_floor,
 )
 from custom_components.octopus_energy_japan.billing_period import (
     BillingPeriodCalendar,
@@ -65,6 +68,7 @@ from custom_components.octopus_energy_japan.coordinator import (
     DirectionErrorClass,
     DirectionSyncStatus,
     OejpDataUpdateCoordinator,
+    ProviderObservation,
     _previous_local_month_start,
     _StatisticsPending,
     _SupplyPointRuntime,
@@ -88,6 +92,10 @@ from custom_components.octopus_energy_japan.ledger import (
     LedgerRecord,
 )
 from custom_components.octopus_energy_japan.statistics_runtime import StatisticsProjector
+from custom_components.octopus_energy_japan.sync import (
+    BACKFILL_EMPTY_WINDOWS,
+    BACKFILL_MIN_INTERVAL,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import UpdateFailed
@@ -2213,3 +2221,267 @@ async def test_a_discarded_checkpoint_is_counted_in_the_snapshot(hass: HomeAssis
     )
 
     assert data.discarded_checkpoint_count == 1
+
+
+def _direction_reading_result(
+    *,
+    provider: ReadingProviderName = ReadingProviderName.GENERIC,
+) -> DirectionReadingResult:
+    """An empty answer that still names the series it asked about, as a real one does."""
+    return replace(_direction_result(ReadingDirection.IMPORT), provider=provider)
+
+
+async def _walk_one_window(
+    hass: HomeAssistant,
+    *,
+    result: DirectionReadingResult,
+) -> tuple[OejpDataUpdateCoordinator, _SupplyPointRuntime, AsyncMock]:
+    projector = AsyncMock()
+    coordinator = _coordinator(
+        hass,
+        statistics_projector=cast("StatisticsProjector", projector),
+    )
+    point = _point()
+    router = AsyncMock()
+    router.async_get_readings.return_value = result
+    _install_state(coordinator, point, router=router)
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+    coordinator._direction_statuses[coordinator._direction_key(state, ReadingDirection.IMPORT)] = (
+        replace(
+            coordinator._direction_statuses[
+                coordinator._direction_key(state, ReadingDirection.IMPORT)
+            ],
+            queryable=True,
+        )
+        if coordinator._direction_key(state, ReadingDirection.IMPORT)
+        in coordinator._direction_statuses
+        else DirectionSyncStatus(
+            account_identity="account",
+            supply_point_identity=coordinator._status_identity(state),
+            direction=ReadingDirection.IMPORT,
+            queryable=True,
+        )
+    )
+    # Plenty of allowance left, so the fixed pace is what governs. The reserve has its own
+    # test in `tests/test_api_rate_limit.py`.
+    coordinator._allowance = PointsAllowance(
+        limit=50_000,
+        remaining=49_000,
+        used=1_000,
+        resets_at=NOW + timedelta(hours=1),
+        blocked=False,
+    )
+    coordinator._allowance_read_at = NOW
+    await coordinator.async_start_history_backfill(coordinator._status_identity(state))
+    item = next(
+        value
+        for value in coordinator._background_queue.snapshot()
+        if value.scope.direction is ReadingDirection.IMPORT
+    )
+    coordinator._background_queue.discard(item.scope)
+    await coordinator._async_advance_backfill(state, item, result)
+    return coordinator, state, projector
+
+
+async def test_a_walked_window_stores_readings_without_projecting_anything(
+    hass: HomeAssistant,
+) -> None:
+    """Projecting per window is what would make a walk of hundreds of windows unusable.
+
+    Each projection reads the whole ledger and each snapshot re-reads every enabled supply
+    point. The readings are durable in the ledger, which is the only place they need to be
+    until the walk finishes.
+    """
+    _walked, state, projector = await _walk_one_window(
+        hass,
+        result=_direction_reading_result(),
+    )
+
+    state.backend.async_flush.assert_awaited()
+    projector.async_project_supply_point.assert_not_awaited()
+    record = state.checkpoint.backfill_for(ReadingDirection.IMPORT)
+    assert record is not None
+    assert record.cursor < initial_floor(NOW)
+
+
+async def test_a_walked_window_paces_the_next_one(hass: HomeAssistant) -> None:
+    """A walk is the only work here that could plausibly spend the hourly allowance."""
+    coordinator, _state, _projector = await _walk_one_window(
+        hass,
+        result=_direction_reading_result(),
+    )
+
+    queued = coordinator._background_queue.snapshot()
+    available = coordinator._retry.available(queued, NOW)
+
+    assert available.item is None
+    assert available.not_before == NOW + BACKFILL_MIN_INTERVAL
+
+
+async def test_a_legacy_answer_stops_the_walk_without_moving_the_cursor(
+    hass: HomeAssistant,
+) -> None:
+    """The legacy path returns the most recent 31 days however far back it is asked.
+
+    Advancing on that answer would record coverage the account does not have and then declare
+    a month a complete history.
+    """
+    _walked, state, projector = await _walk_one_window(
+        hass,
+        result=_direction_reading_result(provider=ReadingProviderName.LEGACY),
+    )
+
+    record = state.checkpoint.backfill_for(ReadingDirection.IMPORT)
+    assert record is not None
+    assert record.state is BackfillState.UNSUPPORTED
+    assert record.cursor == initial_floor(NOW)
+    assert state.checkpoint.coverage_for(ReadingDirection.IMPORT) == ()
+    projector.async_project_supply_point.assert_not_awaited()
+
+
+async def test_a_finished_walk_asks_for_one_destructive_rebuild(
+    hass: HomeAssistant,
+) -> None:
+    """Years of older hours move every published sum, which no dirty boundary can express."""
+    coordinator, state, _projector = await _walk_one_window(
+        hass,
+        result=_direction_reading_result(),
+    )
+    # Walk on until the empty run ends it.
+    for _ in range(BACKFILL_EMPTY_WINDOWS):
+        record = state.checkpoint.backfill_for(ReadingDirection.IMPORT)
+        assert record is not None
+        if record.state is not BackfillState.RUNNING:
+            break
+        item = next(
+            value
+            for value in coordinator._background_queue.snapshot()
+            if value.scope.direction is ReadingDirection.IMPORT
+        )
+        coordinator._background_queue.discard(item.scope)
+        await coordinator._async_advance_backfill(state, item, _direction_reading_result())
+
+    record = state.checkpoint.backfill_for(ReadingDirection.IMPORT)
+    assert record is not None
+    assert record.state is BackfillState.COMPLETE
+    pending = coordinator._statistics_pending[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+    assert pending.dirty_from is None
+    assert ReadingDirection.IMPORT in pending.reset_directions
+
+
+async def test_a_permanent_failure_stops_the_walk_and_keeps_its_place(
+    hass: HomeAssistant,
+) -> None:
+    """`mark_failed` validates against a registered generation window, and a walk has none."""
+    coordinator, state, _projector = await _walk_one_window(
+        hass,
+        result=_direction_reading_result(),
+    )
+    item = next(iter(coordinator._background_queue.snapshot()))
+    cursor = state.checkpoint.backfill_for(ReadingDirection.IMPORT)
+    assert cursor is not None
+
+    await coordinator._async_resolve_permanent_failure(
+        state,
+        item,
+        DirectionErrorClass.AUTHORIZATION,
+    )
+
+    record = state.checkpoint.backfill_for(ReadingDirection.IMPORT)
+    assert record is not None
+    assert record.state is BackfillState.FAILED
+    assert record.error_class == DirectionErrorClass.AUTHORIZATION.value
+    assert record.cursor == cursor.cursor
+
+
+async def test_an_installation_that_never_asked_queues_no_walk(hass: HomeAssistant) -> None:
+    """The feature is inert until the button is pressed."""
+    coordinator = _coordinator(hass)
+    point = _point()
+    _install_state(coordinator, point, router=AsyncMock())
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+
+    coordinator._enqueue_backfill(state)
+
+    assert coordinator._background_queue.snapshot() == ()
+    assert coordinator.backfill_cursor(coordinator._status_identity(state)) is None
+
+
+async def test_pressing_refuses_a_direction_that_reads_from_the_legacy_path(
+    hass: HomeAssistant,
+) -> None:
+    """Refused before a single request, not after one that would look like an answer."""
+    coordinator = _coordinator(hass)
+    point = _point()
+    _install_state(coordinator, point, router=AsyncMock())
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+    identity = coordinator._status_identity(state)
+    key = coordinator._direction_key(state, ReadingDirection.IMPORT)
+    coordinator._direction_statuses[key] = DirectionSyncStatus(
+        account_identity="account",
+        supply_point_identity=identity,
+        direction=ReadingDirection.IMPORT,
+        queryable=True,
+    )
+    coordinator._provider_observations[key] = ProviderObservation(
+        account_identity="account",
+        supply_point_identity=identity,
+        direction=ReadingDirection.IMPORT,
+        provider=ReadingProviderName.LEGACY,
+        fallback_reason=None,
+        observed_at=NOW,
+    )
+
+    await coordinator.async_start_history_backfill(identity)
+
+    record = state.checkpoint.backfill_for(ReadingDirection.IMPORT)
+    assert record is not None
+    assert record.state is BackfillState.UNSUPPORTED
+    assert coordinator._background_queue.snapshot() == ()
+    # The refused direction still has a cursor, so the button asks a different question.
+    assert coordinator.has_running_backfill(identity) is False
+
+
+async def test_a_walk_waits_for_the_allowance_to_reset_when_it_runs_low(
+    hass: HomeAssistant,
+) -> None:
+    """The fixed pace assumes the walk is the only thing spending. The reserve does not."""
+    coordinator, state, _projector = await _walk_one_window(
+        hass,
+        result=_direction_reading_result(),
+    )
+    resets_at = NOW + timedelta(minutes=40)
+    coordinator._allowance = PointsAllowance(
+        limit=50_000,
+        remaining=100,
+        used=49_900,
+        resets_at=resets_at,
+        blocked=False,
+    )
+    coordinator._allowance_read_at = NOW
+    record = state.checkpoint.backfill_for(ReadingDirection.IMPORT)
+    assert record is not None
+
+    await coordinator._async_pace_backfill(state, ReadingDirection.IMPORT, record.cursor)
+
+    available = coordinator._retry.available(coordinator._background_queue.snapshot(), NOW)
+    assert available.not_before == resets_at
+
+
+async def test_an_unreadable_allowance_does_not_stop_the_walk(hass: HomeAssistant) -> None:
+    """The fixed pace alone already keeps a walk to about a third of the allowance."""
+    coordinator, state, _projector = await _walk_one_window(
+        hass,
+        result=_direction_reading_result(),
+    )
+    coordinator._allowance = None
+    coordinator._allowance_read_at = datetime.min.replace(tzinfo=UTC)
+    coordinator._client = AsyncMock()
+    coordinator._client.execute.side_effect = OejpTransportError("offline")
+    record = state.checkpoint.backfill_for(ReadingDirection.IMPORT)
+    assert record is not None
+
+    await coordinator._async_pace_backfill(state, ReadingDirection.IMPORT, record.cursor)
+
+    available = coordinator._retry.available(coordinator._background_queue.snapshot(), NOW)
+    assert available.not_before == NOW + BACKFILL_MIN_INTERVAL

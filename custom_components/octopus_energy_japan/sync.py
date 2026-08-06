@@ -18,6 +18,23 @@ CONTRACT_INTERVAL = timedelta(hours=12)
 BILLING_INTERVAL = timedelta(hours=12)
 MAX_BACKOFF = timedelta(hours=1)
 
+# The history backfill's pace. Measured against a real account: one reading request costs a
+# flat 17 points of a 50,000-per-hour allowance whatever page size it asks for, so one request
+# every three seconds draws about a third of the allowance and leaves the rest for the ordinary
+# poll. It is a floor rather than a schedule — the point reserve below is what actually stops
+# the walk if anything else on the account is spending.
+BACKFILL_MIN_INTERVAL = timedelta(seconds=3)
+# Stop walking while fewer than this many points remain in the current hour, and wait for the
+# allowance to reset. Two-fifths of it is kept for everything that is not a backfill.
+BACKFILL_POINT_RESERVE = 20_000
+# How many consecutive empty windows end the walk. Twenty-one days of silence: one empty window
+# is not evidence, because a meter exchange, a move with a supply gap, or a provider gap each
+# produce one.
+BACKFILL_EMPTY_WINDOWS = 3
+# An absolute floor, so a defect cannot walk to 1970. Ten years is far past anything the
+# provider has been asked for.
+BACKFILL_MAX_HISTORY = timedelta(days=3660)
+
 
 class SyncReason(StrEnum):
     """Why one bounded reading query was scheduled."""

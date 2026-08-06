@@ -21,6 +21,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import issue_registry as ir
 
 from .api import Capability, CapabilityAvailability, CommercialAvailability
+from .background_sync import BackfillState
 from .const import DOMAIN
 
 if TYPE_CHECKING:
@@ -52,6 +53,7 @@ class OejpIssue(StrEnum):
     COMMERCIAL_PERMISSION_MISSING = "commercial_permission_missing"
     TARIFF_NOT_PRICEABLE = "tariff_not_priceable"
     TARIFF_HISTORY_UNREADABLE = "tariff_history_unreadable"
+    BACKFILL_UNSUPPORTED_PROVIDER = "backfill_unsupported_provider"
 
 
 def _issue_id(entry_id: str, issue: OejpIssue) -> str:
@@ -152,6 +154,20 @@ def _unpriceable_tariff_reasons(commercial: OejpCommercialData | None) -> tuple[
     )
 
 
+def _backfill_unsupported_directions(data: OejpCoordinatorData) -> int:
+    """Return how many directions cannot be walked back because of the reading path.
+
+    The legacy path answers with the most recent 31 days however far back it is asked, so a
+    walk over it would collect a month and then report a complete history. It stops instead,
+    and this is the only way the user learns why nothing older arrived.
+    """
+    return sum(
+        1
+        for status in data.direction_statuses
+        if status.backfill_state is BackfillState.UNSUPPORTED
+    )
+
+
 @callback
 def async_update_issues(
     hass: HomeAssistant,
@@ -209,6 +225,16 @@ def async_update_issues(
         OejpIssue.TARIFF_NOT_PRICEABLE,
         active=bool(unpriceable),
         placeholders={"reasons": ", ".join(unpriceable)},
+        severity=ir.IssueSeverity.WARNING,
+    )
+
+    unsupported = _backfill_unsupported_directions(data)
+    _apply(
+        hass,
+        entry_id,
+        OejpIssue.BACKFILL_UNSUPPORTED_PROVIDER,
+        active=unsupported > 0,
+        placeholders={"count": str(unsupported)},
         severity=ir.IssueSeverity.WARNING,
     )
 

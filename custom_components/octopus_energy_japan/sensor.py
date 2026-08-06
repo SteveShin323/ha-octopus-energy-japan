@@ -258,6 +258,12 @@ async def async_setup_entry(
                         account.number,
                         point.id,
                     ),
+                    OejpHistoryCollectedFromSensor(
+                        coordinator,
+                        runtime.identity_secret,
+                        account.number,
+                        point.id,
+                    ),
                     OejpSupplyPointAddressSensor(
                         coordinator,
                         runtime.identity_secret,
@@ -394,6 +400,39 @@ class OejpSupplyPointStatusSensor(OejpSupplyPointEntity, SensorEntity):
             self._supply_point_id,
         )
         return lifecycle.value if lifecycle is not None else None
+
+
+class OejpHistoryCollectedFromSensor(OejpSupplyPointEntity, SensorEntity):
+    """How far back a requested history walk has reached.
+
+    The honest progress indicator for a job that runs for hours. A percentage would need to
+    know where the account's history begins, which is exactly what the walk is discovering, so
+    any percentage would be invented. This marches backwards instead, one step per refresh.
+    """
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_translation_key = "history_collected_from"
+
+    def __init__(
+        self,
+        coordinator: OejpDataUpdateCoordinator,
+        identity_secret: str,
+        account_id: str,
+        supply_point_id: str,
+    ) -> None:
+        super().__init__(
+            coordinator,
+            identity_secret,
+            account_id,
+            supply_point_id,
+            "history_collected_from",
+        )
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return the oldest instant any direction has walked back to, if one has."""
+        return self.coordinator.backfill_cursor(self._supply_point_identity)
 
 
 class OejpSupplyPointReadingDaySensor(OejpSupplyPointEntity, SensorEntity):

@@ -11,6 +11,27 @@ published client ID before they can be completed.
 
 ### Added
 
+- **Import full history.** A button on each supply point's device page walks that supply point's
+  readings back to where the account's history begins, instead of stopping at the two months a
+  first install collects. Measured against a real account: intervals were present back to the day
+  supply began, and the 1488-interval cap binds one response rather than a range — the legacy
+  query stops 31 days back however wide the window, while the paginated generic query returned
+  every interval asked for.
+
+  Progress is a cursor on the checkpoint rather than a list of planned windows, so a five-year
+  walk does not grow the checkpoint or make its saves quadratic, and a checkpoint written with
+  this feature still loads on a build without it. The walk paces itself from what the provider
+  says is left of the hourly allowance — a reading request costs a flat 17 points of 50,000, so
+  one window every three seconds draws about a third of it, and below a 20,000-point reserve it
+  waits for the reset. It ends after three consecutive empty windows, because the provider has no
+  field saying where an account's history begins.
+
+  A walked window stores its readings and nothing else: projecting statistics reads the whole
+  ledger and rebuilding the snapshot re-reads every supply point, so one rebuild is requested when
+  the walk finishes instead. Collected history reaches the Energy Dashboard statistics but not the
+  calendar sensors, which only aggregate the current and previous month. A supply point whose
+  readings arrive through the legacy path is refused rather than walked, because that path returns
+  only the most recent 31 days and the walk would record a month as a complete history;
 - the fuel-cost adjustment and renewable levy are archived as they are observed, so hours from
   an earlier period can be priced after Octopus Energy Japan has replaced them. It serves only
   the one in force, and every other input to a cost can be re-fetched — these two cannot, so
