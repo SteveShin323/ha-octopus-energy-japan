@@ -116,14 +116,6 @@ class OejpDevice:
 
 
 @dataclass(frozen=True, slots=True)
-class OejpMeter:
-    """Legacy electricity meter associated with a supply point."""
-
-    serial_number: str
-    capacity: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
 class OejpProperty:
     """Property container, including the address the provider holds for it.
 
@@ -212,7 +204,6 @@ class OejpSupplyPoint:
     # billing period a stepped tariff accumulates over: measured against a closed invoice, the
     # period ran from this day of the month to the day before it in the following month.
     supply_start_at: datetime | None = None
-    meters: tuple[OejpMeter, ...] = ()
     devices: tuple[OejpDevice, ...] = ()
 
 

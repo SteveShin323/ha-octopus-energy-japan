@@ -189,6 +189,20 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
     commercial_coordinator.data = None
     assert tariff_lookup("A-1", "SP-1") is None
     assert coordinator_factory.call_args.kwargs["statistics_projector"] is statistics_projector
+    # A price arriving must itself provoke a statistics pass. The lookup above only answers
+    # when something asks, and the only thing that asks is a projection — so without this
+    # listener the price waits for the next poll, up to half an hour later.
+    listeners = [call.args[0] for call in commercial_coordinator.async_add_listener.call_args_list]
+    repriced: list[str] = []
+
+    async def _reprice() -> None:
+        repriced.append("repriced")
+
+    coordinator.async_reprice_statistics = _reprice
+    for listener in listeners:
+        listener()
+    await hass.async_block_till_done()
+    assert repriced == ["repriced"]
     commercial_factory.assert_called_once()
     project_devices.assert_called_once_with(hass, entry, entry.runtime_data)
     forward.assert_awaited_once_with(entry, ["sensor", "binary_sensor", "button"])

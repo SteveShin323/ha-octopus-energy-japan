@@ -714,6 +714,76 @@ async def test_the_cost_sum_continues_across_a_correction(hass: HomeAssistant) -
     assert rows[0]["sum"] > rows[0]["state"]
 
 
+async def test_an_archive_with_nothing_in_it_prices_from_the_reported_rate(
+    hass: HomeAssistant,
+) -> None:
+    """An unreadable archive is quarantined and answers empty, and says so in a warning:
+
+        Past hours will be priced from the rate the provider reports now
+
+    Taking the lookup as the only source made that unkeepable — an empty answer priced every
+    hour with no fuel-cost adjustment and no levy, which is silently low rather than missing.
+    The reported rate is still in hand, so it is used.
+    """
+    from custom_components.octopus_energy_japan.tariff_history import (
+        AdderSchedule,
+        live_schedule,
+    )
+
+    hass.config.components.add(RECORDER)
+
+    async def _first_cost(adder_lookup: object) -> Decimal:
+        published: list[tuple[object, ...]] = []
+        projector = HomeAssistantStatisticsProjector(
+            hass,
+            SECRET,
+            publisher=lambda *args: published.append(args),
+            tariff_lookup=lambda _account, _point: _priceable_tariff(),
+            adder_lookup=adder_lookup,  # type: ignore[arg-type]
+        )
+        await projector.async_project_supply_point(
+            _Ledger((_record(),)),  # type: ignore[arg-type]
+            "A-1",
+            "SP-1",
+            NOW,
+            dirty_from=None,
+        )
+        rows = next(
+            args[2] for args in published if args[1]["statistic_id"].endswith("_tariff_cost")
+        )
+        return Decimal(str(rows[0]["state"]))
+
+    # What the archive holds in the ordinary case: the periods the reported tariff carries.
+    archived = live_schedule(_priceable_tariff(), observed_at=NOW)  # type: ignore[arg-type]
+    filled = await _first_cost(lambda _account, _point: archived)
+    quarantined = await _first_cost(lambda _account, _point: AdderSchedule())
+
+    assert quarantined == filled
+    # And the adders are not a rounding difference: without them the hour costs less.
+    bare = replace(
+        _priceable_tariff(),  # type: ignore[type-var]
+        fuel_cost_adjustment=None,
+        renewable_energy_levy=None,
+    )
+    published: list[tuple[object, ...]] = []
+    projector = HomeAssistantStatisticsProjector(
+        hass,
+        SECRET,
+        publisher=lambda *args: published.append(args),
+        tariff_lookup=lambda _account, _point: bare,
+        adder_lookup=lambda _account, _point: AdderSchedule(),
+    )
+    await projector.async_project_supply_point(
+        _Ledger((_record(),)),  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+    rows = next(args[2] for args in published if args[1]["statistic_id"].endswith("_tariff_cost"))
+    assert Decimal(str(rows[0]["state"])) < quarantined
+
+
 class _RangedLedger(_Ledger):
     """A ledger that honours the requested window, so truncation is observable."""
 

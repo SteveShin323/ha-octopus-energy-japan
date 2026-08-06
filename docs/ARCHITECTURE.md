@@ -104,6 +104,14 @@ until every interval in it has arrived, so a half-synchronised day is never show
 complete day with a low number. These boundaries do not match a billing period, which ends at
 a meter read a few hours after midnight.
 
+"Every interval has arrived" is decided by asking whether authoritative coverage reaches the
+snapshot's own timestamp, which makes a running period — today, this week, this month —
+sensitive to how that snapshot is dated. A poll satisfies it by construction: the instant it
+plans its windows around is the instant it dates the snapshot with. **A snapshot built
+anywhere else keeps the last poll's date**, because it has read nothing newer; dating it with
+the wall clock would claim an instant no window covers and empty every running period until
+the next poll.
+
 One response is capped at 1488 intervals and silently drops the oldest beyond that, so
 requests use seven-day windows to stay well inside it. Measured on one account the cap binds a
 response rather than a range: the legacy query stops 31 days back however wide the window,
@@ -180,6 +188,12 @@ An archive that fails to load is put into **read-only quarantine**: the file is 
 it is, pricing falls back to the live tariff, and a repair issue says so. The ledger recovers
 from a corrupt partition by saving an empty one over it, which costs a re-fetch; doing that here
 would cost the only copy.
+
+**A price arriving provokes a statistics pass.** The tariff is read on a twelve-hour cadence
+and a cost series is only ever written by a pass, which runs every thirty minutes; the two
+clocks are independent, so after a restart a price could sit in hand for half an hour while
+the Energy Dashboard showed energy and no money. The commercial coordinator's listener now
+asks for a pass, marked from now — the readings have not moved.
 
 **A change to any cost input republishes the whole cost series once.** `dirty_from` limits
 publication to recent hours, so a corrected price, a moved period boundary, or a newly archived

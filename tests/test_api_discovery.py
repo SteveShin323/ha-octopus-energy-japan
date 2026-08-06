@@ -64,22 +64,11 @@ def _discovery_payload() -> dict[str, object]:
                                     "spin": "spin-2",
                                     "status": "OFF_SUPPLY",
                                     "readingDateDayOfMonth": 19,
-                                    "meters": [],
                                 },
                                 {
                                     "id": "supply-1",
                                     "spin": "spin-1",
                                     "status": "ON_SUPPLY",
-                                    "meters": [
-                                        {
-                                            "serialNumber": "meter-2",
-                                            "capacity": 60,
-                                        },
-                                        {
-                                            "serialNumber": "meter-1",
-                                            "capacity": None,
-                                        },
-                                    ],
                                 },
                             ],
                         },
@@ -104,11 +93,6 @@ def test_legacy_discovery_returns_sorted_typed_hierarchy() -> None:
     assert [point.id for point in points] == ["supply-1", "supply-2"]
     assert points[0].lifecycle is ResourceLifecycle.ACTIVE
     assert points[1].lifecycle is ResourceLifecycle.HISTORICAL
-    assert [meter.serial_number for meter in points[0].meters] == [
-        "meter-1",
-        "meter-2",
-    ]
-    assert points[0].meters[1].capacity == "60"
     assert accounts[1].lifecycle is ResourceLifecycle.HISTORICAL
 
 
@@ -248,18 +232,6 @@ def test_lifecycle_normalization(
         lambda payload: payload["viewer"]["accounts"][1]["properties"][1][
             "electricitySupplyPoints"
         ][0].update({"id": None, "spin": None}),
-        lambda payload: payload["viewer"]["accounts"][1]["properties"][1][
-            "electricitySupplyPoints"
-        ][0].update({"meters": None}),
-        lambda payload: payload["viewer"]["accounts"][1]["properties"][1][
-            "electricitySupplyPoints"
-        ][1]["meters"].append(None),
-        lambda payload: payload["viewer"]["accounts"][1]["properties"][1][
-            "electricitySupplyPoints"
-        ][1]["meters"][0].update({"serialNumber": ""}),
-        lambda payload: payload["viewer"]["accounts"][1]["properties"][1][
-            "electricitySupplyPoints"
-        ][1]["meters"][0].update({"capacity": {}}),
     ],
 )
 def test_legacy_discovery_rejects_malformed_nested_resources(mutate: object) -> None:
