@@ -1273,6 +1273,24 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             return False
         return any(value.state is BackfillState.RUNNING for value in state.checkpoint.backfill)
 
+    def _history_floor(self, state: _SupplyPointRuntime) -> datetime:
+        """Return the oldest instant a walk should reach for one supply point.
+
+        When the account reports when billable supply began, that is where its readings start
+        and there is nothing older to collect. Walking past it only spends requests proving the
+        provider has nothing, which the empty-window rule would then conclude anyway.
+
+        The empty-window rule still matters, and not only when this is unknown: `supplyPeriods`
+        is a list, so a customer who moved out and back in has a gap between periods that the
+        earliest start says nothing about.
+
+        `BACKFILL_MAX_HISTORY` bounds it either way, so a supply start the provider reports
+        wrongly cannot send the walk to 1970.
+        """
+        absolute = self._utc_now() - BACKFILL_MAX_HISTORY
+        reported = state.supply_point.supply_start_at
+        return max(reported, absolute) if reported is not None else absolute
+
     def _reads_from_legacy(self, state: _SupplyPointRuntime, direction: ReadingDirection) -> bool:
         observation = self._provider_observations.get(self._direction_key(state, direction))
         return observation is not None and observation.provider is ReadingProviderName.LEGACY
@@ -1461,7 +1479,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                 window,
                 empty=not direction_result.readings,
                 empty_limit=BACKFILL_EMPTY_WINDOWS,
-                history_floor=self._utc_now() - BACKFILL_MAX_HISTORY,
+                history_floor=self._history_floor(state),
             )
             await self._async_store_backfill_checkpoint(state, checkpoint)
             record = checkpoint.backfill_for(direction)

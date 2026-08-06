@@ -224,10 +224,13 @@ against its generation's windows on every write. Re-fetching a window costs noth
 ledger is keyed. The walk is never named in `generations`, so a checkpoint written with this
 feature still loads on a build without it.
 
-**The walk stops when it runs dry.** Three consecutive empty windows — 21 days of silence — end
-it. The provider has no field saying where an account's history begins, and one empty window is
-not evidence: a meter exchange, a move with a supply gap, or a provider gap each produce one.
-`BACKFILL_MAX_HISTORY` is an absolute floor so a defect cannot walk to 1970.
+**The walk stops at the reported supply start, or when it runs dry.** `supplyPeriods
+.supplyStartAt` says where an account's readings begin, so reaching it ends the walk with no
+wasted requests. Three consecutive empty windows — 21 days of silence — end it too, which covers
+the two cases the supply start does not: an account that cannot read that field, and the gap
+between two supply periods for a customer who moved out and back in. One empty window is not
+evidence: a meter exchange or a provider gap each produce one. `BACKFILL_MAX_HISTORY` bounds
+both, so a misreported start cannot send the walk to 1970.
 
 **Pacing comes from the provider's own accounting.** A reading request costs a flat 17 points of
 a 50,000-per-hour allowance, so one window every three seconds draws about a third of it; below a
