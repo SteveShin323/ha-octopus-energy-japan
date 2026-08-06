@@ -531,7 +531,7 @@ def test_the_energy_dashboard_cannot_price_an_external_statistic() -> None:
     assert not valid_entity_id(statistic_id)
 
 
-def _priceable_tariff() -> object:
+def _priceable_tariff(step_price: str = "20.62") -> object:
     from custom_components.octopus_energy_japan.api.tariff import (
         SupplyPointTariff,
         TariffAdder,
@@ -544,12 +544,24 @@ def _priceable_tariff() -> object:
         product_code="P",
         product_name="P",
         steps=(
-            TariffStep(start_kwh=Decimal(0), end_kwh=Decimal(120), price_inc_tax=Decimal("20.62")),
+            TariffStep(
+                start_kwh=Decimal(0), end_kwh=Decimal(120), price_inc_tax=Decimal(step_price)
+            ),
             TariffStep(start_kwh=Decimal(120), end_kwh=None, price_inc_tax=Decimal("25.29")),
         ),
         standing_charge_per_day=Decimal("38.80"),
-        fuel_cost_adjustment=TariffAdder(price_inc_tax=Decimal("4.32")),
-        renewable_energy_levy=TariffAdder(price_inc_tax=Decimal("4.18")),
+        # Real adders carry the period they apply to; one without a start cannot be
+        # archived, because there is no period to file it under.
+        fuel_cost_adjustment=TariffAdder(
+            price_inc_tax=Decimal("4.32"),
+            valid_from=datetime(2026, 7, 31, 15, tzinfo=UTC),
+            valid_to=datetime(2026, 8, 31, 15, tzinfo=UTC),
+        ),
+        renewable_energy_levy=TariffAdder(
+            price_inc_tax=Decimal("4.18"),
+            valid_from=datetime(2026, 4, 30, 15, tzinfo=UTC),
+            valid_to=datetime(2027, 4, 30, 15, tzinfo=UTC),
+        ),
     )
 
 
@@ -676,8 +688,20 @@ async def test_the_cost_sum_continues_across_a_correction(hass: HomeAssistant) -
         ),
     )
 
+    ledger = _Ledger((earlier, _record()))
+    # The first pass always republishes: nothing is known yet about what the cost was last
+    # computed from. The correction this test is about happens on a later one.
     await projector.async_project_supply_point(
-        _Ledger((earlier, _record())),  # type: ignore[arg-type]
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+    published.clear()
+
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
         "A-1",
         "SP-1",
         NOW,
@@ -1029,7 +1053,9 @@ async def test_a_quiet_tariff_lookup_does_not_lose_the_cost_total(
         dirty_from=AUGUST_HOUR,
     )
 
-    assert ledger.requested == (AUGUST_JST, NOW)
+    # The tariff coming back is itself a change to what the cost is computed from, so this pass
+    # reprices and reads the whole ledger. What matters is that the total is the one it was
+    # before the lookup went quiet, not a series starting again from zero.
     assert _sum_at(published, "_tariff_cost", AUGUST_HOUR) == pytest.approx(whole_history)
 
 
@@ -1053,3 +1079,95 @@ async def test_export_energy_never_gets_a_cost_series(hass: HomeAssistant) -> No
 
     assert published
     assert not any(args[1]["statistic_id"].endswith("_tariff_cost") for args in published)
+
+
+async def test_a_changed_price_republishes_the_whole_cost_history(
+    hass: HomeAssistant,
+) -> None:
+    """Without this, a corrected price is computed for every hour and then discarded.
+
+    `dirty_from` limits publication to recent hours, so a change to a price, a period boundary,
+    or an archived adjustment would never reach the rows an earlier version of this formula
+    wrote. Energy rows are untouched, because a price does not move them.
+    """
+    hass.config.components.add(RECORDER)
+    published: list[tuple[object, ...]] = []
+    tariff: list[object] = [_priceable_tariff()]
+    projector = HomeAssistantStatisticsProjector(
+        hass,
+        SECRET,
+        publisher=lambda *args: published.append(args),
+        tariff_lookup=lambda _account, _point: tariff[0],  # type: ignore[arg-type,return-value]
+    )
+    ledger = _RangedLedger((_record_at(JULY_HOUR, "1.0"), _record_at(AUGUST_HOUR, "0.5")))
+
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+
+    # A dirty boundary that would ordinarily publish only August.
+    published.clear()
+    tariff[0] = _priceable_tariff(step_price="30.00")
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=AUGUST_HOUR,
+    )
+
+    cost_starts = [
+        row["start"]
+        for args in published
+        if str(args[1]["statistic_id"]).endswith("_tariff_cost")  # type: ignore[index]
+        for row in args[2]  # type: ignore[index]
+    ]
+    energy_starts = [
+        row["start"]
+        for args in published
+        if str(args[1]["statistic_id"]).endswith("_import_energy")  # type: ignore[index]
+        for row in args[2]  # type: ignore[index]
+    ]
+    assert JULY_HOUR in cost_starts
+    assert JULY_HOUR not in energy_starts
+
+
+async def test_an_unchanged_price_leaves_the_past_alone(hass: HomeAssistant) -> None:
+    """Republishing on every refresh would rewrite the whole cost history twice an hour."""
+    hass.config.components.add(RECORDER)
+    published: list[tuple[object, ...]] = []
+    projector = HomeAssistantStatisticsProjector(
+        hass,
+        SECRET,
+        publisher=lambda *args: published.append(args),
+        tariff_lookup=lambda _account, _point: _priceable_tariff(),
+    )
+    ledger = _RangedLedger((_record_at(JULY_HOUR, "1.0"), _record_at(AUGUST_HOUR, "0.5")))
+
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+    published.clear()
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=AUGUST_HOUR,
+    )
+
+    cost_starts = [
+        row["start"]
+        for args in published
+        if str(args[1]["statistic_id"]).endswith("_tariff_cost")  # type: ignore[index]
+        for row in args[2]  # type: ignore[index]
+    ]
+    assert cost_starts == [AUGUST_HOUR]

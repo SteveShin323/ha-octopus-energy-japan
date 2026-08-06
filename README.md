@@ -218,8 +218,9 @@ from your bill:
 - The price steps restart on the day of the month your meter is read, taken from what your
   account reports. The provider publishes no time of day for the read, so each boundary can be
   a few hours out.
-- Only the current month's fuel-cost adjustment is available, so hours in earlier months are
-  priced without one.
+- Only the current month's fuel-cost adjustment is available from Octopus Energy Japan. The
+  integration keeps every one it sees, so accuracy improves the longer it runs; until an hour's
+  own adjustment has been collected it is priced with the nearest one that has.
 - Whether the standing charge your account reports is already worked out for your contracted
   amperage is not confirmed. Your diagnostics download says what the provider calls it.
 

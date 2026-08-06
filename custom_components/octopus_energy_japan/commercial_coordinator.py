@@ -26,6 +26,7 @@ from .api import (
     async_fetch_supply_point_tariffs,
 )
 from .const import DOMAIN
+from .tariff_history_store import TariffHistoryArchive
 
 COMMERCIAL_UPDATE_INTERVAL = timedelta(hours=12)
 _LOGGER = logging.getLogger(__name__)
@@ -69,6 +70,7 @@ class OejpCommercialCoordinator(DataUpdateCoordinator[OejpCommercialData]):
         accounts: tuple[OejpAccount, ...],
         *,
         now: Callable[[], datetime] | None = None,
+        archive: TariffHistoryArchive | None = None,
     ) -> None:
         current = (now or (lambda: datetime.now(UTC)))()
         super().__init__(
@@ -82,6 +84,9 @@ class OejpCommercialCoordinator(DataUpdateCoordinator[OejpCommercialData]):
         self._client = client
         self._accounts = accounts
         self._now = now or (lambda: datetime.now(UTC))
+        # The adjustments the provider stops serving once their period ends. Filed here because
+        # this is the only place a tariff is read, and a value missed is a value gone for good.
+        self._archive = archive
         self.data = OejpCommercialData((), _utc(current))
 
     def set_accounts(self, accounts: tuple[OejpAccount, ...]) -> None:
@@ -128,6 +133,8 @@ class OejpCommercialCoordinator(DataUpdateCoordinator[OejpCommercialData]):
                 tariffs.extend(
                     value for value in previous_tariffs if value.account_number == account.number
                 )
+        if self._archive is not None:
+            await self._archive.async_observe(tariffs, observed_at=observed_at)
         return OejpCommercialData(tuple(snapshots), observed_at, tuple(tariffs))
 
 

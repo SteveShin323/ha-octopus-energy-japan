@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
     from .commercial_coordinator import OejpCommercialData
     from .coordinator import OejpCoordinatorData
+    from .tariff_history_store import TariffHistoryArchive
 
 # Each issue already carries its own translated title and description, so this link
 # only has to land somewhere useful. Troubleshooting is that place.
@@ -50,6 +51,7 @@ class OejpIssue(StrEnum):
     CAPABILITY_UNAVAILABLE = "capability_unavailable"
     COMMERCIAL_PERMISSION_MISSING = "commercial_permission_missing"
     TARIFF_NOT_PRICEABLE = "tariff_not_priceable"
+    TARIFF_HISTORY_UNREADABLE = "tariff_history_unreadable"
 
 
 def _issue_id(entry_id: str, issue: OejpIssue) -> str:
@@ -157,6 +159,7 @@ def async_update_issues(
     data: OejpCoordinatorData,
     commercial: OejpCommercialData | None,
     now: datetime,
+    archive: TariffHistoryArchive | None = None,
 ) -> None:
     """Raise or clear every issue this runtime state implies."""
     _apply(
@@ -206,6 +209,16 @@ def async_update_issues(
         OejpIssue.TARIFF_NOT_PRICEABLE,
         active=bool(unpriceable),
         placeholders={"reasons": ", ".join(unpriceable)},
+        severity=ir.IssueSeverity.WARNING,
+    )
+
+    quarantined = archive.quarantined_supply_points if archive is not None else 0
+    _apply(
+        hass,
+        entry_id,
+        OejpIssue.TARIFF_HISTORY_UNREADABLE,
+        active=quarantined > 0,
+        placeholders={"count": str(quarantined)},
         severity=ir.IssueSeverity.WARNING,
     )
 

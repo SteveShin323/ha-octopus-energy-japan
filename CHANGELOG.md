@@ -11,32 +11,24 @@ published client ID before they can be completed.
 
 ### Added
 
+- the fuel-cost adjustment and renewable levy are archived as they are observed, so hours from
+  an earlier period can be priced after Octopus Energy Japan has replaced them. It serves only
+  the one in force, and every other input to a cost can be re-fetched — these two cannot, so
+  they are the one thing this integration keeps a private copy of. Hours outside every archived
+  period use the nearest archived value rather than nothing, which is what they used to get, and
+  an archive that fails to load is left untouched rather than overwritten, because a save over
+  it would destroy the only copy;
 - stepped charges restart on the invoiced period instead of the Asia/Tokyo calendar month. The
   anchor is whichever the account reports that states the meter-reading schedule most directly:
   two consecutive scheduled reading dates that agree on a day one month apart, else the day
-  billable supply began, else the calendar month as before. The rule was measured on one account
-  with one closed invoice, so the derived anchor, the evidence behind it, and whether the
-  provider's own reported reading day agrees are all in the diagnostics download;
-- a repair message when the reported plan cannot be priced at all, with the reason, and a
-  `tariffs` section in the diagnostics download carrying each plan's shape — product type, step
-  count, rate generations, and what the standing charge is measured in. An absent cost statistic
-  previously looked the same whether the plan could not be expressed or the integration was
-  broken.
-
-### Fixed
-
-- accounts on a single-price plan got no cost statistic at all. The query asked for consumption
-  charges only on the stepped product, and the parser then required a step boundary that a
-  single-price charge does not have;
-- an account that also exports could lose its consumption prices. The agreement in force was
-  chosen by start date alone, so a later-starting export agreement — whose product carries
-  generation credits and no consumption charges — won;
-- a plan whose prices vary by time of day, or whose charges come from more than one grid
-  operator, was treated as a step ladder and mispriced. Both are now refused with a recorded
-  reason, as a charge in an unsupported unit already was;
-- more than one published generation of rates became overlapping steps whose price depended on
-  sort order rather than on the date. An hour is now priced with the generation in force then,
-  and an hour no generation covers uses the nearest one.
+  billable supply began, else the calendar month as before. The rule was measured on one
+  account with one closed invoice, so the derived anchor, the evidence behind it, and whether
+  the provider's own reported reading day agrees are all in the diagnostics download;
+- a repair message when the reported plan cannot be priced at all, with the reason, and one
+  when a stored archive cannot be read. The diagnostics download gains a `tariffs` section
+  carrying each plan's shape — product type, step count, rate generations, and what the
+  standing charge is measured in. An absent cost statistic previously looked the same whether
+  the plan could not be expressed or the integration was broken.
 
 ### Changed
 
@@ -48,7 +40,11 @@ published client ID before they can be completed.
   cost formula's cumulative kWh restarts; a new `billing_period.py` names those boundaries.
   Sums are identical to a whole-ledger pass, and the pass falls back to reading everything
   whenever the boundary has no remembered total, which covers the first pass after a restart
-  and any correction older than the two boundaries kept.
+  and any correction older than the two boundaries kept;
+- a change to a price, a period boundary, or an archived adjustment republishes the whole cost
+  series once. `dirty_from` limits publication to recent hours, so a corrected past would
+  otherwise have been computed and then discarded before reaching the recorder. Energy rows are
+  untouched, because a price does not move them.
 
 ### Fixed
 
@@ -59,7 +55,21 @@ published client ID before they can be completed.
   reached again. Worse, a statistic's display name comes from its device, whose name is
   ordinal and therefore identical after a re-install, so the Energy dashboard picker showed
   two series with the same name and no way to tell which one was live. When the last entry is
-  removed, statistics left behind by an earlier removal are swept as well.
+  removed, statistics left behind by an earlier removal are swept as well;
+- accounts on a single-price plan got no cost statistic at all. The query asked for consumption
+  charges only on the stepped product, and the parser then required a step boundary that a
+  single-price charge does not have;
+- an account that also exports could lose its consumption prices. The agreement in force was
+  chosen by start date alone, so a later-starting export agreement — whose product carries
+  generation credits and no consumption charges — won;
+- a plan whose prices vary by time of day, or whose charges come from more than one grid
+  operator, was treated as a step ladder and mispriced. Both are now refused with a recorded
+  reason, as a charge in an unsupported unit already was;
+- more than one published generation of rates became overlapping steps whose price depended on
+  sort order rather than on the date. An hour is now priced with the generation in force then,
+  and an hour no generation covers keeps the last price that had begun;
+- an adjustment whose stated validity period could not be read was treated as open-ended, which
+  made it apply to every moment in history.
 
 ## [0.8.1] - 2026-08-05
 

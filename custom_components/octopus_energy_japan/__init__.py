@@ -62,6 +62,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .password_auth import OejpPasswordAuthError, OejpPasswordAuthSession
     from .runtime import OejpRuntimeData, async_project_discovered_devices
     from .statistics_runtime import HomeAssistantStatisticsProjector
+    from .tariff_history_store import TariffHistoryArchive
 
     client = OejpGraphQLClient(async_get_clientsession(hass))
     auth: AuthSession
@@ -201,11 +202,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     ]:
         return await _async_discover_state(authenticated_client)
 
+    tariff_archive = TariffHistoryArchive(hass, entry.entry_id, identity_secret)
+    runtime.tariff_archive = tariff_archive
     commercial_coordinator = OejpCommercialCoordinator(
         hass,
         entry,
         authenticated_client,
         accounts,
+        archive=tariff_archive,
     )
 
     def tariff_for(account_id: str, supply_point_id: str) -> Any:
@@ -217,6 +221,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         """
         data = commercial_coordinator.data
         return data.tariff(account_id, supply_point_id) if data is not None else None
+
+    def adders_for(account_id: str, supply_point_id: str) -> Any:
+        """Look up every rate adjustment archived for one supply point.
+
+        Empty until the first commercial refresh has filed one, which prices those hours from
+        nothing — the same as before the archive existed. It fills on the first refresh.
+        """
+        return tariff_archive.schedule(account_id, supply_point_id)
 
     coordinator = OejpDataUpdateCoordinator(
         hass,
@@ -230,6 +242,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass,
             identity_secret,
             tariff_lookup=tariff_for,
+            adder_lookup=adders_for,
         ),
     )
     runtime.coordinator = coordinator
@@ -257,6 +270,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 coordinator.data,
                 commercial,
                 dt_util.utcnow(),
+                tariff_archive,
             )
 
         entry.async_on_unload(coordinator.async_add_listener(refresh_issues))
@@ -410,6 +424,7 @@ async def _async_purge_stored_data(hass: HomeAssistant, entry: ConfigEntry) -> N
     prefixes = (
         f"{DOMAIN}.ledger.{entry.entry_id}.",
         f"{DOMAIN}.sync.{entry.entry_id}.",
+        f"{DOMAIN}.tariff_history.{entry.entry_id}.",
     )
     directory = Path(hass.config.path(STORAGE_DIR))
 
