@@ -18,6 +18,7 @@ from custom_components.octopus_energy_japan.background_sync import (
     BackgroundWindow,
     CoverageWindow,
     DailyDirectionCompletion,
+    DirectionBackfill,
     DirectionWindowCompletion,
     PlannedGeneration,
     SyncCheckpoint,
@@ -687,3 +688,61 @@ def test_the_cadence_and_the_walk_start_from_the_same_floor() -> None:
     )
 
     assert oldest_planned == floor
+
+
+def test_a_negative_empty_run_is_refused() -> None:
+    with pytest.raises(ValueError, match="empty streak"):
+        DirectionBackfill(ReadingDirection.IMPORT, BackfillState.RUNNING, NOW, empty_streak=-1)
+
+
+def test_two_records_for_one_direction_are_refused() -> None:
+    """One cursor per direction, or which one is authoritative would depend on order."""
+    with pytest.raises(ValueError, match="duplicate backfill"):
+        SyncCheckpoint(
+            month_pair_generation="2026-07_2026-08",
+            backfill=(
+                DirectionBackfill(ReadingDirection.IMPORT, BackfillState.RUNNING, NOW),
+                DirectionBackfill(ReadingDirection.IMPORT, BackfillState.COMPLETE, NOW),
+            ),
+        )
+
+
+def _backfill_payload(**overrides: object) -> dict[str, object]:
+    record = {
+        "direction": "import",
+        "state": "running",
+        "cursor": "2026-07-01T00:00:00+00:00",
+        "empty_streak": 1,
+        "error_class": None,
+    }
+    record.update(overrides)
+    payload = _checkpoint().as_dict()
+    payload["backfill"] = [record]
+    return payload
+
+
+def test_a_record_written_without_the_optional_fields_reads_as_empty() -> None:
+    payload = _backfill_payload()
+    del payload["backfill"][0]["empty_streak"]  # type: ignore[index]
+    del payload["backfill"][0]["error_class"]  # type: ignore[index]
+
+    (record,) = SyncCheckpoint.from_dict(payload).backfill
+
+    assert record.empty_streak == 0
+    assert record.error_class is None
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"error_class": 12345},
+        {"error_class": ""},
+        {"empty_streak": "one"},
+        {"empty_streak": True},
+        {"empty_streak": -1},
+    ],
+)
+def test_a_malformed_record_is_refused_rather_than_coerced(overrides: dict[str, object]) -> None:
+    """A wrong cursor or run length would silently re-walk or stop a walk early."""
+    with pytest.raises(ValueError):
+        SyncCheckpoint.from_dict(_backfill_payload(**overrides))

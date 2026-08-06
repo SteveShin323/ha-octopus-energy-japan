@@ -132,3 +132,14 @@ async def test_pressing_says_so_when_nothing_can_be_walked(hass: HomeAssistant) 
 
     assert raised.value.translation_key == "backfill_unsupported"
     assert raised.value.translation_domain == DOMAIN
+
+
+async def test_an_entity_without_a_unique_id_is_a_defect_not_a_silent_skip(
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A button with no unique id could never be disabled or renamed by the user."""
+    monkeypatch.setattr(OejpImportHistoryButton, "unique_id", property(lambda _self: None))
+
+    with pytest.raises(RuntimeError, match="unique ID"):
+        await async_setup_entry(hass, _entry(hass, _coordinator()), Mock())

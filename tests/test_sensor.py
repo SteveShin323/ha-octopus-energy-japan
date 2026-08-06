@@ -780,3 +780,16 @@ def test_neither_describing_sensor_reads_another_account() -> None:
         OejpSupplyPointAddressSensor(coordinator, SECRET, "OTHER-ACCOUNT", SUPPLY_POINT_ID),
     ):
         assert sensor.native_value is None
+
+
+async def test_the_history_sensor_reports_how_far_back_a_walk_has_reached(
+    hass: HomeAssistant,
+) -> None:
+    """The honest progress indicator: a percentage would need a total the walk is discovering."""
+    coordinator = _coordinator()
+    cursor = datetime(2026, 5, 1, tzinfo=UTC)
+    coordinator.backfill_cursor = Mock(return_value=cursor)
+    sensor = OejpHistoryCollectedFromSensor(coordinator, SECRET, ACCOUNT_ID, SUPPLY_POINT_ID)
+
+    assert sensor.native_value == cursor
+    coordinator.backfill_cursor.assert_called_once_with(sensor._supply_point_identity)
