@@ -23,8 +23,9 @@ published client ID before they can be completed.
   this feature still loads on a build without it. The walk paces itself from what the provider
   says is left of the hourly allowance — a reading request costs a flat 17 points of 50,000, so
   one window every three seconds draws about a third of it, and below a 20,000-point reserve it
-  waits for the reset. It ends after three consecutive empty windows, because the provider has no
-  field saying where an account's history begins.
+  waits for the reset. It ends where the account says billable supply began, and after three
+  consecutive empty windows otherwise — which covers an account that cannot read that field and
+  the gap between two supply periods for a customer who moved out and back in.
 
   A walked window stores its readings and nothing else: projecting statistics reads the whole
   ledger and rebuilding the snapshot re-reads every supply point, so one rebuild is requested when
