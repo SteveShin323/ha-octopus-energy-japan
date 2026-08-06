@@ -9,6 +9,21 @@ published client ID before they can be completed.
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-08-06
+
+### Fixed
+
+- **An installation could not start once its stored access token had expired.** Setup failed
+  with "Your accounts and supply points could not be read" and retried forever, with nothing
+  in the log to say why. The provider reports an expired token as `KT-CT-1124`, carrying
+  errorType `APPLICATION` — a type that says nothing about authentication, so the code is the
+  only signal, and it was not in the table. Everything needed to recover was already there
+  and simply never ran: the authenticated client refreshes and retries, but only for an
+  authentication error, and the stored token is used without checking its age. So any restart
+  more than a token lifetime after the last refresh was fatal, and the refresh token that
+  would have fixed it in one call sat unused. Measured against a real account by replaying a
+  stale token: `APPLICATION / KT-CT-1124 / "Signature of the JWT has expired."`
+
 ## [0.9.2] - 2026-08-06
 
 Everything here was found by running 0.9.1 on a real Home Assistant and looking at what it

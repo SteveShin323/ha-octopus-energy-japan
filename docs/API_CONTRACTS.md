@@ -167,6 +167,12 @@ direct-looking field is not used.
 
 ## Authentication
 
+**An expired access token is reported as an application error**, `KT-CT-1124` with
+errorType `APPLICATION` and the message "Signature of the JWT has expired." Neither the type
+nor the message shape says authentication, so the code is the only signal — and getting that
+wrong is expensive, because refreshing happens only for an authentication error and a stored
+token is never checked for age.
+
 **A rejected credential is reported as a validation error**, `KT-CT-1138` with
 `errorType: VALIDATION`, not as an authentication error. Classification keys on the code
 before the type for exactly this reason; without that ordering an expired authorization
