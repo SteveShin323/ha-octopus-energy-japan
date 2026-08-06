@@ -241,3 +241,33 @@ async def test_a_tariff_authentication_failure_asks_for_reauth(hass: HomeAssista
         pytest.raises(ConfigEntryAuthFailed),
     ):
         await coordinator._async_update_data()
+
+
+async def test_every_observed_tariff_is_filed_before_the_provider_forgets_it(
+    hass: HomeAssistant,
+) -> None:
+    """This is the only place a tariff is read, so a value missed here is gone for good."""
+    archive = AsyncMock()
+    accounts = (OejpAccount("A"),)
+    coordinator = OejpCommercialCoordinator(
+        hass,
+        MockConfigEntry(),
+        AsyncMock(spec=AuthenticatedGraphQLClient),
+        accounts,
+        now=lambda: NOW,
+        archive=archive,
+    )
+
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.commercial_coordinator.async_fetch_account_commercial_snapshot",
+            AsyncMock(side_effect=lambda _c, account_id, **_k: _snapshot(account_id)),
+        ),
+        patch(TARIFF_FETCH, AsyncMock(side_effect=lambda _c, account_id: (_tariff(account_id),))),
+    ):
+        data = await coordinator._async_update_data()
+
+    archive.async_observe.assert_awaited_once()
+    observed, kwargs = archive.async_observe.await_args
+    assert list(observed[0]) == list(data.tariffs)
+    assert kwargs["observed_at"] == data.observed_at

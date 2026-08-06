@@ -42,6 +42,7 @@ from custom_components.octopus_energy_japan.api import (
     ResourceLifecycle,
 )
 from custom_components.octopus_energy_japan.background_sync import (
+    BACKFILL_GENERATION,
     BackfillState,
     BackgroundSyncItem,
     BackgroundSyncReason,
@@ -69,6 +70,7 @@ from custom_components.octopus_energy_japan.coordinator import (
     DirectionSyncStatus,
     OejpDataUpdateCoordinator,
     ProviderObservation,
+    _backfill_window,
     _previous_local_month_start,
     _StatisticsPending,
     _SupplyPointRuntime,
@@ -2485,3 +2487,153 @@ async def test_an_unreadable_allowance_does_not_stop_the_walk(hass: HomeAssistan
 
     available = coordinator._retry.available(coordinator._background_queue.snapshot(), NOW)
     assert available.not_before == NOW + BACKFILL_MIN_INTERVAL
+
+
+async def test_the_worker_takes_a_walked_window_without_waking_the_entities(
+    hass: HomeAssistant,
+) -> None:
+    """The branch the walk actually runs through, driven by the worker rather than called.
+
+    A walk of hundreds of windows must not publish a snapshot per window, and the worker is
+    where that decision is taken.
+    """
+    projector = AsyncMock()
+    coordinator = _coordinator(
+        hass,
+        statistics_projector=cast("StatisticsProjector", projector),
+    )
+    point = _point()
+    router = AsyncMock()
+    router.async_get_readings.return_value = _direction_reading_result()
+    _install_state(coordinator, point, router=router)
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+    identity = coordinator._status_identity(state)
+    coordinator._direction_statuses[coordinator._direction_key(state, ReadingDirection.IMPORT)] = (
+        DirectionSyncStatus(
+            account_identity="account",
+            supply_point_identity=identity,
+            direction=ReadingDirection.IMPORT,
+            queryable=True,
+        )
+    )
+    coordinator._allowance = PointsAllowance(
+        limit=50_000,
+        remaining=49_000,
+        used=1_000,
+        resets_at=NOW + timedelta(hours=1),
+        blocked=False,
+    )
+    coordinator._allowance_read_at = NOW
+    coordinator._startup_complete = True
+    published: list[object] = []
+    coordinator.async_set_updated_data = Mock(  # type: ignore[method-assign]
+        side_effect=published.append
+    )
+    await coordinator.async_start_history_backfill(identity)
+    # One window from the end, so the worker drains the queue and returns instead of pacing
+    # the next one for three seconds of real time.
+    record = state.checkpoint.backfill_for(ReadingDirection.IMPORT)
+    assert record is not None
+    state.checkpoint = replace(
+        state.checkpoint,
+        backfill=(replace(record, empty_streak=BACKFILL_EMPTY_WINDOWS - 1),),
+    )
+
+    await coordinator._async_background_worker()
+
+    assert published == []
+    projector.async_project_supply_point.assert_not_awaited()
+    walked = state.checkpoint.backfill_for(ReadingDirection.IMPORT)
+    assert walked is not None
+    assert walked.state is BackfillState.COMPLETE
+    assert walked.cursor < initial_floor(NOW)
+
+
+async def test_pressing_again_while_a_walk_runs_changes_nothing(hass: HomeAssistant) -> None:
+    coordinator, state, _projector = await _walk_one_window(
+        hass,
+        result=_direction_reading_result(),
+    )
+    identity = coordinator._status_identity(state)
+    before = state.checkpoint.backfill_for(ReadingDirection.IMPORT)
+    assert before is not None
+
+    await coordinator.async_start_history_backfill(identity)
+
+    assert state.checkpoint.backfill_for(ReadingDirection.IMPORT) == before
+
+
+async def test_a_supply_point_that_is_not_installed_is_not_walked(hass: HomeAssistant) -> None:
+    coordinator = _coordinator(hass)
+    unknown = "supply-point-" + "f" * 64
+
+    await coordinator.async_start_history_backfill(unknown)
+
+    assert coordinator.backfill_cursor(unknown) is None
+    assert coordinator.has_running_backfill(unknown) is False
+
+
+async def test_the_allowance_is_read_once_a_minute_not_once_a_window(
+    hass: HomeAssistant,
+) -> None:
+    """Asking on every window would spend 5 points each time for the same answer."""
+    coordinator, state, _projector = await _walk_one_window(
+        hass,
+        result=_direction_reading_result(),
+    )
+    coordinator._allowance = None
+    coordinator._allowance_read_at = datetime.min.replace(tzinfo=UTC)
+    coordinator._client = AsyncMock()
+    coordinator._client.execute.return_value = {
+        "rateLimitInfo": {
+            "pointsAllowanceRateLimit": {
+                "limit": 50000,
+                "remainingPoints": 49000,
+                "usedPoints": 1000,
+                "ttl": 1785916217,
+                "isBlocked": False,
+            }
+        }
+    }
+    record = state.checkpoint.backfill_for(ReadingDirection.IMPORT)
+    assert record is not None
+
+    await coordinator._async_pace_backfill(state, ReadingDirection.IMPORT, record.cursor)
+    await coordinator._async_pace_backfill(state, ReadingDirection.IMPORT, record.cursor)
+
+    assert coordinator._client.execute.await_count == 1
+    assert coordinator._allowance is not None
+    assert coordinator._allowance.remaining == 49000
+
+
+async def test_a_second_legacy_answer_writes_nothing_new(hass: HomeAssistant) -> None:
+    """Both directions of a supply point can answer from legacy in the same walk."""
+    coordinator, state, _projector = await _walk_one_window(
+        hass,
+        result=_direction_reading_result(provider=ReadingProviderName.LEGACY),
+    )
+    stopped = state.checkpoint
+    item = BackgroundSyncItem(
+        BackgroundSyncScope(
+            coordinator._status_identity(state),
+            ReadingDirection.IMPORT,
+            _backfill_window(initial_floor(NOW)),
+        ),
+        frozenset({SyncObligation(BackgroundSyncReason.HISTORY_BACKFILL, BACKFILL_GENERATION)}),
+    )
+
+    await coordinator._async_advance_backfill(
+        state,
+        item,
+        _direction_reading_result(provider=ReadingProviderName.LEGACY),
+    )
+
+    # Nothing changed, so nothing was written a second time.
+    assert state.checkpoint == stopped
+    saves_after = state.checkpoint_backend.async_save.await_count
+    await coordinator._async_advance_backfill(
+        state,
+        item,
+        _direction_reading_result(provider=ReadingProviderName.LEGACY),
+    )
+    assert state.checkpoint_backend.async_save.await_count == saves_after
