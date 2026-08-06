@@ -5,6 +5,7 @@ from unittest.mock import patch
 import pytest
 from custom_components.octopus_energy_japan.application_credentials import (
     OejpOAuth2Implementation,
+    async_built_in_implementation,
     async_get_auth_implementation,
 )
 from custom_components.octopus_energy_japan.oauth_metadata import (
@@ -74,3 +75,43 @@ async def test_application_credentials_fail_closed_without_confirmed_metadata(
             "local",
             ClientCredential("public-client", ""),
         )
+
+
+async def test_the_built_in_client_is_a_public_one(hass: HomeAssistant) -> None:
+    """No secret, because a public client has none and Home Assistant omits an empty one."""
+    with patch(
+        "custom_components.octopus_energy_japan.application_credentials.OEJP_OAUTH_CLIENT_ID",
+        "a-public-client",
+    ):
+        implementation = async_built_in_implementation(hass)
+
+    assert implementation is not None
+    assert implementation.client_id == "a-public-client"
+    assert implementation.client_secret == ""
+
+
+async def test_there_is_no_built_in_client_until_one_is_issued(hass: HomeAssistant) -> None:
+    with patch(
+        "custom_components.octopus_energy_japan.application_credentials.OEJP_OAUTH_CLIENT_ID",
+        "",
+    ):
+        assert async_built_in_implementation(hass) is None
+
+
+async def test_the_built_in_client_needs_metadata_too(hass: HomeAssistant) -> None:
+    """Client ID and endpoints are confirmed separately, so either can be the missing one.
+
+    Registering nothing leaves the sign-in methods unavailable and saying so, which is where
+    they already were — better than a half-built implementation aimed at no endpoint.
+    """
+    with (
+        patch(
+            "custom_components.octopus_energy_japan.application_credentials.OEJP_OAUTH_CLIENT_ID",
+            "a-public-client",
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.oauth_metadata.PRODUCTION_OAUTH_METADATA",
+            None,
+        ),
+    ):
+        assert async_built_in_implementation(hass) is None

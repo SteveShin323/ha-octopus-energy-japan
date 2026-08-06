@@ -65,6 +65,24 @@ class OAuthMetadataUnavailableError(RuntimeError):
 # `docs/adr/0001-oauth-public-client.md`.
 OEJP_AUTH_ISSUER: Final = "https://auth.oejp-kraken.energy/token/"
 
+# The OAuth client Octopus Energy Japan issues to this integration. One client serves every
+# installation, so it is shipped here rather than typed in: it identifies the application, not
+# the customer, and a value every user must copy from a README is a setup step that can only be
+# got wrong.
+#
+# Empty until the provider issues one. While it is empty the OAuth sign-in methods are
+# unavailable and say so, exactly as before; filling this in is the only change needed to
+# enable them.
+#
+# No secret accompanies it. The provider's documentation offers a public client and documents
+# PKCE, and Home Assistant omits `client_secret` from the token request when it is empty. But
+# the discovery document advertises neither a `none` token-endpoint auth method nor
+# `code_challenge_methods_supported`, so a public client is what the provider describes rather
+# than what its metadata proves. `application_credentials.py` therefore stays: if the issued
+# client turns out to be confidential, adding a credential by hand is the way through, and it
+# takes precedence over this one.
+OEJP_OAUTH_CLIENT_ID: Final = ""
+
 READ_ONLY_SCOPES: Final = (
     "openid",
     "view:account-number",
