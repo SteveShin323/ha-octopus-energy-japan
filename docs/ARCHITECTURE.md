@@ -306,8 +306,14 @@ Repair issues are informational. Each explains a condition the user cannot fix b
 reconfiguring, and says whether anything needs doing. They cover a corrupt ledger partition,
 readings that stopped arriving, an unavailable capability, a missing commercial permission,
 a tariff whose shape the cost formula cannot express, an archive of past rate adjustments
-that could not be read, and a supply point whose reading path cannot serve older readings. Reauthentication is not among them,
+that could not be read, a supply point whose reading path cannot serve older readings, and a
+supply point with no consumption agreement in force. Reauthentication is not among them,
 because Home Assistant owns that prompt.
+
+The last one distinguishes two supply points that both stop publishing a cost. One never
+priced consumption — an export-only point — and is silent on purpose. The other had a plan
+that ended with nothing to replace it, which is what a plan switch or a move-out looks like
+from here, and it used to be just as silent.
 
 The last of those exists because an absent cost statistic looks the same whether the plan
 cannot be priced or the integration is broken. The `tariffs` section of the diagnostics
