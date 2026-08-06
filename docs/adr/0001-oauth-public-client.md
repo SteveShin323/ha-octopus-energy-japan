@@ -28,6 +28,25 @@ Otherwise, use Home Assistant Application Credentials. The legacy Kraken token
 operation is isolated to a local read-only probe and removed from public setup
 and runtime before alpha.
 
+**Where the client ID lives, decided 2026-08-06.** It ships in the code as
+`oauth_metadata.OEJP_OAUTH_CLIENT_ID`, empty until issued, and is registered as an OAuth
+implementation. It identifies the application, not the customer, so it is the same for
+everyone and asking each user to type it is a setup step that can only be got wrong — and
+Application Credentials additionally requires a client *secret*, which a public client does
+not have. Home Assistant omits an empty secret from the token request, so nothing is sent.
+
+Registration happens in two places, and both are needed. `async_setup` covers loading an
+existing entry after a restart. The config flow registers it again, because a
+config-entry-only integration with no entries is never set up: measured against a real
+instance, a flow started there found the integration absent from `hass.config.components`
+and aborted for want of a client.
+
+Application Credentials stays as the override. The discovery document advertises neither a
+`none` token-endpoint auth method nor `code_challenge_methods_supported`, so a public client
+is what the provider's documentation describes rather than what its metadata proves. If the
+issued client turns out to be confidential, adding a credential by hand is the way through,
+and a hand-added credential is offered alongside the shipped one.
+
 > [!NOTE]
 > That last sentence no longer holds. [ADR 0008](0008-password-authentication.md)
 > amends it, because no OAuth application arrived and the legacy login became the only

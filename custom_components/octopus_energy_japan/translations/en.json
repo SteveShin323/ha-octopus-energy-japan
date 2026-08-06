@@ -8,7 +8,7 @@
       "device_code_expired": "The device code expired before access was approved. Start again to get a new code.",
       "device_grant_unavailable": "Octopus Energy Japan did not accept a device-code sign-in for this client. Use the account sign-in instead.",
       "missing_configuration": "The component is not configured. Please follow the documentation.",
-      "missing_credentials": "Add an application credential first. Home Assistant needs the public OAuth client ID that Octopus Energy Japan issues for this integration, under Settings > Devices & services > Application credentials. Octopus Energy Japan has not issued one yet, so setup cannot be completed.",
+      "missing_credentials": "Octopus Energy Japan has not issued the OAuth client this integration needs, so browser and device-code sign-in cannot be completed yet. Use email and password instead. If you hold a client of your own, add it under Settings > Devices & services > Application credentials and this method becomes available.",
       "my_home_assistant_required": "My Home Assistant must be enabled. Signing in to Octopus Energy Japan returns you through my.home-assistant.io, which is the single redirect address registered for this integration. Without it, Octopus Energy Japan would reject the sign-in with an error of its own. Add \"my:\" to your configuration.yaml, or restore \"default_config:\", then restart Home Assistant.",
       "no_historical_resources": "No historical accounts or supply points were discovered",
       "no_url_available": "No URL available. For information about this error, [check the help section]({docs_url})",

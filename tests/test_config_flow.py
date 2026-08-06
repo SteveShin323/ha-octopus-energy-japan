@@ -1273,3 +1273,65 @@ async def test_abandoning_the_device_flow_stops_the_polling(hass: HomeAssistant)
             await cancelled.wait()
 
     assert not hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+
+
+async def test_the_shipped_client_reaches_the_flow_without_any_credential(
+    hass: HomeAssistant,
+) -> None:
+    """One client serves every installation, so nobody should have to type it in.
+
+    `async_setup` registers it as well, which is what lets an existing entry load after a
+    restart, but it cannot serve the flow: a config-entry-only integration with no entries
+    is never set up, so nothing there has run when someone picks a sign-in method. Measured
+    against a real Home Assistant before this was written — the flow reported the integration
+    absent from `hass.config.components` and aborted for want of a client.
+    """
+    await async_setup_component(hass, "application_credentials", {})
+    await async_setup_component(hass, "my", {})
+
+    with patch(
+        "custom_components.octopus_energy_japan.application_credentials.OEJP_OAUTH_CLIENT_ID",
+        "a-public-client",
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_USER},
+        )
+        result = await _choose_method(hass, result, "oauth")
+
+        # Home Assistant picks a lone implementation by itself only inside an HTTP request,
+        # which a test does not have; a browser goes straight through. Either way the
+        # implementation is there to be picked, which is the thing under test.
+        assert result["type"] is FlowResultType.FORM
+        assert result["step_id"] == "pick_implementation"
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"implementation": DOMAIN}
+        )
+
+    assert result["type"] is FlowResultType.EXTERNAL_STEP
+    url = result["url"]
+    # A public client: PKCE stands in for the secret, and no secret is sent.
+    assert "client_id=a-public-client" in url
+    assert "code_challenge_method=S256" in url
+    assert "client_secret" not in url
+
+
+async def test_no_shipped_client_still_says_so_rather_than_failing_obscurely(
+    hass: HomeAssistant,
+) -> None:
+    """Today's real first run: the provider has issued nothing yet."""
+    await async_setup_component(hass, "application_credentials", {})
+    await async_setup_component(hass, "my", {})
+
+    with patch(
+        "custom_components.octopus_energy_japan.application_credentials.OEJP_OAUTH_CLIENT_ID",
+        "",
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_USER},
+        )
+        result = await _choose_method(hass, result, "device")
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "missing_credentials"

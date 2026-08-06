@@ -116,6 +116,7 @@ class OctopusEnergyJapanConfigFlow(
         does not depend on My Home Assistant. Once a client ID exists it is the
         simplest of the three for a headless or remote Home Assistant.
         """
+        self._async_offer_the_built_in_client()
         implementations = await config_entry_oauth2_flow.async_get_implementations(
             self.hass,
             self.DOMAIN,
@@ -249,6 +250,26 @@ class OctopusEnergyJapanConfigFlow(
             },
         )
 
+    def _async_offer_the_built_in_client(self) -> None:
+        """Make the shipped OAuth client visible to this flow.
+
+        `async_setup` registers it too, which is what lets an existing entry load after a
+        restart. It cannot serve the flow: a config-entry-only integration with no entries
+        yet is never set up, so nothing there has run by the time someone picks a sign-in
+        method. Measured, not assumed — a flow started against a fresh instance reported the
+        integration absent from `hass.config.components` and aborted for want of a client.
+
+        Registration is idempotent and keyed by the implementation's own domain, so a
+        credential added by hand keeps its own entry alongside this one.
+        """
+        from .application_credentials import async_built_in_implementation
+
+        implementation = async_built_in_implementation(self.hass)
+        if implementation is not None:
+            config_entry_oauth2_flow.async_register_implementation(
+                self.hass, self.DOMAIN, implementation
+            )
+
     async def async_step_oauth(
         self,
         user_input: dict[str, Any] | None = None,
@@ -256,6 +277,7 @@ class OctopusEnergyJapanConfigFlow(
         """Start browser sign-in, unless the redirect URI would be unregistered."""
         if _MY_HOME_ASSISTANT_DOMAIN not in self.hass.config.components:
             return self.async_abort(reason="my_home_assistant_required")
+        self._async_offer_the_built_in_client()
         return await super().async_step_user(user_input)
 
     async def async_step_password(

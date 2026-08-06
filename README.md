@@ -75,7 +75,7 @@ It is not a billing tool. See [known limitations](#known-limitations).
 
 | | Email and password | Device code | Account (browser) |
 |---|---|---|---|
-| Usable today | **yes** | needs a client ID | needs a client ID |
+| Usable today | **yes** | awaiting the provider's client | awaiting the provider's client |
 | Where you sign in | in Home Assistant | on the Octopus Energy Japan website, from any device | on the Octopus Energy Japan website |
 | Your password | **stored in Home Assistant** | never requested | never requested |
 | Needs My Home Assistant | no | no | yes |
@@ -86,12 +86,15 @@ extend those seven days, so after that nothing but the credential itself can sig
 stored and where is in [`PRIVACY.md`](PRIVACY.md). This is Octopus Energy Japan's older login
 and can stop being accepted without notice; Home Assistant then asks you to reconnect.
 
-**Device code** and **Account** are the two OAuth methods. Both are implemented and
-both need a public OAuth client ID registered under **Settings → Devices & services →
-Application credentials**. No client ID is published for Octopus Energy Japan, so neither can
-be completed yet, and choosing one stops with a message asking for a credential first.
-Device code needs no browser redirect, which makes it the better of the two for an
-instance with no public address.
+**Device code** and **Account** are the two OAuth methods. Both are implemented and both
+need the OAuth client that Octopus Energy Japan issues to this integration. One client serves
+every installation, so it ships in the code and there is nothing to enter — but none has been
+issued yet, so neither method can be completed, and choosing one says so. Device code needs no
+browser redirect, which makes it the better of the two for an instance with no public address.
+
+If you hold a client of your own, add it under **Settings → Devices & services →
+Application credentials** and it is offered alongside the shipped one. Leave the secret field
+empty for a public client; Home Assistant omits an empty secret from the token request.
 
 ### Switching later, without losing history
 
@@ -114,7 +117,7 @@ discovered from the account you sign in with.
 | Parameter | Where | Required for | Meaning |
 |---|---|---|---|
 | Email and password | setup → **Email and password** | that method | your Octopus Energy Japan sign-in, stored so the integration can sign in again |
-| OAuth client ID | **Application credentials** | the two OAuth methods | a public client ID. Not a secret; leave the secret field empty |
+| OAuth client ID | nothing to enter | the two OAuth methods | ships in the code, one client for every installation. Add your own under **Application credentials** only if you hold one |
 | Enabled historical resources | integration → **Configure** | nothing | which ended accounts or supply points keep reporting |
 
 Active accounts and supply points are always enabled, so a new supply point starts
@@ -289,9 +292,9 @@ authorization; a password entry cannot, because Octopus Energy Japan does not le
 invalidate a refresh token. That token expires within seven days instead. To cut access off
 at once, change your password.
 
-One thing survives on purpose: **application credentials** stay, so you can re-add without
-re-entering the client ID. Remove them under **Settings → Devices & services →
-Application credentials**.
+One thing survives on purpose: any **application credential** you added by hand stays, so
+re-adding does not mean entering it again. Remove it under **Settings → Devices & services →
+Application credentials**. The client that ships with the integration leaves nothing behind.
 
 Re-adding starts a fresh local history and downloads the current and previous month
 again. Statistics are deleted rather than kept because they cannot be continued: the
