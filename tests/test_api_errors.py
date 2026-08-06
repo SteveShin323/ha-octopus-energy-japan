@@ -59,6 +59,29 @@ def test_expired_kraken_token_is_classified_as_authentication() -> None:
     assert isinstance(error, OejpAuthenticationError)
 
 
+def test_an_expired_jwt_signature_is_classified_as_authentication() -> None:
+    """The exact document a real account returned for a stale stored access token.
+
+    `errorType` is APPLICATION, which says nothing about authentication, so the code is the
+    only signal. Left unclassified this was an ordinary operation failure, and the one thing
+    that fixes it never ran: the authenticated client refreshes and retries only for
+    `OejpAuthenticationError`. An installation restarted more than a token lifetime after its
+    last refresh could not set up at all, and retried forever with the same dead token.
+    """
+    error = classify_graphql_errors(
+        [
+            {
+                "message": "Signature of the JWT has expired.",
+                "extensions": {
+                    "errorType": "APPLICATION",
+                    "errorCode": "KT-CT-1124",
+                },
+            }
+        ]
+    )
+    assert isinstance(error, OejpAuthenticationError)
+
+
 def test_rejected_credential_is_classified_as_authentication_despite_validation_type() -> None:
     """OEJP reports a wrong password as VALIDATION, not AUTHENTICATION."""
     error = classify_graphql_errors(

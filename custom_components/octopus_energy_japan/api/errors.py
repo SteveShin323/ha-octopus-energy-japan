@@ -16,7 +16,16 @@ _AUTHORIZATION_TYPES = {"AUTHORIZATION", "FORBIDDEN", "PERMISSION"}
 # 2026-08-04: obtainKrakenToken with a wrong password returned
 # VALIDATION/KT-CT-1138, and the same document with the correct password
 # returned a token.
-_AUTHENTICATION_CODES = {"KT-CT-1120", "KT-CT-1138"}
+#
+# KT-CT-1124 is "Signature of the JWT has expired", and it arrives as errorType
+# APPLICATION — the type says nothing about authentication and the code is the only
+# signal. Measured on 2026-08-06 by replaying a stored access token that had gone stale.
+# Until it was listed here the expiry was an ordinary operation failure, so the one thing
+# that fixes it never ran: `AuthenticatedGraphQLClient.execute` refreshes and retries only
+# for `OejpAuthenticationError`. A stored token is used without checking its age, so an
+# installation that restarted more than a token lifetime after its last refresh could not
+# set up at all, and retried forever with the same dead token.
+_AUTHENTICATION_CODES = {"KT-CT-1120", "KT-CT-1124", "KT-CT-1138"}
 _AUTHORIZATION_CODES = {"KT-CT-1112", "KT-CT-4177"}
 _RATE_LIMIT_CODES = {"KT-CT-1188", "KT-CT-1189", "KT-CT-1199"}
 
