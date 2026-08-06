@@ -140,7 +140,7 @@ knowing where to find:
 | `reauthentication-flow`, `reconfiguration-flow` | `config_flow.py` |
 | `repair-issues`, `diagnostics` | `issues.py`, `diagnostics.py` |
 | `dynamic-devices` | a coordinator listener adds entities for a supply point that appears later, with no reload |
-| `parallel-updates` | `PARALLEL_UPDATES = 0` in both platforms; the coordinator owns the requests |
+| `parallel-updates` | `PARALLEL_UPDATES = 0` in every platform; the coordinator owns the requests |
 | `log-when-unavailable` | every failure reaches Home Assistant as `UpdateFailed`, which the coordinator logs once and then suppresses until it recovers. Statistics projection, which is outside that path, keeps its own once-per-condition flag |
 | `docs-*` | each maps to a README section: `#what-it-does`, `#installation`, `#configuration-parameters`, `#entities`, `#how-data-updates`, `#typical-uses`, `#energy-dashboard`, `#known-limitations`, `#troubleshooting`, `#removing-the-integration` |
 
@@ -148,7 +148,7 @@ knowing where to find:
 
 | Rule | Why |
 |---|---|
-| `action-setup`, `action-exceptions`, `docs-actions` | the integration registers no actions. It is read-only |
+| `action-setup`, `action-exceptions`, `docs-actions` | the integration registers no actions and no services. The one control it offers is a button entity, which starts a read |
 | `docs-triggers`, `docs-conditions` | no triggers or conditions, for the same reason |
 | `entity-event-setup` | nothing subscribes to an external event stream; data arrives by polling |
 | `discovery`, `discovery-update-info` | a cloud service reached by account credentials. There is nothing on the network to discover |
@@ -173,7 +173,7 @@ it set itself, so a user who enables one keeps that choice.
 ## Releases
 
 Versions are `MAJOR.MINOR.PATCH`, with the stage carried by the range rather than a
-suffix: `0.1.x` alpha, `0.5.x` and `0.8.x` beta, `1.0.0` once migrations, security,
+suffix: `0.1.x` alpha, `0.5.x` through `0.9.x` beta, `1.0.0` once migrations, security,
 documentation, translations, and quality gates are all met.
 
 `1.0.0` also means the entity IDs, unique IDs, statistic IDs, and stored formats are
