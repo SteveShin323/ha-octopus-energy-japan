@@ -511,6 +511,9 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
         self._background_started = False
         self._closing = False
         self._reauth_pending = False
+        # The instant the last poll asked the provider about. Every snapshot built outside a
+        # poll is dated with it rather than with the wall clock; `_calendar_now` says why.
+        self._polled_at: datetime | None = None
         self._poll_pending = False
         self._poll_idle = asyncio.Event()
         self._poll_idle.set()
@@ -645,6 +648,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             combined = CorrectionResult.combine(corrections)
             async with self._mutation_lock:
                 self._mark_statistics_dirty(combined)
+                self._polled_at = now
                 snapshot = await self._async_build_snapshot(
                     now,
                     enabled_states,
@@ -776,6 +780,26 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             discarded_checkpoint_count=len(self._discarded_checkpoints),
         )
 
+    def _calendar_now(self) -> datetime:
+        """Return the instant a snapshot built outside a poll should be dated with.
+
+        A calendar bucket that runs up to "now" — today, this week, this month — reports a
+        figure only when authoritative coverage reaches the snapshot's own timestamp, so that
+        a period nobody has read yet says `unknown` rather than zero. A poll satisfies that by
+        construction: the instant it plans its windows around is the instant it dates the
+        snapshot with, and it asked the provider about everything up to it.
+
+        Anything else has read nothing new. Dating it with the wall clock claims a later
+        instant than any window covers, which fails that test and empties every running
+        bucket until the next poll. Pressing the history button did exactly that: the sensors
+        it was meant to fill went blank instead.
+
+        So a snapshot with nothing new to say keeps the last poll's date. It is at most one
+        poll interval old, and it is honest — that really is the last moment anything was
+        asked about.
+        """
+        return self._polled_at or self._utc_now()
+
     async def _async_publish_state(self) -> None:
         """Rebuild the snapshot from what is already on disk and wake the entities.
 
@@ -788,7 +812,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
         """
         async with self._mutation_lock:
             snapshot = await self._async_build_snapshot(
-                self._utc_now(),
+                self._calendar_now(),
                 self._enabled_states(),
                 CorrectionResult(),
             )
@@ -1034,6 +1058,30 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                 dirty_from,
                 frozenset(reset_directions),
             )
+
+    async def async_reprice_statistics(self) -> None:
+        """Project now, because what a cost is computed from has just changed.
+
+        The tariff and the rate adjustments arrive on their own cadence, and a cost series is
+        only ever written by a statistics pass. Left to the poll, a price that has already
+        arrived can sit unused for half an hour — and on a supply point that has never had a
+        cost series, that is half an hour of a dashboard that shows energy and no money, with
+        nothing to say whether one is coming.
+
+        Marked from now, not from the beginning: the readings have not moved, so the energy
+        rows have nothing new to say. The cost series is not limited by that mark — the
+        projector republishes the whole of it by itself whenever the price, the period
+        boundary, or an archived adjustment differs from what the last pass used, which is
+        exactly the case that brings us here.
+        """
+        if self._statistics_projector is None:
+            return
+        now = self._utc_now()
+        async with self._mutation_lock:
+            for key in self._supply_points:
+                if key not in self._statistics_pending:
+                    self._statistics_pending[key] = _StatisticsPending(now)
+            await self._async_publish_pending_statistics(now)
 
     def _mark_statistics_reset(
         self,
@@ -1421,7 +1469,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                     )
                     self._apply_checkpoint_coverage(state)
                     snapshot = await self._async_build_snapshot(
-                        self._utc_now(),
+                        self._calendar_now(),
                         self._enabled_states(),
                         correction,
                     )
@@ -1601,7 +1649,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                 queryable=False,
             )
             snapshot = await self._async_build_snapshot(
-                self._utc_now(),
+                self._calendar_now(),
                 self._enabled_states(),
                 CorrectionResult(),
             )
@@ -1767,6 +1815,14 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
     ) -> None:
         key = self._direction_key(state, direction)
         previous = self._ensure_direction_status(state, direction)
+        if not previous.queryable and previous.error_class is not None:
+            # Pairs with the warning in `_record_direction_failure`. A log that says a
+            # direction went away and never says it came back leaves the reader believing
+            # it is still down.
+            _LOGGER.info(
+                "OEJP %s readings are available again for one supply point",
+                direction.value,
+            )
         self._direction_statuses[key] = DirectionSyncStatus(
             account_identity=previous.account_identity,
             supply_point_identity=previous.supply_point_identity,
@@ -1798,11 +1854,24 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
     ) -> None:
         key = self._direction_key(state, direction)
         previous = self._ensure_direction_status(state, direction)
+        now_queryable = previous.queryable if queryable is None else queryable
+        if previous.queryable and not now_queryable:
+            # Every entity on this direction goes unavailable here. A poll where some
+            # directions still succeed does not raise, so Home Assistant logs nothing of its
+            # own, and this used to be the whole record: fifteen sensors turning unavailable
+            # with no line anywhere saying why. Logged on the transition rather than on every
+            # poll, so a direction that stays down says it once.
+            _LOGGER.warning(
+                "OEJP %s readings are no longer available for one supply point (%s). "
+                "Its sensors will report unavailable until a later attempt succeeds",
+                direction.value,
+                error_class.value,
+            )
         self._direction_statuses[key] = DirectionSyncStatus(
             account_identity=previous.account_identity,
             supply_point_identity=previous.supply_point_identity,
             direction=direction,
-            queryable=(previous.queryable if queryable is None else queryable),
+            queryable=now_queryable,
             stale=(queryable is None or previous.last_success_at is not None),
             last_success_at=previous.last_success_at,
             error_class=error_class,

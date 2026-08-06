@@ -111,6 +111,35 @@ Read it through `ElectricitySupplyPoint.agreements`, not through
 propagates an error to the nearest nullable parent, the refusal nulls the whole product
 with it.
 
+**The standing charge is already resolved for the contract.** `standingChargeUnitType`
+reads `YEN_AMPERE_DAY`, which describes how the charge is *determined* — by contracted
+amperage, per day — and not the unit of the number returned. On the one account measured,
+`standingChargePricePerDay` equalled the per-day amount its published tariff table lists
+for that account's contracted amperage, and the same amount appeared on its invoice as the
+daily basic charge. A per-ampere rate would have been that figure divided by the amperage.
+So it is used as a daily amount, which is what this integration already did; what changed
+is that it is now established rather than assumed.
+
+That also settles why the contracted amperage is not needed to price anything.
+
+## Contracted capacity cannot be read
+
+Nothing an account user can reach reports the contracted capacity, on the one account
+measured:
+
+| Field | Result |
+| --- | --- |
+| `ElectricitySupplyPoint.contractedCapacity { value unit }` | `AUTHORIZATION` / `KT-CT-4501`, through `account(accountNumber:)` and through `viewer.accounts` alike |
+| `ElectricitySupplyPoint.contractedCapacityOld` | the same refusal on both paths |
+| `ElectricitySupplyPoint.supplyDetails { amperage kva }` | `null`, with no error |
+| `ElectricitySupplyPoint.meters` | an empty list, so `ElectricityMeter.capacity` never arrives |
+
+This is one of the few refusals that is *not* path-dependent, so it is a permission the
+account user does not hold rather than a wrong query. `meters { serialNumber capacity }`
+used to be selected and parsed into a model nothing ever read; it was removed once the
+list turned out to be empty in practice. Nothing here is needed to compute a cost — see
+the standing charge above.
+
 ## Provider cost is not published
 
 The legacy API returns a per-interval `costEstimate`. It is stored but never shown.

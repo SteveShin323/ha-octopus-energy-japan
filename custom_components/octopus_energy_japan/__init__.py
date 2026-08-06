@@ -273,8 +273,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 tariff_archive,
             )
 
+        @callback
+        def reprice() -> None:
+            """Price the collected hours as soon as there is a price to use.
+
+            The tariff arrives on a twelve-hour cadence and the cost series is only written
+            by a statistics pass, which runs every thirty minutes. Without this the two
+            clocks drift apart: after a restart the price can be in hand for half an hour
+            before any cost reaches the Energy Dashboard, and nothing tells the user whether
+            it is coming or never will.
+            """
+            entry.async_create_background_task(
+                hass,
+                coordinator.async_reprice_statistics(),
+                "oejp-reprice",
+            )
+
         entry.async_on_unload(coordinator.async_add_listener(refresh_issues))
         entry.async_on_unload(commercial_coordinator.async_add_listener(refresh_issues))
+        entry.async_on_unload(commercial_coordinator.async_add_listener(reprice))
         refresh_issues()
 
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

@@ -2,30 +2,30 @@
   "config": {
     "abort": {
       "already_configured": "This Octopus Energy Japan login is already configured",
-      "already_in_progress": "[%key:common::config_flow::abort::already_in_progress%]",
-      "authorize_url_timeout": "[%key:common::config_flow::abort::oauth2_authorize_url_timeout%]",
+      "already_in_progress": "This is already being configured. Finish the existing configuration before starting again.",
+      "authorize_url_timeout": "Timeout while generating an authorization URL.",
       "cannot_connect": "Could not connect to Octopus Energy Japan",
       "device_code_expired": "The device code expired before access was approved. Start again to get a new code.",
       "device_grant_unavailable": "Octopus Energy Japan did not accept a device-code sign-in for this client. Use the account sign-in instead.",
-      "missing_configuration": "[%key:common::config_flow::abort::oauth2_missing_configuration%]",
+      "missing_configuration": "The component is not configured. Please follow the documentation.",
       "missing_credentials": "Add an application credential first. Home Assistant needs the public OAuth client ID that Octopus Energy Japan issues for this integration, under Settings > Devices & services > Application credentials. Octopus Energy Japan has not issued one yet, so setup cannot be completed.",
       "my_home_assistant_required": "My Home Assistant must be enabled. Signing in to Octopus Energy Japan returns you through my.home-assistant.io, which is the single redirect address registered for this integration. Without it, Octopus Energy Japan would reject the sign-in with an error of its own. Add \"my:\" to your configuration.yaml, or restore \"default_config:\", then restart Home Assistant.",
       "no_historical_resources": "No historical accounts or supply points were discovered",
-      "no_url_available": "[%key:common::config_flow::abort::oauth2_no_url_available%]",
-      "oauth_error": "[%key:common::config_flow::abort::oauth2_error%]",
-      "oauth_failed": "[%key:common::config_flow::abort::oauth2_failed%]",
+      "no_url_available": "No URL available. For information about this error, [check the help section]({docs_url})",
+      "oauth_error": "Received invalid token data.",
+      "oauth_failed": "Error while obtaining access token.",
       "oauth_identity_unavailable": "The authenticated Octopus Energy Japan user could not be identified",
-      "oauth_implementation_unavailable": "[%key:common::config_flow::abort::oauth2_implementation_unavailable%]",
+      "oauth_implementation_unavailable": "No OAuth2 implementations are currently available.",
       "oauth_metadata_unavailable": "OAuth configuration is awaiting confirmation from Octopus Energy Japan",
-      "oauth_timeout": "[%key:common::config_flow::abort::oauth2_timeout%]",
-      "oauth_unauthorized": "[%key:common::config_flow::abort::oauth2_unauthorized%]",
-      "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]",
-      "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]",
+      "oauth_timeout": "Timeout while resolving the OAuth token.",
+      "oauth_unauthorized": "OAuth authorization error while obtaining access token.",
+      "reauth_successful": "Re-authentication was successful",
+      "reconfigure_successful": "Reconfiguration was successful",
       "reconfigure_unavailable": "Resource discovery is not currently available; reload the integration and try again",
-      "user_rejected_authorize": "[%key:common::config_flow::abort::oauth2_user_rejected_authorize%]"
+      "user_rejected_authorize": "Account linking rejected: {error}"
     },
     "create_entry": {
-      "default": "[%key:common::config_flow::create_entry::authenticated%]"
+      "default": "Successfully authenticated"
     },
     "error": {
       "cannot_connect": "Failed to connect",
