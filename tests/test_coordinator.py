@@ -96,6 +96,7 @@ from custom_components.octopus_energy_japan.ledger import (
 from custom_components.octopus_energy_japan.statistics_runtime import StatisticsProjector
 from custom_components.octopus_energy_japan.sync import (
     BACKFILL_EMPTY_WINDOWS,
+    BACKFILL_MAX_HISTORY,
     BACKFILL_MIN_INTERVAL,
 )
 from homeassistant.core import HomeAssistant
@@ -2637,3 +2638,76 @@ async def test_a_second_legacy_answer_writes_nothing_new(hass: HomeAssistant) ->
         _direction_reading_result(provider=ReadingProviderName.LEGACY),
     )
     assert state.checkpoint_backend.async_save.await_count == saves_after
+
+
+async def test_a_walk_stops_where_the_account_says_supply_began(hass: HomeAssistant) -> None:
+    """`supplyPeriods.supplyStartAt` says where the readings start, so walking past it only
+    spends requests proving the provider has nothing older."""
+    coordinator = _coordinator(hass)
+    supply_start = initial_floor(NOW) - timedelta(days=3)
+    point = replace(_point(), supply_start_at=supply_start)
+    _install_state(coordinator, point, router=AsyncMock())
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+
+    assert coordinator._history_floor(state) == supply_start
+
+
+async def test_an_unreported_supply_start_leaves_the_absolute_floor(
+    hass: HomeAssistant,
+) -> None:
+    """Not every account can read that field: the viewer path refuses it outright."""
+    coordinator = _coordinator(hass)
+    _install_state(coordinator, _point(), router=AsyncMock())
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+
+    assert coordinator._history_floor(state) == NOW - BACKFILL_MAX_HISTORY
+
+
+async def test_a_supply_start_older_than_the_absolute_floor_does_not_win(
+    hass: HomeAssistant,
+) -> None:
+    """A misreported start must not send the walk to 1970."""
+    coordinator = _coordinator(hass)
+    point = replace(_point(), supply_start_at=datetime(1970, 1, 1, tzinfo=UTC))
+    _install_state(coordinator, point, router=AsyncMock())
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+
+    assert coordinator._history_floor(state) == NOW - BACKFILL_MAX_HISTORY
+
+
+async def test_reaching_the_supply_start_completes_the_walk(hass: HomeAssistant) -> None:
+    """One window covering the supply start is the last one worth asking for."""
+    projector = AsyncMock()
+    coordinator = _coordinator(
+        hass,
+        statistics_projector=cast("StatisticsProjector", projector),
+    )
+    # Supply began inside the very first window the walk asks for.
+    supply_start = initial_floor(NOW) - timedelta(days=3)
+    point = replace(_point(), supply_start_at=supply_start)
+    router = AsyncMock()
+    router.async_get_readings.return_value = _direction_reading_result()
+    _install_state(coordinator, point, router=router)
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+    identity = coordinator._status_identity(state)
+    coordinator._direction_statuses[coordinator._direction_key(state, ReadingDirection.IMPORT)] = (
+        DirectionSyncStatus(
+            account_identity="account",
+            supply_point_identity=identity,
+            direction=ReadingDirection.IMPORT,
+            queryable=True,
+        )
+    )
+    await coordinator.async_start_history_backfill(identity)
+    item = next(iter(coordinator._background_queue.snapshot()))
+    coordinator._background_queue.discard(item.scope)
+
+    await coordinator._async_advance_backfill(state, item, _direction_reading_result())
+
+    record = state.checkpoint.backfill_for(ReadingDirection.IMPORT)
+    assert record is not None
+    # Finished on the first window, the floor rather than the empty-window rule, which would
+    # have needed two more windows to reach the same conclusion.
+    assert record.state is BackfillState.COMPLETE
+    assert record.empty_streak < BACKFILL_EMPTY_WINDOWS
+    assert coordinator._background_queue.snapshot() == ()

@@ -37,11 +37,21 @@ Re-fetching a window costs nothing, because the ledger is keyed.
 The reason value is never serialized, and the walk is never named in `generations`, so a
 checkpoint written by a build with this feature still loads on one without it, and the reverse.
 
-**Loop until dry.** The provider has no field that says where an account's history begins, and
-the agreement start moves on a product switch, so it cannot be used as a floor — and it moves
-*later*, which would silently truncate exactly the customers it would harm. Three consecutive
-empty windows — 21 days of silence — end the walk. One is not evidence: a meter exchange, a
-move with a supply gap, or a provider gap each produce one.
+**Stop at the reported supply start, and loop until dry for everything else.**
+`supplyPeriods.supplyStartAt` — the earliest billable period, which the billing anchor already
+reads — says where an account's readings begin, so a walk that reaches it has nothing older to
+collect. `AgreementSummary.valid_from` is *not* used for this: it moves later on a product
+switch, so it would silently truncate exactly the customers it would harm.
+
+The empty-window rule stays, because the supply start does not cover two cases: an account that
+cannot read that field at all — it is refused through the viewer path, so some accounts have
+none — and the gap between two supply periods for a customer who moved out and back in, which
+`supplyPeriods` being a list makes possible and the earliest start says nothing about. Three
+consecutive empty windows — 21 days of silence — end the walk; one is not evidence, because a
+meter exchange or a provider gap each produce one.
+
+`BACKFILL_MAX_HISTORY` bounds both, so a supply start the provider reports wrongly cannot send
+the walk to 1970.
 
 **Paced by what the provider says is left.** One window every three seconds draws about a third
 of the allowance; below a 20,000-point reserve the walk waits for the reset. Both reuse the

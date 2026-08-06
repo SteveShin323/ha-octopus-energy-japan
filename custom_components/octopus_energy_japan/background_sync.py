@@ -640,9 +640,11 @@ class SyncCheckpoint:
         The cursor moves to the window's start, and the coverage it produced is merged into the
         same range the ordinary cadence records, so the two are indistinguishable afterwards.
 
-        A run of empty windows is how the walk learns where the account's readings begin: the
-        provider has no field that says so, and one empty window is not evidence — a meter
-        exchange, a move with a supply gap, or a provider gap each produce one.
+        Two things end a walk. `history_floor` is where the caller says there is nothing older
+        — the day billable supply began, when the account reports it. A run of empty windows
+        covers everything that says nothing about: an account that does not report it, and the
+        gap between two supply periods for a customer who moved out and back in. One empty
+        window is not evidence, because a meter exchange or a provider gap each produce one.
         """
         existing = self.backfill_for(direction)
         if existing is None:
