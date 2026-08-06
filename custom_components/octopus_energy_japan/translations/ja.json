@@ -5,30 +5,30 @@
   "config": {
     "abort": {
       "already_configured": "この Octopus Energy Japan ログインはすでに設定されています",
-      "already_in_progress": "[%key:common::config_flow::abort::already_in_progress%]",
-      "authorize_url_timeout": "[%key:common::config_flow::abort::oauth2_authorize_url_timeout%]",
+      "already_in_progress": "これはすでに設定中です。もう一度始める前に、進行中の設定を完了してください。",
+      "authorize_url_timeout": "認証URLの生成中にタイムアウトが発生しました。",
       "cannot_connect": "Octopus Energy Japan に接続できませんでした",
       "device_code_expired": "アクセスが許可される前にデバイスコードの有効期限が切れました。もう一度やり直して新しいコードを取得してください。",
       "device_grant_unavailable": "このクライアントではデバイスコードによるサインインが Octopus Energy Japan に受け付けられませんでした。アカウントサインインをご利用ください。",
-      "missing_configuration": "[%key:common::config_flow::abort::oauth2_missing_configuration%]",
+      "missing_configuration": "コンポーネントが設定されていません。ドキュメントに従ってください。",
       "missing_credentials": "先にアプリケーション認証情報を追加してください。Home Assistant には、この連携のために Octopus Energy Japan が発行するパブリック OAuth クライアント ID が必要で、「設定 > デバイスとサービス > アプリケーション認証情報」から登録します。現時点で Octopus Energy Japan は発行していないため、セットアップを完了できません。",
       "my_home_assistant_required": "My Home Assistant を有効にしてください。Octopus Energy Japan へのサインインは my.home-assistant.io を経由して戻る仕組みで、この連携に登録されているリダイレクト先はその 1 つだけです。無効のままでは Octopus Energy Japan 側でサインインが拒否され、事業者のエラー画面が表示されます。configuration.yaml に「my:」を追加するか「default_config:」を戻してから、Home Assistant を再起動してください。",
       "no_historical_resources": "過去のアカウントまたは供給地点は見つかりませんでした",
-      "no_url_available": "[%key:common::config_flow::abort::oauth2_no_url_available%]",
-      "oauth_error": "[%key:common::config_flow::abort::oauth2_error%]",
-      "oauth_failed": "[%key:common::config_flow::abort::oauth2_failed%]",
+      "no_url_available": "使用可能なURLがありません。このエラーの詳細については、[ヘルプセクションを確認してください]({docs_url})",
+      "oauth_error": "無効なトークンデータを受信しました。",
+      "oauth_failed": "アクセストークンの取得中にエラーが発生しました。",
       "oauth_identity_unavailable": "認証された Octopus Energy Japan ユーザーを識別できませんでした",
-      "oauth_implementation_unavailable": "[%key:common::config_flow::abort::oauth2_implementation_unavailable%]",
+      "oauth_implementation_unavailable": "現在、OAuth2の実装は利用できません。",
       "oauth_metadata_unavailable": "OAuth 設定は Octopus Energy Japan からの確認待ちです",
-      "oauth_timeout": "[%key:common::config_flow::abort::oauth2_timeout%]",
-      "oauth_unauthorized": "[%key:common::config_flow::abort::oauth2_unauthorized%]",
-      "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]",
-      "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]",
+      "oauth_timeout": "OAuthトークンの解決中にタイムアウトが発生しました。",
+      "oauth_unauthorized": "アクセストークンの取得中にOAuth認証エラーが発生しました。",
+      "reauth_successful": "再認証に成功しました",
+      "reconfigure_successful": "再構成は成功しました",
       "reconfigure_unavailable": "現在リソース検出を利用できません。連携を再読み込みして、もう一度お試しください",
-      "user_rejected_authorize": "[%key:common::config_flow::abort::oauth2_user_rejected_authorize%]"
+      "user_rejected_authorize": "アカウントのリンクが拒否されました: {error}"
     },
     "create_entry": {
-      "default": "[%key:common::config_flow::create_entry::authenticated%]"
+      "default": "正常に認証されました"
     },
     "error": {
       "cannot_connect": "接続できませんでした",

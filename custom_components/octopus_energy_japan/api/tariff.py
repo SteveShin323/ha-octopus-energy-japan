@@ -7,11 +7,14 @@ and recorded in `docs/API_CONTRACTS.md`:
 - `consumptionCharges` — the energy price. On `ElectricitySteppedProduct` each entry carries
   its kWh step boundaries; on `ElectricitySingleStepProduct` there are none, because one
   price covers everything;
-- `standingChargePricePerDay` — a per-day figure. `standingChargeUnitType` says what the
-  charge is really measured in, and on the one account observed it was `YEN_AMPERE_DAY`
-  rather than a per-day unit, so whether the figure is already resolved for the customer's
-  contracted amperage is **not** established. It is used as a daily amount and the unit is
-  reported in diagnostics so a mismatch can be traced rather than guessed at;
+- `standingChargePricePerDay` — a per-day figure, and already resolved for the customer's
+  contract. `standingChargeUnitType` reads `YEN_AMPERE_DAY` on the one account measured,
+  which describes how the charge is *determined* — by contracted amperage, per day — not
+  the unit of the number returned: the figure equalled the per-day amount that account's
+  published tariff table lists for its contracted amperage, and the same amount appeared on
+  its invoice as the daily basic charge. A per-ampere rate would have been that divided by
+  the amperage. So it is used as a daily amount, and the unit is still reported in
+  diagnostics so an account whose plan resolves it differently can be traced;
 - `fuelCostAdjustment` — the monthly 燃料費調整, carrying the month it is valid for; and
 - `renewableEnergyLevy` — the annual 再エネ賦課金.
 

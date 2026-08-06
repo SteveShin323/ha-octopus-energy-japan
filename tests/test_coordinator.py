@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -315,6 +316,58 @@ async def test_statistics_projection_flushes_ledger_and_clears_pending(
         billing_periods=BillingPeriodCalendar.calendar_months(TOKYO),
     )
     assert key not in coordinator._statistics_pending
+
+
+async def test_a_new_price_is_projected_without_waiting_for_the_poll(
+    hass: HomeAssistant,
+) -> None:
+    """The tariff arrives on a twelve-hour cadence; the cost series is written every thirty
+    minutes. After a restart the two drift apart, and a supply point that has never had a
+    cost series shows energy and no money until the poll comes round.
+
+    Marked from now: the readings have not moved. The cost series is not limited by that —
+    the projector republishes all of it when the price differs from the last pass.
+    """
+    projector = AsyncMock()
+    coordinator = _coordinator(
+        hass,
+        statistics_projector=cast("StatisticsProjector", projector),
+    )
+    _install_state(coordinator, _point(), router=AsyncMock())
+    assert not coordinator._statistics_pending
+
+    await coordinator.async_reprice_statistics()
+
+    projector.async_project_supply_point.assert_awaited_once()
+    assert projector.async_project_supply_point.await_args.kwargs["dirty_from"] == NOW
+    assert not coordinator._statistics_pending
+
+
+async def test_repricing_does_not_overwrite_a_ledger_change_still_waiting(
+    hass: HomeAssistant,
+) -> None:
+    """A correction older than now must keep its own boundary, or its hours never publish."""
+    projector = AsyncMock()
+    coordinator = _coordinator(
+        hass,
+        statistics_projector=cast("StatisticsProjector", projector),
+    )
+    _install_state(coordinator, _point(), router=AsyncMock())
+    earlier = NOW - timedelta(days=2)
+    coordinator._statistics_pending[(ACCOUNT_ID, SUPPLY_POINT_ID)] = _StatisticsPending(earlier)
+
+    await coordinator.async_reprice_statistics()
+
+    assert projector.async_project_supply_point.await_args.kwargs["dirty_from"] == earlier
+
+
+async def test_repricing_without_a_projector_is_a_no_op(hass: HomeAssistant) -> None:
+    coordinator = _coordinator(hass)
+    _install_state(coordinator, _point(), router=AsyncMock())
+
+    await coordinator.async_reprice_statistics()
+
+    assert not coordinator._statistics_pending
 
 
 async def test_statistics_projection_prices_over_the_invoiced_period(
@@ -814,6 +867,46 @@ async def test_permanent_only_refresh_publishes_status_without_direction(
     assert not status.stale
     assert status.error_class is error_class
     assert entity_directions(data, SECRET, ACCOUNT_ID, SUPPLY_POINT_ID) == ()
+
+
+async def test_a_direction_going_away_and_coming_back_is_both_logged_once(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Fifteen sensors turning unavailable used to leave no line anywhere saying why.
+
+    A poll where some directions still succeed does not raise, so Home Assistant logs
+    nothing of its own. Logged on the transition, so a direction that stays down says it
+    once rather than every half hour — and says so again when it returns, because a log
+    that only records the loss reads as still broken.
+    """
+    coordinator = _coordinator(hass)
+    router = AsyncMock()
+    router.async_get_readings.return_value = _direction_reading_result()
+    _install_state(coordinator, _point(), router=router)
+    # A direction that was working. One that never worked has nothing to announce.
+    await coordinator._async_update_data()
+
+    router.async_get_readings.side_effect = OejpNoReadingProviderError("unavailable")
+    with caplog.at_level(logging.INFO):
+        await coordinator._async_update_data()
+        first = [record for record in caplog.records if "no longer available" in record.message]
+        await coordinator._async_update_data()
+        still = [record for record in caplog.records if "no longer available" in record.message]
+
+    assert len(first) == 1
+    assert first[0].levelno == logging.WARNING
+    # The second poll fails the same way, and repeating the warning would be noise.
+    assert len(still) == 1
+
+    router.async_get_readings.side_effect = None
+    router.async_get_readings.return_value = _direction_reading_result()
+    with caplog.at_level(logging.INFO):
+        caplog.clear()
+        await coordinator._async_update_data()
+
+    recovered = [record for record in caplog.records if "available again" in record.message]
+    assert len(recovered) == 1
 
 
 async def test_no_enabled_supply_points_publishes_empty_snapshot(
@@ -2783,3 +2876,29 @@ async def test_reaching_the_supply_start_completes_the_walk(hass: HomeAssistant)
     assert record.state is BackfillState.COMPLETE
     assert record.empty_streak < BACKFILL_EMPTY_WINDOWS
     assert coordinator._background_queue.snapshot() == ()
+
+
+async def test_a_snapshot_with_nothing_new_keeps_the_calendar_sensors(
+    hass: HomeAssistant,
+) -> None:
+    """A running bucket reports only when coverage reaches the snapshot's own timestamp.
+
+    A poll satisfies that by construction. Anything else — a finished walk, a background
+    window, a recorded failure — has read nothing newer, so dating its snapshot with the wall
+    clock claims an instant no window covers and empties today, this week and this month.
+    Pressing the history button used to blank the very sensors it was meant to fill.
+    """
+    coordinator = _coordinator(hass)
+    router = AsyncMock()
+    router.async_get_readings.return_value = _direction_reading_result()
+    _install_state(coordinator, _point(), router=router)
+    await coordinator._async_update_data()
+
+    published: list[Any] = []
+    coordinator.async_set_updated_data = Mock(side_effect=published.append)  # type: ignore[method-assign]
+    coordinator._now = lambda: NOW + timedelta(minutes=17)  # type: ignore[method-assign]
+
+    await coordinator._async_publish_state()
+
+    (snapshot,) = published
+    assert snapshot.aggregation.generated_at == NOW
