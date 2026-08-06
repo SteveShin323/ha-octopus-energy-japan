@@ -2346,7 +2346,7 @@ async def test_a_finished_walk_asks_for_one_destructive_rebuild(
     hass: HomeAssistant,
 ) -> None:
     """Years of older hours move every published sum, which no dirty boundary can express."""
-    coordinator, state, _projector = await _walk_one_window(
+    coordinator, state, projector = await _walk_one_window(
         hass,
         result=_direction_reading_result(),
     )
@@ -2367,9 +2367,13 @@ async def test_a_finished_walk_asks_for_one_destructive_rebuild(
     record = state.checkpoint.backfill_for(ReadingDirection.IMPORT)
     assert record is not None
     assert record.state is BackfillState.COMPLETE
-    pending = coordinator._statistics_pending[(ACCOUNT_ID, SUPPLY_POINT_ID)]
-    assert pending.dirty_from is None
-    assert ReadingDirection.IMPORT in pending.reset_directions
+    # Projected where the walk ended rather than left for the poll, and exactly once: the
+    # windows before the last one must not each have rebuilt the series.
+    projector.async_project_supply_point.assert_awaited_once()
+    kwargs = projector.async_project_supply_point.await_args.kwargs
+    assert kwargs["dirty_from"] is None
+    assert ReadingDirection.IMPORT in kwargs["reset_directions"]
+    assert (ACCOUNT_ID, SUPPLY_POINT_ID) not in coordinator._statistics_pending
 
 
 async def test_a_permanent_failure_stops_the_walk_and_keeps_its_place(
@@ -2496,7 +2500,9 @@ async def test_the_worker_takes_a_walked_window_without_waking_the_entities(
     """The branch the walk actually runs through, driven by the worker rather than called.
 
     A walk of hundreds of windows must not publish a snapshot per window, and the worker is
-    where that decision is taken.
+    where that decision is taken: an ordinary window ends in `async_set_updated_data`, and a
+    walked one must not reach it. What ends the walk publishes once —
+    `test_the_end_of_a_walk_reaches_the_entities_without_waiting_for_the_poll` pins that.
     """
     projector = AsyncMock()
     coordinator = _coordinator(
@@ -2531,6 +2537,72 @@ async def test_the_worker_takes_a_walked_window_without_waking_the_entities(
         side_effect=published.append
     )
     await coordinator.async_start_history_backfill(identity)
+    published.clear()
+
+    # The walk goes on after this window, so the worker paces the next one. Ending the loop
+    # at that wait keeps the test to a single window without three seconds of real time.
+    async def _stop_at_the_pace(_delay: timedelta) -> None:
+        coordinator._closing = True
+
+    coordinator._async_wait = AsyncMock(  # type: ignore[method-assign]
+        side_effect=_stop_at_the_pace
+    )
+
+    await coordinator._async_background_worker()
+
+    assert published == []
+    projector.async_project_supply_point.assert_not_awaited()
+    walked = state.checkpoint.backfill_for(ReadingDirection.IMPORT)
+    assert walked is not None
+    assert walked.state is BackfillState.RUNNING
+    assert walked.cursor < initial_floor(NOW)
+
+
+async def test_the_end_of_a_walk_reaches_the_entities_without_waiting_for_the_poll(
+    hass: HomeAssistant,
+) -> None:
+    """A walk runs for hours; owing the user another half hour for its result is absurd.
+
+    Publishing here costs one snapshot and one projection per walk, not per window, and
+    neither reaches the provider — the snapshot is built from ledgers already written.
+    """
+    projector = AsyncMock()
+    coordinator = _coordinator(
+        hass,
+        statistics_projector=cast("StatisticsProjector", projector),
+    )
+    point = _point()
+    router = AsyncMock()
+    router.async_get_readings.return_value = _direction_reading_result()
+    _install_state(coordinator, point, router=router)
+    state = coordinator._supply_points[(ACCOUNT_ID, SUPPLY_POINT_ID)]
+    identity = coordinator._status_identity(state)
+    coordinator._direction_statuses[coordinator._direction_key(state, ReadingDirection.IMPORT)] = (
+        DirectionSyncStatus(
+            account_identity="account",
+            supply_point_identity=identity,
+            direction=ReadingDirection.IMPORT,
+            queryable=True,
+        )
+    )
+    coordinator._allowance = PointsAllowance(
+        limit=50_000,
+        remaining=49_000,
+        used=1_000,
+        resets_at=NOW + timedelta(hours=1),
+        blocked=False,
+    )
+    coordinator._allowance_read_at = NOW
+    coordinator._startup_complete = True
+    published: list[object] = []
+    coordinator.async_set_updated_data = Mock(  # type: ignore[method-assign]
+        side_effect=published.append
+    )
+
+    await coordinator.async_start_history_backfill(identity)
+    # Pressing is itself feedback: the sensor and the diagnostics say a walk is running.
+    assert len(published) == 1
+    published.clear()
     # One window from the end, so the worker drains the queue and returns instead of pacing
     # the next one for three seconds of real time.
     record = state.checkpoint.backfill_for(ReadingDirection.IMPORT)
@@ -2542,12 +2614,12 @@ async def test_the_worker_takes_a_walked_window_without_waking_the_entities(
 
     await coordinator._async_background_worker()
 
-    assert published == []
-    projector.async_project_supply_point.assert_not_awaited()
     walked = state.checkpoint.backfill_for(ReadingDirection.IMPORT)
     assert walked is not None
     assert walked.state is BackfillState.COMPLETE
-    assert walked.cursor < initial_floor(NOW)
+    assert len(published) == 1
+    projector.async_project_supply_point.assert_awaited_once()
+    assert projector.async_project_supply_point.await_args.kwargs["dirty_from"] is None
 
 
 async def test_pressing_again_while_a_walk_runs_changes_nothing(hass: HomeAssistant) -> None:

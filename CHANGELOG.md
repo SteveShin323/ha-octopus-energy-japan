@@ -9,6 +9,25 @@ published client ID before they can be completed.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-08-06
+
+Found by installing 0.9.0 in a real Home Assistant and pressing the button.
+
+### Fixed
+
+- **Import full history** appeared to do nothing. Starting the walk, and finishing it, both
+  left every visible sign of it — the progress sensor, the diagnostics download, and the
+  collected history itself — waiting for the next poll, which is up to half an hour away.
+  A walk that has already run for hours should not owe the user another half hour before its
+  readings reach the Energy Dashboard, and a button whose only feedback is half an hour late
+  reads as broken. Both edges of the walk now publish immediately: the press, so that starting
+  is visible, and whatever ends it — complete, refused, or failed.
+
+  The windows in between still publish nothing, which is the part that matters for a walk of
+  hundreds of them. Neither edge reaches Octopus Energy Japan: the snapshot is rebuilt from
+  ledgers already written, so the whole walk still costs one statistics projection and two
+  snapshots.
+
 ## [0.9.0] - 2026-08-06
 
 Full history and prices that match the invoice. A supply point's readings can now be walked

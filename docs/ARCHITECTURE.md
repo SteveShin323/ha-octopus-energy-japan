@@ -239,8 +239,9 @@ which already composes with backoff and already lets ready work overtake a held 
 
 **A walked window publishes nothing.** It flushes the ledger and moves the cursor. Projecting
 statistics reads the whole ledger and rebuilding the snapshot re-reads every enabled supply
-point, so doing either per window is what would make hundreds of windows unusable. One
-destructive rebuild is requested when the walk ends, and the poll runs it within the half hour.
+point, so doing either per window is what would make hundreds of windows unusable. Both happen
+once, at whatever ends the walk — and once at the press, so the button is not silent for half
+an hour. Neither reaches the provider: the snapshot is built from ledgers already written.
 
 **A legacy answer stops the walk** with its cursor intact, because that path returns the most
 recent 31 days however far back it is asked. `docs/adr/0009-user-triggered-history-backfill.md`
