@@ -191,7 +191,7 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
     assert coordinator_factory.call_args.kwargs["statistics_projector"] is statistics_projector
     commercial_factory.assert_called_once()
     project_devices.assert_called_once_with(hass, entry, entry.runtime_data)
-    forward.assert_awaited_once_with(entry, ["sensor", "binary_sensor"])
+    forward.assert_awaited_once_with(entry, ["sensor", "binary_sensor", "button"])
     # Devices come before the first refresh, because the statistics that refresh
     # publishes take their names from the supply-point devices — the Energy dashboard
     # picker shows that name and nothing else. Optional commercial operations stay last
@@ -605,7 +605,7 @@ async def test_setup_failure_cleans_partially_allocated_runtime_and_platforms(
 
     coordinator.async_shutdown_runtime.assert_awaited_once_with()
     commercial_coordinator.async_shutdown.assert_awaited_once_with()
-    unload.assert_awaited_once_with(entry, ["sensor", "binary_sensor"])
+    unload.assert_awaited_once_with(entry, ["sensor", "binary_sensor", "button"])
     forward.assert_not_awaited()
     assert entry.runtime_data is None
 
@@ -672,7 +672,7 @@ async def test_platform_forward_failure_is_cleaned_without_masking_error(
 
     project_devices.assert_called_once()
     coordinator.async_shutdown_runtime.assert_awaited_once_with()
-    unload.assert_awaited_once_with(entry, ["sensor", "binary_sensor"])
+    unload.assert_awaited_once_with(entry, ["sensor", "binary_sensor", "button"])
     assert entry.runtime_data is None
 
 
@@ -688,7 +688,7 @@ async def test_unload_entry_unloads_platforms_and_clears_runtime(
     ) as unload:
         assert await async_unload_entry(hass, entry)
 
-    unload.assert_awaited_once_with(entry, ["sensor", "binary_sensor"])
+    unload.assert_awaited_once_with(entry, ["sensor", "binary_sensor", "button"])
     assert entry.runtime_data is None
 
 

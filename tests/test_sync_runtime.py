@@ -112,3 +112,42 @@ def test_retry_controller_rejects_naive_clock() -> None:
     controller = BackgroundRetryController()
     with pytest.raises(ValueError, match="timezone-aware"):
         controller.available((_item(),), datetime(2026, 7, 29))  # noqa: DTZ001
+
+
+def test_a_paced_scope_yields_to_a_ready_one_of_lower_priority() -> None:
+    """Pacing reuses the retry barrier, so `available` already knows how to skip it."""
+    controller = BackgroundRetryController()
+    paced = _item("a")
+    ready = _item("b")
+    controller.defer(paced.scope, NOW + timedelta(seconds=3))
+
+    available = controller.available((paced, ready), NOW)
+
+    assert available.item is ready
+
+
+def test_pacing_never_moves_a_backoff_earlier() -> None:
+    """A three-second pace must not shorten an hour of exponential backoff."""
+    controller = BackgroundRetryController()
+    item = _item()
+    schedule = controller.record_transient(
+        item.scope,
+        NOW,
+        retry_after=timedelta(hours=1),
+        rate_limited=False,
+    )
+
+    controller.defer(item.scope, NOW + timedelta(seconds=3))
+
+    assert controller.available((item,), NOW).not_before == schedule.not_before
+
+
+def test_a_scope_that_was_only_paced_is_still_pruned() -> None:
+    """A paced scope has no attempt count, so iterating those alone leaked its barrier."""
+    controller = BackgroundRetryController()
+    item = _item()
+    controller.defer(item.scope, NOW + timedelta(hours=1))
+
+    controller.prune(frozenset())
+
+    assert controller.available((item,), NOW).item is item

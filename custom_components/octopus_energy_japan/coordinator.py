@@ -41,21 +41,28 @@ from .api import (
     OejpSupplyPoint,
     OejpTransientHttpError,
     OejpTransportError,
+    PointsAllowance,
     ReadingDirection,
     ReadingFallbackReason,
     ReadingProviderName,
     ReadingProviderRouter,
     ResourceLifecycle,
+    async_fetch_points_allowance,
     candidate_directions,
 )
 from .background_sync import (
+    BACKFILL_GENERATION,
+    BackfillState,
     BackgroundSyncItem,
     BackgroundSyncPlanner,
     BackgroundSyncQueue,
     BackgroundSyncReason,
     BackgroundSyncScope,
+    BackgroundWindow,
     CoverageWindow,
     SyncCheckpoint,
+    SyncObligation,
+    initial_floor,
 )
 from .billing_period import BillingPeriodCalendar
 from .const import DOMAIN
@@ -72,6 +79,11 @@ from .ledger_store import HomeAssistantLedgerBackend
 from .runtime import selected_historical_resources
 from .statistics_runtime import StatisticsProjector
 from .sync import (
+    BACKFILL_EMPTY_WINDOWS,
+    BACKFILL_MAX_HISTORY,
+    BACKFILL_MIN_INTERVAL,
+    BACKFILL_POINT_RESERVE,
+    MAX_QUERY_WINDOW,
     POLL_INTERVAL,
     SyncReason,
     SyncScheduleState,
@@ -219,6 +231,23 @@ _TRIAGE_RULES: Final = (
 _TRIAGE_EXCEPTIONS: Final = tuple(rule.exception for rule in _TRIAGE_RULES)
 
 
+# How stale a reading of the point allowance may be before the walk asks again. One minute
+# costs 5 points against a 50,000 allowance while a walk spends about 340 in the same minute.
+_ALLOWANCE_MAX_AGE: Final = timedelta(minutes=1)
+
+
+def _is_backfill(item: BackgroundSyncItem) -> bool:
+    """Report whether every obligation on an item is the history walk.
+
+    All, not any: an ordinary window that happens to coincide with one the walk wants must
+    still publish statistics and wake the entities.
+    """
+    return all(
+        obligation.reason is BackgroundSyncReason.HISTORY_BACKFILL
+        for obligation in item.obligations
+    )
+
+
 def _triage(error: BaseException) -> _TriageRule:
     """Return how a failed reading attempt is recorded."""
     for rule in _TRIAGE_RULES:
@@ -304,6 +333,12 @@ class DirectionSyncStatus:
     coverage_start_at: datetime | None = None
     coverage_end_at: datetime | None = None
     background_coverage: tuple[CoverageWindow, ...] = ()
+    # How far a requested walk into the past has got. Carried here because diagnostics, the
+    # progress sensor, and the repair issues all need it and this is already the per-direction
+    # state they read.
+    backfill_state: BackfillState | None = None
+    backfill_cursor: datetime | None = None
+    backfill_empty_streak: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -481,6 +516,10 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
         self._poll_idle.set()
         self._worker_wakeup = asyncio.Event()
         self._retry = BackgroundRetryController()
+        # The last reading of the hourly point allowance, and when it was taken. Only the
+        # history walk consults it; every other cadence is bounded by its own interval.
+        self._allowance: PointsAllowance | None = None
+        self._allowance_read_at = datetime.min.replace(tzinfo=UTC)
         self._startup_delay = (
             startup_stagger(entry.entry_id) if startup_delay is None else startup_delay
         )
@@ -978,6 +1017,25 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                 frozenset(reset_directions),
             )
 
+    def _mark_statistics_reset(
+        self,
+        state: _SupplyPointRuntime,
+        direction: ReadingDirection,
+    ) -> None:
+        """Ask for one destructive rebuild of a direction's series.
+
+        A finished walk has inserted years of hours older than everything already published, so
+        every cumulative sum moves. A `dirty_from` boundary cannot express that; clearing the
+        series and rebuilding it can, and it also removes rows the walk's authoritative
+        reconciliation deleted. The poll runs it within the half hour.
+        """
+        key = (state.supply_point.account_number, state.supply_point.id)
+        pending = self._statistics_pending.get(key)
+        self._statistics_pending[key] = _StatisticsPending(
+            None,
+            (pending.reset_directions if pending else frozenset()) | {direction},
+        )
+
     async def _async_publish_pending_statistics(self, generated_at: datetime) -> None:
         """Publish durable ledger projections without failing consumption updates.
 
@@ -1142,6 +1200,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                         direction,
                         generation,
                     )
+            self._enqueue_backfill(state)
             self._apply_checkpoint_coverage(state)
         if daily_plan is not None:
             self._schedule = SyncScheduleState(
@@ -1154,6 +1213,80 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
         if self._background_active_scope is not None:
             active_scopes.add(self._background_active_scope)
         self._retry.prune(frozenset(active_scopes))
+
+    async def async_start_history_backfill(self, supply_point_identity: str) -> None:
+        """Walk one supply point's readings back to where the account's history begins.
+
+        Every direction that is queryable and not already walking is started or resumed. A
+        direction the provider answers from the legacy path is refused rather than started,
+        because that path returns only the most recent 31 days and the walk would record a
+        month as a complete history.
+        """
+        state = self._state_for_identity(supply_point_identity)
+        if state is None:
+            return
+        floor = initial_floor(self._utc_now())
+        async with self._mutation_lock:
+            checkpoint = state.checkpoint
+            for direction in self._previously_queryable_directions(state):
+                existing = checkpoint.backfill_for(direction)
+                if existing is not None and existing.state is BackfillState.RUNNING:
+                    continue
+                if self._reads_from_legacy(state, direction):
+                    checkpoint = checkpoint.start_backfill(direction, floor).stop_backfill(
+                        direction,
+                        BackfillState.UNSUPPORTED,
+                    )
+                    continue
+                checkpoint = checkpoint.start_backfill(direction, floor)
+            if checkpoint != state.checkpoint:
+                await state.checkpoint_backend.async_save(checkpoint.as_dict())
+                state.checkpoint = checkpoint
+            self._enqueue_backfill(state)
+            self._apply_checkpoint_coverage(state)
+        self._ensure_background_worker()
+
+    def backfill_cursor(self, supply_point_identity: str) -> datetime | None:
+        """Return the oldest instant any direction of one supply point has walked back to.
+
+        Includes a direction that was refused or has stopped: its cursor still says how far
+        back readings have been collected, which is what the progress sensor reports.
+        """
+        state = self._state_for_identity(supply_point_identity)
+        if state is None:
+            return None
+        cursors = [
+            value.cursor
+            for value in state.checkpoint.backfill
+            if value.state is not BackfillState.IDLE
+        ]
+        return min(cursors) if cursors else None
+
+    def has_running_backfill(self, supply_point_identity: str) -> bool:
+        """Report whether any direction is currently walking backwards.
+
+        A different question from `backfill_cursor`, which a refused direction also answers.
+        The button needs this one: it has to tell "started" from "refused before it began".
+        """
+        state = self._state_for_identity(supply_point_identity)
+        if state is None:
+            return False
+        return any(value.state is BackfillState.RUNNING for value in state.checkpoint.backfill)
+
+    def _reads_from_legacy(self, state: _SupplyPointRuntime, direction: ReadingDirection) -> bool:
+        observation = self._provider_observations.get(self._direction_key(state, direction))
+        return observation is not None and observation.provider is ReadingProviderName.LEGACY
+
+    def _enqueue_backfill(self, state: _SupplyPointRuntime) -> None:
+        """Queue the one window each running direction is currently owed."""
+        for record in state.checkpoint.backfill:
+            if record.state is not BackfillState.RUNNING:
+                continue
+            window = _backfill_window(record.cursor)
+            self._background_queue.enqueue(
+                BackgroundSyncScope(self._status_identity(state), record.direction, window),
+                SyncObligation(BackgroundSyncReason.HISTORY_BACKFILL, BACKFILL_GENERATION),
+            )
 
     def _ensure_background_worker(self) -> None:
         if (
@@ -1211,6 +1344,11 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                     item.scope.window.start_at,
                     item.scope.window.end_at,
                 )
+                if _is_backfill(item):
+                    await self._async_advance_backfill(state, item, direction_result)
+                    self._retry.resolve(item.scope)
+                    self._background_active_scope = None
+                    continue
                 async with self._mutation_lock:
                     correction = await self._async_reconcile_result(
                         state,
@@ -1283,6 +1421,104 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             finally:
                 self._background_active_scope = None
 
+    async def _async_advance_backfill(
+        self,
+        state: _SupplyPointRuntime,
+        item: BackgroundSyncItem,
+        direction_result: DirectionReadingResult,
+    ) -> None:
+        """Store one walked window, move the cursor, and queue the next at a polite pace.
+
+        Deliberately does not project statistics, rebuild the snapshot, or wake the entities.
+        Each of those reads the whole ledger or every enabled supply point, and a walk is
+        hundreds of windows, so doing them per window is what would make this unusable. One
+        projection is requested when the walk ends; until then the readings are durable in the
+        ledger, which is the only place they need to be.
+        """
+        direction = item.scope.direction
+        window = item.scope.window
+        if direction_result.provider is ReadingProviderName.LEGACY:
+            # The legacy path answers with the most recent 31 days however wide the window, so
+            # its answer for an older one says nothing. Advancing on it would record coverage
+            # the account does not have and then declare a month a complete history.
+            async with self._mutation_lock:
+                await self._async_store_backfill_checkpoint(
+                    state,
+                    state.checkpoint.stop_backfill(direction, BackfillState.UNSUPPORTED),
+                )
+            return
+
+        async with self._mutation_lock:
+            await self._async_reconcile_result(
+                state,
+                direction_result,
+                window.start_at,
+                window.end_at,
+            )
+            await state.backend.async_flush()
+            checkpoint = state.checkpoint.advance_backfill(
+                direction,
+                window,
+                empty=not direction_result.readings,
+                empty_limit=BACKFILL_EMPTY_WINDOWS,
+                history_floor=self._utc_now() - BACKFILL_MAX_HISTORY,
+            )
+            await self._async_store_backfill_checkpoint(state, checkpoint)
+            record = checkpoint.backfill_for(direction)
+            if record is not None and record.state is BackfillState.RUNNING:
+                self._enqueue_backfill(state)
+                await self._async_pace_backfill(state, direction, record.cursor)
+                return
+            # The walk is done. One projection covers everything it collected, and the poll
+            # runs it within the half hour whether or not anything else happens.
+            self._mark_statistics_reset(state, direction)
+
+    async def _async_store_backfill_checkpoint(
+        self,
+        state: _SupplyPointRuntime,
+        checkpoint: SyncCheckpoint,
+    ) -> None:
+        if checkpoint == state.checkpoint:
+            return
+        await state.checkpoint_backend.async_save(checkpoint.as_dict())
+        state.checkpoint = checkpoint
+        self._apply_checkpoint_coverage(state)
+
+    async def _async_pace_backfill(
+        self,
+        state: _SupplyPointRuntime,
+        direction: ReadingDirection,
+        cursor: datetime,
+    ) -> None:
+        """Hold the next window back so a long walk stays a small share of the allowance."""
+        now = self._utc_now()
+        scope = BackgroundSyncScope(
+            self._status_identity(state),
+            direction,
+            _backfill_window(cursor),
+        )
+        self._retry.defer(scope, now + BACKFILL_MIN_INTERVAL)
+        allowance = await self._async_points_allowance(now)
+        if allowance is not None and allowance.exhausted(BACKFILL_POINT_RESERVE):
+            self._retry.defer(scope, allowance.resets_at)
+
+    async def _async_points_allowance(self, now: datetime) -> PointsAllowance | None:
+        """Return what is left of the hourly allowance, asking at most once a minute.
+
+        Asked rather than assumed, because a fixed interval derived from the measured cost per
+        request is still wrong on an account spending its allowance somewhere else. A failure
+        to read it is not a reason to stop: the fixed interval alone already keeps the walk to
+        about a third of the allowance.
+        """
+        if self._allowance is not None and now - self._allowance_read_at < _ALLOWANCE_MAX_AGE:
+            return self._allowance
+        try:
+            self._allowance = await async_fetch_points_allowance(self._client)
+        except OejpError:
+            return None
+        self._allowance_read_at = now
+        return self._allowance
+
     async def _async_resolve_permanent_failure(
         self,
         state: _SupplyPointRuntime,
@@ -1290,6 +1526,19 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
         error_class: DirectionErrorClass,
     ) -> None:
         """Persist a generation-scoped failure and publish without retry spin."""
+        if _is_backfill(item):
+            # `mark_failed` validates against a registered generation window, and a backfill
+            # has none. The cursor stays where it is, so pressing again resumes.
+            async with self._mutation_lock:
+                await self._async_store_backfill_checkpoint(
+                    state,
+                    state.checkpoint.stop_backfill(
+                        item.scope.direction,
+                        BackfillState.FAILED,
+                        error_class.value,
+                    ),
+                )
+            return
         async with self._mutation_lock:
             checkpoint = state.checkpoint.mark_failed(item, error_class.value)
             await state.checkpoint_backend.async_save(checkpoint.as_dict())
@@ -1340,6 +1589,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
         for direction in self._previously_queryable_directions(state):
             key = self._direction_key(state, direction)
             previous = self._direction_statuses[key]
+            record = state.checkpoint.backfill_for(direction)
             self._direction_statuses[key] = DirectionSyncStatus(
                 account_identity=previous.account_identity,
                 supply_point_identity=previous.supply_point_identity,
@@ -1351,6 +1601,9 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                 coverage_start_at=previous.coverage_start_at,
                 coverage_end_at=previous.coverage_end_at,
                 background_coverage=state.checkpoint.coverage_for(direction),
+                backfill_state=record.state if record else None,
+                backfill_cursor=record.cursor if record else None,
+                backfill_empty_streak=record.empty_streak if record else 0,
             )
 
     def _observation(
@@ -1556,6 +1809,16 @@ def _find_supply_point(
             if point.id == supply_point_id:
                 return point
     return None
+
+
+def _backfill_window(cursor: datetime) -> BackgroundWindow:
+    """Return the window immediately before a cursor.
+
+    Derived rather than planned. A five-year walk is hundreds of windows per direction, and
+    registering them on the checkpoint would grow it without bound; the cursor is enough to say
+    which one is owed next, and re-fetching one costs nothing because the ledger is keyed.
+    """
+    return BackgroundWindow(cursor - MAX_QUERY_WINDOW, cursor)
 
 
 def billing_periods_for(point: OejpSupplyPoint | None) -> BillingPeriodCalendar:

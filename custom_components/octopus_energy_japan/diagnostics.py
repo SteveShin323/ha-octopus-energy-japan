@@ -77,6 +77,9 @@ def _directions(data: OejpCoordinatorData) -> list[dict[str, Any]]:
             "coverage_start_at": _timestamp(status.coverage_start_at),
             "coverage_end_at": _timestamp(status.coverage_end_at),
             "background_coverage_windows": len(status.background_coverage),
+            "backfill_state": status.backfill_state.value if status.backfill_state else None,
+            "backfill_cursor": _timestamp(status.backfill_cursor),
+            "backfill_empty_streak": status.backfill_empty_streak,
         }
         for status in data.direction_statuses
     ]

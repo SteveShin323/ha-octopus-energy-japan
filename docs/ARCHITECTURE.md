@@ -29,13 +29,13 @@ Grouped by responsibility. This is not a strict layering — see the dependency 
 |---|---|---|
 | Authentication | `oauth.py`, `oauth_metadata.py`, `password_auth.py`, `application_credentials.py`, `api/device_auth.py` | obtain and renew a bearer token |
 | Transport | `api/client.py`, `api/auth.py`, `api/errors.py` | one GraphQL POST, error classification, retries |
-| Operations | `api/discovery.py`, `api/readings.py`, `api/commercial.py`, `api/tariff.py`, `api/operations.py` | query documents and parsers, returning typed models |
+| Operations | `api/discovery.py`, `api/readings.py`, `api/commercial.py`, `api/tariff.py`, `api/rate_limit.py`, `api/operations.py` | query documents and parsers, returning typed models |
 | Ledger | `ledger.py`, `ledger_store.py` | store every interval, keyed so a correction replaces it |
 | Tariff history | `tariff_history.py`, `tariff_history_store.py` | archive the rate adjustments the API stops serving |
 | Aggregation | `aggregation.py` | Asia/Tokyo calendar totals over the ledger |
 | Statistics | `statistics.py`, `statistics_runtime.py`, `tariff_cost.py`, `billing_period.py` | external long-term statistics, energy and cost |
 | Coordination | `coordinator.py`, `commercial_coordinator.py`, `sync.py`, `sync_runtime.py`, `sync_store.py`, `background_sync.py` | the poll, the background worker, checkpoints |
-| Presentation | `sensor.py`, `binary_sensor.py`, `entity.py`, `runtime.py`, `diagnostics.py`, `issues.py` | entities, devices, diagnostics, repair issues |
+| Presentation | `sensor.py`, `binary_sensor.py`, `button.py`, `entity.py`, `runtime.py`, `diagnostics.py`, `issues.py` | entities, devices, diagnostics, repair issues |
 
 **The dependency rule that does hold:** nothing under `api/` imports Home Assistant or any
 module outside `api/`. That package is a standalone client, testable without Home Assistant.
@@ -202,6 +202,7 @@ makes a total differ.
 | Discovery | every 24 hours |
 | Contract and billing | every 12 hours |
 | Full reconciliation | daily, over the current and previous month |
+| Full history | on request, one seven-day window every three seconds |
 
 Setup does not wait for history. It finishes from recent data and queues older windows for the
 background worker. Checkpoints are persisted, so a restart resumes the queue instead of
@@ -210,6 +211,38 @@ rebuilding it. A failure affecting one direction leaves the other directions wor
 The recorder is listed in `after_dependencies`, which orders setup but does not guarantee the
 recorder is loaded. Statistics publication checks for it and logs one warning rather than
 failing.
+
+## Full history
+
+Setup collects the current and previous month. Everything older is collected only when the user
+presses the **Import full history** button on a supply point's device page.
+
+**Progress is a cursor, not a plan.** One `DirectionBackfill` per direction records how far back
+it has reached, and the window in flight is derived from it. Registering a window per step would
+grow the checkpoint without bound and make every save quadratic, since each completion is matched
+against its generation's windows on every write. Re-fetching a window costs nothing, because the
+ledger is keyed. The walk is never named in `generations`, so a checkpoint written with this
+feature still loads on a build without it.
+
+**The walk stops when it runs dry.** Three consecutive empty windows — 21 days of silence — end
+it. The provider has no field saying where an account's history begins, and one empty window is
+not evidence: a meter exchange, a move with a supply gap, or a provider gap each produce one.
+`BACKFILL_MAX_HISTORY` is an absolute floor so a defect cannot walk to 1970.
+
+**Pacing comes from the provider's own accounting.** A reading request costs a flat 17 points of
+a 50,000-per-hour allowance, so one window every three seconds draws about a third of it; below a
+20,000-point reserve the walk waits for the reset. Both reuse the retry controller's barrier,
+which already composes with backoff and already lets ready work overtake a held scope.
+
+**A walked window publishes nothing.** It flushes the ledger and moves the cursor. Projecting
+statistics reads the whole ledger and rebuilding the snapshot re-reads every enabled supply
+point, so doing either per window is what would make hundreds of windows unusable. One
+destructive rebuild is requested when the walk ends, and the poll runs it within the half hour.
+
+**A legacy answer stops the walk** with its cursor intact, because that path returns the most
+recent 31 days however far back it is asked. `docs/adr/0009-user-triggered-history-backfill.md`
+records the rest, including what collected history does *not* reach: the calendar sensors
+aggregate only the current and previous month.
 
 ## Migrations
 
@@ -254,8 +287,8 @@ token, reading value, or amount appears.
 Repair issues are informational. Each explains a condition the user cannot fix by
 reconfiguring, and says whether anything needs doing. They cover a corrupt ledger partition,
 readings that stopped arriving, an unavailable capability, a missing commercial permission,
-a tariff whose shape the cost formula cannot express, and an archive of past rate
-adjustments that could not be read. Reauthentication is not among them,
+a tariff whose shape the cost formula cannot express, an archive of past rate adjustments
+that could not be read, and a supply point whose reading path cannot serve older readings. Reauthentication is not among them,
 because Home Assistant owns that prompt.
 
 The last of those exists because an absent cost statistic looks the same whether the plan

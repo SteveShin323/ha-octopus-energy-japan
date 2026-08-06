@@ -22,6 +22,9 @@ class BackgroundSyncReason(StrEnum):
     DAILY_RECONCILIATION = "daily_reconciliation"
     INITIAL_CURRENT_MONTH = "initial_current_month"
     INITIAL_PREVIOUS_MONTH = "initial_previous_month"
+    # Only ever in the in-memory queue. Its progress is a cursor on the checkpoint rather than a
+    # list of planned windows, so this value is never serialized — see `DirectionBackfill`.
+    HISTORY_BACKFILL = "history_backfill"
 
 
 class BackgroundSyncPriority(IntEnum):
@@ -30,13 +33,55 @@ class BackgroundSyncPriority(IntEnum):
     DAILY_RECONCILIATION = 10
     INITIAL_CURRENT_MONTH = 20
     INITIAL_PREVIOUS_MONTH = 30
+    # Last. A walk that can run for hours must never delay the work that keeps today correct.
+    HISTORY_BACKFILL = 40
 
 
 _PRIORITY = {
     BackgroundSyncReason.DAILY_RECONCILIATION: BackgroundSyncPriority.DAILY_RECONCILIATION,
     BackgroundSyncReason.INITIAL_CURRENT_MONTH: BackgroundSyncPriority.INITIAL_CURRENT_MONTH,
     BackgroundSyncReason.INITIAL_PREVIOUS_MONTH: BackgroundSyncPriority.INITIAL_PREVIOUS_MONTH,
+    BackgroundSyncReason.HISTORY_BACKFILL: BackgroundSyncPriority.HISTORY_BACKFILL,
 }
+# One generation id per direction, because a backfill has no planned windows to name.
+BACKFILL_GENERATION = "backfill"
+
+
+class BackfillState(StrEnum):
+    """How far one direction's walk into the past has got."""
+
+    IDLE = "idle"
+    RUNNING = "running"
+    # Enough consecutive empty windows to conclude the account has no older readings.
+    COMPLETE = "complete"
+    # The provider answered from the legacy path, which returns only the most recent 31 days.
+    # Walking on would build a 31-day "full history" and then declare it finished.
+    UNSUPPORTED = "unsupported"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True, slots=True, order=True)
+class DirectionBackfill:
+    """How far back one direction has been walked, and whether to keep going.
+
+    A cursor rather than a list of planned windows. A five-year walk is hundreds of windows per
+    direction, and registering them would grow the checkpoint without bound and make every save
+    quadratic in the validation that matches a completion to its generation. The window in
+    flight is derived from the cursor instead, and re-fetching one costs nothing because the
+    ledger is keyed.
+    """
+
+    direction: ReadingDirection
+    state: BackfillState
+    # The oldest instant reached so far. Work moves backwards from here.
+    cursor: datetime
+    empty_streak: int = 0
+    error_class: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.empty_streak < 0:
+            raise ValueError("A backfill empty streak cannot be negative")
+        object.__setattr__(self, "cursor", _utc(self.cursor))
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -209,7 +254,7 @@ class BackgroundSyncPlanner:
         current = _utc(now)
         cutoff = current - POLL_OVERLAP
         current_month = _local_month_start(current)
-        previous_month = _shift_month(current_month, -1)
+        previous_month = _local_month_start(initial_floor(current))
         pair = _month_pair_generation(current)
         plans: list[PlannedGeneration] = []
         current_start = current_month.astimezone(UTC)
@@ -239,7 +284,7 @@ class BackgroundSyncPlanner:
         """Plan one exact previous/current-month daily completion barrier."""
         current = _utc(now)
         local_date = current.astimezone(TOKYO).date()
-        start = _shift_month(_local_month_start(current), -1).astimezone(UTC)
+        start = initial_floor(current)
         generation = f"daily:{local_date.isoformat()}:{_timestamp_id(current)}"
         return PlannedGeneration(
             SyncObligation(BackgroundSyncReason.DAILY_RECONCILIATION, generation),
@@ -317,6 +362,10 @@ class SyncCheckpoint:
     failed_windows: tuple[DirectionWindowFailure, ...] = ()
     background_coverage: tuple[DirectionCoverage, ...] = ()
     daily_completed: tuple[DailyDirectionCompletion, ...] = ()
+    # One record per direction that has ever been asked to walk backwards. Read with a tolerant
+    # helper and never referenced from `generations`, so a checkpoint written here still loads
+    # on a build that predates it and one written there still loads here.
+    backfill: tuple[DirectionBackfill, ...] = ()
     schema_version: int = CHECKPOINT_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -341,6 +390,8 @@ class SyncCheckpoint:
             generation = generations.get((failure.reason, failure.generation))
             if generation is None or failure.window not in generation.windows:
                 raise ValueError("Sync checkpoint failure has no matching generation window")
+        if len({value.direction for value in self.backfill}) != len(self.backfill):
+            raise ValueError("Sync checkpoint contains duplicate backfill directions")
 
     @classmethod
     def empty(cls, now: datetime) -> Self:
@@ -560,6 +611,82 @@ class SyncCheckpoint:
             value.window for value in self.background_coverage if value.direction is direction
         )
 
+    def backfill_for(self, direction: ReadingDirection) -> DirectionBackfill | None:
+        """Return how far one direction has been walked back, if it ever started."""
+        return next((value for value in self.backfill if value.direction is direction), None)
+
+    def start_backfill(self, direction: ReadingDirection, floor: datetime) -> Self:
+        """Begin, or resume, walking one direction backwards.
+
+        Resuming keeps the stored cursor: a walk that stopped on a failure or an unsupported
+        provider carries on from where it reached rather than repeating what it already has.
+        """
+        existing = self.backfill_for(direction)
+        cursor = existing.cursor if existing is not None else floor
+        started = DirectionBackfill(direction, BackfillState.RUNNING, cursor)
+        return self._with_backfill(started)
+
+    def advance_backfill(
+        self,
+        direction: ReadingDirection,
+        window: BackgroundWindow,
+        *,
+        empty: bool,
+        empty_limit: int,
+        history_floor: datetime,
+    ) -> Self:
+        """Record one walked window and decide whether the walk continues.
+
+        The cursor moves to the window's start, and the coverage it produced is merged into the
+        same range the ordinary cadence records, so the two are indistinguishable afterwards.
+
+        A run of empty windows is how the walk learns where the account's readings begin: the
+        provider has no field that says so, and one empty window is not evidence — a meter
+        exchange, a move with a supply gap, or a provider gap each produce one.
+        """
+        existing = self.backfill_for(direction)
+        if existing is None:
+            return self
+        streak = existing.empty_streak + 1 if empty else 0
+        finished = streak >= empty_limit or window.start_at <= history_floor
+        advanced = replace(
+            existing,
+            cursor=window.start_at,
+            empty_streak=streak,
+            state=BackfillState.COMPLETE if finished else BackfillState.RUNNING,
+        )
+        coverage = _merge_direction_coverage(
+            self.background_coverage,
+            direction,
+            CoverageWindow(window.start_at, window.end_at),
+        )
+        return replace(
+            self._with_backfill(advanced),
+            background_coverage=coverage,
+        )
+
+    def stop_backfill(
+        self,
+        direction: ReadingDirection,
+        state: BackfillState,
+        error_class: str | None = None,
+    ) -> Self:
+        """Stop walking one direction without moving its cursor.
+
+        The cursor is left where it is on purpose, so pressing the button again resumes rather
+        than restarting. That matters most for the unsupported case: the legacy path answers
+        with only the most recent 31 days, so advancing on its answer would record coverage the
+        account does not have.
+        """
+        existing = self.backfill_for(direction)
+        if existing is None:
+            return self
+        return self._with_backfill(replace(existing, state=state, error_class=error_class))
+
+    def _with_backfill(self, value: DirectionBackfill) -> Self:
+        others = tuple(item for item in self.backfill if item.direction is not value.direction)
+        return replace(self, backfill=tuple(sorted((*others, value))))
+
     def _advance_daily_barrier(self, direction: ReadingDirection) -> Self:
         completed = set(self.completed_windows)
         daily = {value.direction: value for value in self.daily_completed}
@@ -642,6 +769,16 @@ class SyncCheckpoint:
                 }
                 for value in self.daily_completed
             ],
+            "backfill": [
+                {
+                    "direction": value.direction.value,
+                    "state": value.state.value,
+                    "cursor": _iso(value.cursor),
+                    "empty_streak": value.empty_streak,
+                    "error_class": value.error_class,
+                }
+                for value in self.backfill
+            ],
         }
 
     @classmethod
@@ -684,6 +821,16 @@ class SyncCheckpoint:
             )
             for value in _required_mapping_list(payload, "daily_completed")
         )
+        backfill = tuple(
+            DirectionBackfill(
+                _direction(value),
+                BackfillState(_required_string(value, "state")),
+                _datetime(_required_string(value, "cursor")),
+                _count(value.get("empty_streak")),
+                _optional_string(value.get("error_class")),
+            )
+            for value in _optional_mapping_list(payload, "backfill")
+        )
         return cls(
             month_pair_generation=month_pair,
             generations=generations,
@@ -691,6 +838,7 @@ class SyncCheckpoint:
             failed_windows=tuple(sorted(set(failed), key=_failure_sort_key)),
             background_coverage=_normalize_coverage(coverage),
             daily_completed=tuple(sorted(set(daily))),
+            backfill=tuple(sorted(set(backfill))),
         )
 
 
@@ -787,6 +935,17 @@ def _month_pair_generation(now: datetime) -> str:
     current = _local_month_start(now)
     previous = _shift_month(current, -1)
     return f"{previous:%Y-%m}_{current:%Y-%m}"
+
+
+def initial_floor(now: datetime) -> datetime:
+    """Return the oldest instant the ordinary cadence ever plans back to.
+
+    The start of the previous local month. Both the initial plan and the daily reconciliation
+    stop here, and the history backfill starts here, so there is no gap between what the
+    cadence covers and what the walk collects. It was inlined at each of those places before
+    the walk existed, which is exactly how a gap gets introduced.
+    """
+    return _shift_month(_local_month_start(now), -1).astimezone(UTC)
 
 
 def _local_month_start(now: datetime) -> datetime:
@@ -891,6 +1050,22 @@ def _required_string(payload: Mapping[str, Any], key: str) -> str:
     value = payload.get(key)
     if not isinstance(value, str) or not value or len(value) > 256:
         raise ValueError(f"Sync checkpoint {key} is malformed")
+    return value
+
+
+def _optional_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value or len(value) > 256:
+        raise ValueError("Sync checkpoint string is malformed")
+    return value
+
+
+def _count(value: Any) -> int:
+    if value is None:
+        return 0
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError("Sync checkpoint count is malformed")
     return value
 
 

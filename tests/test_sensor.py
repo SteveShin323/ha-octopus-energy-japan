@@ -52,6 +52,7 @@ from custom_components.octopus_energy_japan.sensor import (
     ENERGY_DESCRIPTIONS,
     OejpAccountCommercialSensor,
     OejpConsumptionSensor,
+    OejpHistoryCollectedFromSensor,
     OejpSupplyPointAddressSensor,
     OejpSupplyPointReadingDaySensor,
     OejpSupplyPointStatusSensor,
@@ -67,9 +68,10 @@ NOW = datetime(2026, 7, 29, 12, tzinfo=UTC)
 SECRET = "01" * 32
 ACCOUNT_ID = "PRIVATE-ACCOUNT"
 SUPPLY_POINT_ID = "PRIVATE-SUPPLY-POINT"
-# Status, meter reading day, and address describe the supply point itself, so they are
-# created once per supply point however many directions it reports.
-SUPPLY_POINT_DESCRIBING_SENSORS = 3
+# Status, meter reading day, how far a history walk has reached, and address describe the
+# supply point itself, so they are created once per supply point however many directions it
+# reports.
+SUPPLY_POINT_DESCRIBING_SENSORS = 4
 
 
 def _account(
@@ -617,6 +619,7 @@ async def test_capability_or_topology_alone_creates_only_status_sensor(
     assert [type(entity) for entity in entities] == [
         OejpSupplyPointStatusSensor,
         OejpSupplyPointReadingDaySensor,
+        OejpHistoryCollectedFromSensor,
         OejpSupplyPointAddressSensor,
     ]
 
@@ -777,3 +780,16 @@ def test_neither_describing_sensor_reads_another_account() -> None:
         OejpSupplyPointAddressSensor(coordinator, SECRET, "OTHER-ACCOUNT", SUPPLY_POINT_ID),
     ):
         assert sensor.native_value is None
+
+
+async def test_the_history_sensor_reports_how_far_back_a_walk_has_reached(
+    hass: HomeAssistant,
+) -> None:
+    """The honest progress indicator: a percentage would need a total the walk is discovering."""
+    coordinator = _coordinator()
+    cursor = datetime(2026, 5, 1, tzinfo=UTC)
+    coordinator.backfill_cursor = Mock(return_value=cursor)
+    sensor = OejpHistoryCollectedFromSensor(coordinator, SECRET, ACCOUNT_ID, SUPPLY_POINT_ID)
+
+    assert sensor.native_value == cursor
+    coordinator.backfill_cursor.assert_called_once_with(sensor._supply_point_identity)
