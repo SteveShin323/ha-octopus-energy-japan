@@ -85,6 +85,11 @@
         "name": "買電データ利用可能"
       }
     },
+    "button": {
+      "import_full_history": {
+        "name": "全期間の履歴を取得"
+      }
+    },
     "sensor": {
       "account_balance": {
         "name": "アカウント残高"
@@ -124,6 +129,9 @@
       },
       "export_yesterday": {
         "name": "昨日の売電量"
+      },
+      "history_collected_from": {
+        "name": "履歴の取得済み開始時点"
       },
       "import_data_delay": {
         "name": "買電データ遅延"
@@ -182,6 +190,10 @@
   },
   "title": "Octopus Energy Japan",
   "issues": {
+    "backfill_unsupported_provider": {
+      "title": "過去の使用量を取得できません",
+      "description": "{count} 件の供給地点が Octopus Energy Japan の旧来の取得経路を使っています。この経路はどれだけ遡って要求しても直近 31 日分しか返さないため、そのまま取得すると 1 か月分を全期間の履歴として記録してしまいます。そのため取得を中止しました。ほかの機能には影響せず、対応も不要です。新しい取得経路が利用できるようになったら、もう一度ボタンを押してください。"
+    },
     "capability_unavailable": {
       "title": "Octopus Energy Japan が一部の取得方法を提供していません",
       "description": "お客さまのアカウントでは次の取得方法が利用できません: {capabilities}。連携は利用可能な方法へ自動的に切り替えるため、通常は使用量の記録が続きます。すべてが挙げられている場合は、新しい使用量を取得できません。"
@@ -208,6 +220,9 @@
     }
   },
   "exceptions": {
+    "backfill_unsupported": {
+      "message": "この供給地点について、Octopus Energy Japan から過去の使用量を取得できません。旧来の取得経路が使われており、この経路はどれだけ遡って要求しても直近 31 日分しか返しません。"
+    },
     "coordinator_unavailable": {
       "message": "統合の起動中のため、エンティティをまだ追加できません。"
     },

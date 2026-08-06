@@ -78,6 +78,19 @@
     "description": "Enter the public OAuth client ID that Octopus Energy Japan issued for this integration.\n\nLeave the client secret empty. This integration is a public client and must never hold a secret, because anything shipped to every installation is not secret.\n\nOEJP has not issued a client ID yet and offers no self-service registration, so there is currently no value to enter. Progress is tracked in the project's OAuth application status document."
   },
   "entity": {
+    "binary_sensor": {
+      "import_data_available": {
+        "name": "Import data available"
+      },
+      "export_data_available": {
+        "name": "Export data available"
+      }
+    },
+    "button": {
+      "import_full_history": {
+        "name": "Import full history"
+      }
+    },
     "sensor": {
       "account_balance": {
         "name": "Account balance"
@@ -94,32 +107,23 @@
       "current_product": {
         "name": "Current product"
       },
-      "import_latest_interval": {
-        "name": "Import latest reported interval consumption"
+      "export_data_delay": {
+        "name": "Export data delay"
       },
-      "import_today": {
-        "name": "Import consumption today"
-      },
-      "import_yesterday": {
-        "name": "Import consumption yesterday"
-      },
-      "import_this_week": {
-        "name": "Import consumption this week"
-      },
-      "import_this_month": {
-        "name": "Import consumption this month"
-      },
-      "import_last_month": {
-        "name": "Import consumption last month"
-      },
-      "import_latest_reading": {
-        "name": "Import latest reading timestamp"
-      },
-      "import_data_delay": {
-        "name": "Import data delay"
+      "export_last_month": {
+        "name": "Export energy last month"
       },
       "export_latest_interval": {
         "name": "Export latest reported interval energy"
+      },
+      "export_latest_reading": {
+        "name": "Export latest reading timestamp"
+      },
+      "export_this_month": {
+        "name": "Export energy this month"
+      },
+      "export_this_week": {
+        "name": "Export energy this week"
       },
       "export_today": {
         "name": "Export energy today"
@@ -127,20 +131,32 @@
       "export_yesterday": {
         "name": "Export energy yesterday"
       },
-      "export_this_week": {
-        "name": "Export energy this week"
+      "history_collected_from": {
+        "name": "History collected from"
       },
-      "export_this_month": {
-        "name": "Export energy this month"
+      "import_data_delay": {
+        "name": "Import data delay"
       },
-      "export_last_month": {
-        "name": "Export energy last month"
+      "import_last_month": {
+        "name": "Import consumption last month"
       },
-      "export_latest_reading": {
-        "name": "Export latest reading timestamp"
+      "import_latest_interval": {
+        "name": "Import latest reported interval consumption"
       },
-      "export_data_delay": {
-        "name": "Export data delay"
+      "import_latest_reading": {
+        "name": "Import latest reading timestamp"
+      },
+      "import_this_month": {
+        "name": "Import consumption this month"
+      },
+      "import_this_week": {
+        "name": "Import consumption this week"
+      },
+      "import_today": {
+        "name": "Import consumption today"
+      },
+      "import_yesterday": {
+        "name": "Import consumption yesterday"
       },
       "latest_bill_amount": {
         "name": "Latest bill amount"
@@ -171,17 +187,13 @@
           "unknown": "Unknown"
         }
       }
-    },
-    "binary_sensor": {
-      "import_data_available": {
-        "name": "Import data available"
-      },
-      "export_data_available": {
-        "name": "Export data available"
-      }
     }
   },
   "issues": {
+    "backfill_unsupported_provider": {
+      "title": "Older readings cannot be collected",
+      "description": "{count} supply point(s) read through Octopus Energy Japan's legacy path, which returns only the most recent 31 days however far back it is asked. Collecting older readings would record a month as a complete history, so it stops instead. Everything else is unaffected and nothing needs doing. If the newer reading path becomes available for your account, press the button again."
+    },
     "capability_unavailable": {
       "title": "Octopus Energy Japan is not serving a reading method",
       "description": "These reading capabilities are unavailable for your account: {capabilities}. The integration falls back to whichever method still works, so consumption usually keeps recording. If every method is listed, no new readings can be collected."
@@ -208,6 +220,9 @@
     }
   },
   "exceptions": {
+    "backfill_unsupported": {
+      "message": "Octopus Energy Japan cannot serve older readings for this supply point. Its readings arrive through the legacy path, which returns only the most recent 31 days however far back it is asked."
+    },
     "coordinator_unavailable": {
       "message": "The integration is still starting, so its entities cannot be added yet."
     },

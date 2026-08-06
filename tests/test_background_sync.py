@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from custom_components.octopus_energy_japan.api import ReadingDirection
 from custom_components.octopus_energy_japan.background_sync import (
+    BackfillState,
     BackgroundSyncItem,
     BackgroundSyncPlanner,
     BackgroundSyncPriority,
@@ -16,11 +18,14 @@ from custom_components.octopus_energy_japan.background_sync import (
     BackgroundWindow,
     CoverageWindow,
     DailyDirectionCompletion,
+    DirectionBackfill,
     DirectionWindowCompletion,
     PlannedGeneration,
     SyncCheckpoint,
     SyncObligation,
+    initial_floor,
 )
+from custom_components.octopus_energy_japan.sync import MAX_QUERY_WINDOW
 
 NOW = datetime(2026, 7, 29, 12, 34, tzinfo=UTC)
 POINT_A = "supply-point-" + "a" * 64
@@ -459,3 +464,285 @@ def test_checkpoint_without_failure_field_restores_backward_compatibly() -> None
     payload.pop("failed_windows")
 
     assert SyncCheckpoint.from_dict(payload).failed_windows == ()
+
+
+def _checkpoint() -> SyncCheckpoint:
+    return SyncCheckpoint.empty(NOW)
+
+
+FLOOR = datetime(2026, 6, 1, tzinfo=UTC)
+
+
+def test_a_walk_resumes_from_where_it_stopped_rather_than_restarting() -> None:
+    """A stopped walk keeps its cursor, so pressing again continues rather than repeats."""
+    started = _checkpoint().start_backfill(ReadingDirection.IMPORT, FLOOR)
+    walked = started.advance_backfill(
+        ReadingDirection.IMPORT,
+        BackgroundWindow(FLOOR - MAX_QUERY_WINDOW, FLOOR),
+        empty=False,
+        empty_limit=3,
+        history_floor=datetime(2020, 1, 1, tzinfo=UTC),
+    )
+    stopped = walked.stop_backfill(ReadingDirection.IMPORT, BackfillState.FAILED, "transient")
+
+    resumed = stopped.start_backfill(ReadingDirection.IMPORT, FLOOR)
+
+    record = resumed.backfill_for(ReadingDirection.IMPORT)
+    assert record is not None
+    assert record.state is BackfillState.RUNNING
+    assert record.cursor == FLOOR - MAX_QUERY_WINDOW
+
+
+def test_each_walked_window_moves_the_cursor_and_records_its_coverage() -> None:
+    checkpoint = _checkpoint().start_backfill(ReadingDirection.IMPORT, FLOOR)
+
+    walked = checkpoint.advance_backfill(
+        ReadingDirection.IMPORT,
+        BackgroundWindow(FLOOR - MAX_QUERY_WINDOW, FLOOR),
+        empty=False,
+        empty_limit=3,
+        history_floor=datetime(2020, 1, 1, tzinfo=UTC),
+    )
+
+    record = walked.backfill_for(ReadingDirection.IMPORT)
+    assert record is not None
+    assert record.cursor == FLOOR - MAX_QUERY_WINDOW
+    assert record.empty_streak == 0
+    assert walked.coverage_for(ReadingDirection.IMPORT) == (
+        CoverageWindow(FLOOR - MAX_QUERY_WINDOW, FLOOR),
+    )
+
+
+def test_a_run_of_empty_windows_ends_the_walk_and_one_does_not() -> None:
+    """One empty window is not evidence: a meter exchange or a supply gap produces one."""
+    checkpoint = _checkpoint().start_backfill(ReadingDirection.IMPORT, FLOOR)
+    cursor = FLOOR
+    states = []
+    for _ in range(3):
+        window = BackgroundWindow(cursor - MAX_QUERY_WINDOW, cursor)
+        checkpoint = checkpoint.advance_backfill(
+            ReadingDirection.IMPORT,
+            window,
+            empty=True,
+            empty_limit=3,
+            history_floor=datetime(2020, 1, 1, tzinfo=UTC),
+        )
+        record = checkpoint.backfill_for(ReadingDirection.IMPORT)
+        assert record is not None
+        states.append(record.state)
+        cursor = record.cursor
+
+    assert states == [BackfillState.RUNNING, BackfillState.RUNNING, BackfillState.COMPLETE]
+
+
+def test_a_window_with_readings_resets_the_empty_run() -> None:
+    checkpoint = _checkpoint().start_backfill(ReadingDirection.IMPORT, FLOOR)
+    checkpoint = checkpoint.advance_backfill(
+        ReadingDirection.IMPORT,
+        BackgroundWindow(FLOOR - MAX_QUERY_WINDOW, FLOOR),
+        empty=True,
+        empty_limit=3,
+        history_floor=datetime(2020, 1, 1, tzinfo=UTC),
+    )
+    cursor = FLOOR - MAX_QUERY_WINDOW
+
+    checkpoint = checkpoint.advance_backfill(
+        ReadingDirection.IMPORT,
+        BackgroundWindow(cursor - MAX_QUERY_WINDOW, cursor),
+        empty=False,
+        empty_limit=3,
+        history_floor=datetime(2020, 1, 1, tzinfo=UTC),
+    )
+
+    record = checkpoint.backfill_for(ReadingDirection.IMPORT)
+    assert record is not None
+    assert record.empty_streak == 0
+    assert record.state is BackfillState.RUNNING
+
+
+def test_the_absolute_floor_ends_a_walk_that_would_otherwise_run_forever() -> None:
+    checkpoint = _checkpoint().start_backfill(ReadingDirection.IMPORT, FLOOR)
+
+    walked = checkpoint.advance_backfill(
+        ReadingDirection.IMPORT,
+        BackgroundWindow(FLOOR - MAX_QUERY_WINDOW, FLOOR),
+        empty=False,
+        empty_limit=3,
+        history_floor=FLOOR,
+    )
+
+    record = walked.backfill_for(ReadingDirection.IMPORT)
+    assert record is not None
+    assert record.state is BackfillState.COMPLETE
+
+
+def test_stopping_leaves_the_cursor_where_it_is() -> None:
+    """The unsupported case depends on this: the legacy answer must not record coverage."""
+    checkpoint = _checkpoint().start_backfill(ReadingDirection.IMPORT, FLOOR)
+
+    stopped = checkpoint.stop_backfill(ReadingDirection.IMPORT, BackfillState.UNSUPPORTED)
+
+    record = stopped.backfill_for(ReadingDirection.IMPORT)
+    assert record is not None
+    assert record.cursor == FLOOR
+    assert stopped.coverage_for(ReadingDirection.IMPORT) == ()
+
+
+def test_advancing_a_direction_that_never_started_changes_nothing() -> None:
+    checkpoint = _checkpoint()
+
+    assert (
+        checkpoint.advance_backfill(
+            ReadingDirection.IMPORT,
+            BackgroundWindow(FLOOR - MAX_QUERY_WINDOW, FLOOR),
+            empty=False,
+            empty_limit=3,
+            history_floor=datetime(2020, 1, 1, tzinfo=UTC),
+        )
+        == checkpoint
+    )
+    assert checkpoint.stop_backfill(ReadingDirection.IMPORT, BackfillState.FAILED) == checkpoint
+
+
+def test_a_walk_never_grows_the_registered_generations() -> None:
+    """This is why the cursor exists.
+
+    Registering a window per step would make the checkpoint grow without bound and its
+    validation quadratic, since every completion is matched against its generation's windows on
+    every save.
+    """
+    checkpoint = _checkpoint().start_backfill(ReadingDirection.IMPORT, FLOOR)
+    cursor = FLOOR
+    for _ in range(300):
+        window = BackgroundWindow(cursor - MAX_QUERY_WINDOW, cursor)
+        checkpoint = checkpoint.advance_backfill(
+            ReadingDirection.IMPORT,
+            window,
+            empty=False,
+            empty_limit=3,
+            history_floor=datetime(1990, 1, 1, tzinfo=UTC),
+        )
+        cursor = window.start_at
+
+    assert checkpoint.generations == ()
+    assert checkpoint.completed_windows == ()
+    assert len(checkpoint.backfill) == 1
+
+
+def test_a_walk_is_never_named_in_the_serialized_generations() -> None:
+    """An older build reads `generations` strictly and would reject an unknown reason.
+
+    Keeping the walk out of them is what makes a checkpoint written here still load there.
+    """
+    checkpoint = _checkpoint().start_backfill(ReadingDirection.IMPORT, FLOOR)
+
+    payload = checkpoint.as_dict()
+
+    for key in ("generations", "completed_windows", "failed_windows"):
+        assert BackgroundSyncReason.HISTORY_BACKFILL.value not in json.dumps(payload[key])
+
+
+def test_a_checkpoint_written_before_walks_existed_still_loads() -> None:
+    payload = _checkpoint().as_dict()
+    del payload["backfill"]
+
+    assert SyncCheckpoint.from_dict(payload).backfill == ()
+
+
+def test_a_walk_round_trips_through_the_checkpoint() -> None:
+    checkpoint = _checkpoint().start_backfill(ReadingDirection.IMPORT, FLOOR)
+    checkpoint = checkpoint.stop_backfill(
+        ReadingDirection.IMPORT,
+        BackfillState.FAILED,
+        "transient",
+    )
+
+    restored = SyncCheckpoint.from_dict(checkpoint.as_dict())
+
+    assert restored.backfill == checkpoint.backfill
+
+
+def test_every_reason_has_a_priority() -> None:
+    """`BackgroundSyncItem.priority` raises a KeyError on a reason this map has missed."""
+    for reason in BackgroundSyncReason:
+        item = BackgroundSyncItem(
+            BackgroundSyncScope(
+                f"supply-point-{'a' * 64}",
+                ReadingDirection.IMPORT,
+                BackgroundWindow(FLOOR - MAX_QUERY_WINDOW, FLOOR),
+            ),
+            frozenset({SyncObligation(reason, "generation")}),
+        )
+        assert item.priority in BackgroundSyncPriority
+
+
+def test_the_cadence_and_the_walk_start_from_the_same_floor() -> None:
+    """A gap between them would be history neither of them ever collects."""
+    planner = BackgroundSyncPlanner()
+    floor = initial_floor(NOW)
+
+    oldest_planned = min(
+        window.start_at
+        for generation in (*planner.initial(NOW), planner.daily(NOW))
+        for window in generation.windows
+    )
+
+    assert oldest_planned == floor
+
+
+def test_a_negative_empty_run_is_refused() -> None:
+    with pytest.raises(ValueError, match="empty streak"):
+        DirectionBackfill(ReadingDirection.IMPORT, BackfillState.RUNNING, NOW, empty_streak=-1)
+
+
+def test_two_records_for_one_direction_are_refused() -> None:
+    """One cursor per direction, or which one is authoritative would depend on order."""
+    with pytest.raises(ValueError, match="duplicate backfill"):
+        SyncCheckpoint(
+            month_pair_generation="2026-07_2026-08",
+            backfill=(
+                DirectionBackfill(ReadingDirection.IMPORT, BackfillState.RUNNING, NOW),
+                DirectionBackfill(ReadingDirection.IMPORT, BackfillState.COMPLETE, NOW),
+            ),
+        )
+
+
+def _backfill_payload(**overrides: object) -> dict[str, object]:
+    record = {
+        "direction": "import",
+        "state": "running",
+        "cursor": "2026-07-01T00:00:00+00:00",
+        "empty_streak": 1,
+        "error_class": None,
+    }
+    record.update(overrides)
+    payload = _checkpoint().as_dict()
+    payload["backfill"] = [record]
+    return payload
+
+
+def test_a_record_written_without_the_optional_fields_reads_as_empty() -> None:
+    payload = _backfill_payload()
+    del payload["backfill"][0]["empty_streak"]  # type: ignore[index]
+    del payload["backfill"][0]["error_class"]  # type: ignore[index]
+
+    (record,) = SyncCheckpoint.from_dict(payload).backfill
+
+    assert record.empty_streak == 0
+    assert record.error_class is None
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"error_class": 12345},
+        {"error_class": ""},
+        {"empty_streak": "one"},
+        {"empty_streak": True},
+        {"empty_streak": -1},
+    ],
+)
+def test_a_malformed_record_is_refused_rather_than_coerced(overrides: dict[str, object]) -> None:
+    """A wrong cursor or run length would silently re-walk or stop a walk early."""
+    with pytest.raises(ValueError):
+        SyncCheckpoint.from_dict(_backfill_payload(**overrides))

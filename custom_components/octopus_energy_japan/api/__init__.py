@@ -97,6 +97,11 @@ from .operations import (
     async_obtain_token,
     async_renew_token,
 )
+from .rate_limit import (
+    RATE_LIMIT_QUERY,
+    PointsAllowance,
+    async_fetch_points_allowance,
+)
 from .readings import (
     GENERIC_ENERGY_UNITS,
     GENERIC_PAGE_SIZE,
@@ -141,6 +146,7 @@ __all__ = [
     "LEGACY_DISCOVERY_QUERY",
     "LEGACY_HALF_HOURLY_QUERY",
     "LEGACY_INTERVAL_QUERY",
+    "RATE_LIMIT_QUERY",
     "AccountCommercialSnapshot",
     "AccountOverview",
     "AgreementPage",
@@ -196,6 +202,7 @@ __all__ = [
     "OejpToken",
     "OejpTransientHttpError",
     "OejpTransportError",
+    "PointsAllowance",
     "ProductSummary",
     "ReadingDirection",
     "ReadingFallbackReason",
@@ -217,6 +224,7 @@ __all__ = [
     "async_discover_resources",
     "async_discover_supply_starts",
     "async_fetch_account_commercial_snapshot",
+    "async_fetch_points_allowance",
     "async_fetch_supply_point_tariffs",
     "async_get_viewer_identity",
     "async_obtain_token",

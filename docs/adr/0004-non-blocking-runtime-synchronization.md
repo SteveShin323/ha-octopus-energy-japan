@@ -1,5 +1,8 @@
 # ADR 0004: Use a short blocking bootstrap and a persistent background sync queue
 
+> Superseded in part by [ADR 0009](0009-user-triggered-history-backfill.md). The bootstrap
+> still performs no month backfill; a separate walk collects older history on request.
+
 Status: accepted
 Date: 2026-07-31
 

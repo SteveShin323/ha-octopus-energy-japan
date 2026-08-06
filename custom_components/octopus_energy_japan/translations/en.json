@@ -85,6 +85,11 @@
         "name": "Import data available"
       }
     },
+    "button": {
+      "import_full_history": {
+        "name": "Import full history"
+      }
+    },
     "sensor": {
       "account_balance": {
         "name": "Account balance"
@@ -124,6 +129,9 @@
       },
       "export_yesterday": {
         "name": "Export energy yesterday"
+      },
+      "history_collected_from": {
+        "name": "History collected from"
       },
       "import_data_delay": {
         "name": "Import data delay"
@@ -182,6 +190,10 @@
   },
   "title": "Octopus Energy Japan",
   "issues": {
+    "backfill_unsupported_provider": {
+      "title": "Older readings cannot be collected",
+      "description": "{count} supply point(s) read through Octopus Energy Japan's legacy path, which returns only the most recent 31 days however far back it is asked. Collecting older readings would record a month as a complete history, so it stops instead. Everything else is unaffected and nothing needs doing. If the newer reading path becomes available for your account, press the button again."
+    },
     "capability_unavailable": {
       "title": "Octopus Energy Japan is not serving a reading method",
       "description": "These reading capabilities are unavailable for your account: {capabilities}. The integration falls back to whichever method still works, so consumption usually keeps recording. If every method is listed, no new readings can be collected."
@@ -208,6 +220,9 @@
     }
   },
   "exceptions": {
+    "backfill_unsupported": {
+      "message": "Octopus Energy Japan cannot serve older readings for this supply point. Its readings arrive through the legacy path, which returns only the most recent 31 days however far back it is asked."
+    },
     "coordinator_unavailable": {
       "message": "The integration is still starting, so its entities cannot be added yet."
     },

@@ -88,14 +88,31 @@ class BackgroundRetryController:
             )
         return RetrySchedule(not_before, attempt, deferred)
 
+    def defer(self, scope: BackgroundSyncScope, not_before: datetime) -> None:
+        """Hold one scope back until an instant, without touching its retry count.
+
+        Pacing, not backoff: a successful backfill window uses this to space the next request.
+        `_effective_not_before` already takes the maximum against the entry-wide rate-limit
+        barrier, so the two compose without either knowing about the other, and `available`
+        already skips a held scope in favour of a lower-priority ready one.
+        """
+        current = _utc(not_before)
+        existing = self._item_not_before.get(scope)
+        # Never move a barrier earlier: a backoff in progress outranks a pacing delay.
+        self._item_not_before[scope] = max(existing, current) if existing else current
+
     def resolve(self, scope: BackgroundSyncScope) -> None:
         """Clear retry state after success or permanent resolution."""
         self._attempts.pop(scope, None)
         self._item_not_before.pop(scope, None)
 
     def prune(self, active_scopes: frozenset[BackgroundSyncScope]) -> None:
-        """Drop retry state for obligations no longer present in the queue."""
-        for scope in tuple(self._attempts):
+        """Drop retry state for obligations no longer present in the queue.
+
+        Both maps, not only the attempt counts: a scope that was paced but never failed has no
+        attempt count, so iterating that map alone leaked its barrier forever.
+        """
+        for scope in tuple(self._attempts) + tuple(self._item_not_before):
             if scope not in active_scopes:
                 self.resolve(scope)
 
