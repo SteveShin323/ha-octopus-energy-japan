@@ -19,15 +19,24 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor", "binary_sensor", "button"]
 
 
-def _config_schema() -> Any:
-    from homeassistant.helpers import config_validation as cv
+def __getattr__(name: str) -> Any:
+    """Build `CONFIG_SCHEMA` on first access rather than at import.
 
-    from .const import DOMAIN
+    This module keeps every Home Assistant import inside a function on purpose: the
+    fixture scanner imports the package to reuse its redaction rules, and it runs in a job
+    that has no Home Assistant installed. Assigning `CONFIG_SCHEMA` at module level broke
+    that, because building it needs `config_validation`.
 
-    return cv.config_entry_only_config_schema(DOMAIN)
+    A module-level `__getattr__` (PEP 562) keeps the assignment lazy while leaving the
+    attribute exactly where Home Assistant looks for it.
+    """
+    if name == "CONFIG_SCHEMA":
+        from homeassistant.helpers import config_validation as cv
 
+        from .const import DOMAIN
 
-CONFIG_SCHEMA = _config_schema()
+        return cv.config_entry_only_config_schema(DOMAIN)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 async def async_setup(hass: HomeAssistant, config: Any) -> bool:
