@@ -816,3 +816,82 @@ def test_an_hour_after_every_generation_ended_keeps_the_last_one() -> None:
     (tariff,) = parse_supply_point_tariffs(_payload(_agreement(product=product)), ACCOUNT)
 
     assert tariff.marginal_price(Decimal(0), datetime(2026, 8, 1, tzinfo=UTC)) == Decimal("20.00")
+
+
+def test_a_lapsed_agreement_is_reported_rather_than_silently_priceless() -> None:
+    """Every consumption agreement has ended and nothing replaced it.
+
+    A plan switch, or a move-out with the entry still installed. The cost statistic stops
+    either way; before this it stopped in silence, because the only other supply point that
+    publishes no cost for a structural reason is an export-only one, which is silent on
+    purpose.
+    """
+    tariffs = parse_supply_point_tariffs(
+        {
+            "account": {
+                "number": "A-1",
+                "properties": [
+                    {
+                        "electricitySupplyPoints": [
+                            {
+                                "id": "SP-1",
+                                "agreements": [
+                                    {
+                                        "validFrom": "2025-04-01T00:00:00+00:00",
+                                        "validTo": "2026-03-31T00:00:00+00:00",
+                                        "isRevoked": False,
+                                        "product": {
+                                            "__typename": "ElectricitySteppedProduct",
+                                            "code": "P",
+                                            "displayName": "P",
+                                            "consumptionCharges": [],
+                                        },
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                ],
+            }
+        },
+        "A-1",
+    )
+
+    assert len(tariffs) == 1
+    assert tariffs[0].unpriceable_reason is TariffUnpriceable.AGREEMENT_LAPSED
+    assert not tariffs[0].is_priceable
+
+
+def test_a_point_that_never_priced_consumption_stays_silent() -> None:
+    """An export-only point is not a problem to report, and must not raise a repair issue."""
+    tariffs = parse_supply_point_tariffs(
+        {
+            "account": {
+                "number": "A-1",
+                "properties": [
+                    {
+                        "electricitySupplyPoints": [
+                            {
+                                "id": "SP-1",
+                                "agreements": [
+                                    {
+                                        "validFrom": "2025-04-01T00:00:00+00:00",
+                                        "validTo": None,
+                                        "isRevoked": False,
+                                        "product": {
+                                            "__typename": "ElectricityFitProduct",
+                                            "code": "FIT",
+                                            "displayName": "FIT",
+                                        },
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                ],
+            }
+        },
+        "A-1",
+    )
+
+    assert tariffs == ()

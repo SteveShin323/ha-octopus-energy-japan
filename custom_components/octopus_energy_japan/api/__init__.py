@@ -127,6 +127,7 @@ from .tariff import (
     SupplyPointTariff,
     TariffAdder,
     TariffStep,
+    TariffUnpriceable,
     async_fetch_supply_point_tariffs,
     parse_supply_point_tariffs,
 )
@@ -215,6 +216,7 @@ __all__ = [
     "SupplyPointTariff",
     "TariffAdder",
     "TariffStep",
+    "TariffUnpriceable",
     "TransactionSummary",
     "async_detect_capabilities",
     "async_discover_accounts",
