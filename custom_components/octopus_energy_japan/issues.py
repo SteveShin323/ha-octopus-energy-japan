@@ -20,7 +20,12 @@ from typing import TYPE_CHECKING, Final
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import issue_registry as ir
 
-from .api import Capability, CapabilityAvailability, CommercialAvailability
+from .api import (
+    Capability,
+    CapabilityAvailability,
+    CommercialAvailability,
+    TariffUnpriceable,
+)
 from .background_sync import BackfillState
 from .const import DOMAIN
 
@@ -53,6 +58,7 @@ class OejpIssue(StrEnum):
     COMMERCIAL_PERMISSION_MISSING = "commercial_permission_missing"
     TARIFF_NOT_PRICEABLE = "tariff_not_priceable"
     TARIFF_HISTORY_UNREADABLE = "tariff_history_unreadable"
+    TARIFF_AGREEMENT_LAPSED = "tariff_agreement_lapsed"
     BACKFILL_UNSUPPORTED_PROVIDER = "backfill_unsupported_provider"
 
 
@@ -140,6 +146,9 @@ def _unpriceable_tariff_reasons(commercial: OejpCommercialData | None) -> tuple[
 
     A supply point with no consumption agreement at all yields no tariff and so no reason: an
     export-only point is not a problem to report.
+
+    A lapsed agreement is reported separately. It is not a plan this formula cannot express —
+    there is no plan — so the message for that would be wrong about what happened.
     """
     if commercial is None:
         return ()
@@ -149,8 +158,26 @@ def _unpriceable_tariff_reasons(commercial: OejpCommercialData | None) -> tuple[
                 tariff.unpriceable_reason.value
                 for tariff in commercial.tariffs
                 if tariff.unpriceable_reason is not None
+                and tariff.unpriceable_reason is not TariffUnpriceable.AGREEMENT_LAPSED
             }
         )
+    )
+
+
+def _lapsed_agreement_points(commercial: OejpCommercialData | None) -> int:
+    """Return how many supply points have consumption agreements but none in force.
+
+    Every one of them has ended or been revoked with nothing to replace it — a customer
+    mid-switch, or one who has moved out with the entry still installed. The cost statistic
+    stops, and until this said so the only other supply point that stops publishing a cost
+    for a structural reason was an export-only one, which is silent on purpose.
+    """
+    if commercial is None:
+        return 0
+    return sum(
+        1
+        for tariff in commercial.tariffs
+        if tariff.unpriceable_reason is TariffUnpriceable.AGREEMENT_LAPSED
     )
 
 
@@ -225,6 +252,16 @@ def async_update_issues(
         OejpIssue.TARIFF_NOT_PRICEABLE,
         active=bool(unpriceable),
         placeholders={"reasons": ", ".join(unpriceable)},
+        severity=ir.IssueSeverity.WARNING,
+    )
+
+    lapsed = _lapsed_agreement_points(commercial)
+    _apply(
+        hass,
+        entry_id,
+        OejpIssue.TARIFF_AGREEMENT_LAPSED,
+        active=lapsed > 0,
+        placeholders={"count": str(lapsed)},
         severity=ir.IssueSeverity.WARNING,
     )
 

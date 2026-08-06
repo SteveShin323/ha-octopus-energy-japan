@@ -172,6 +172,14 @@ class TariffUnpriceable(StrEnum):
     MIXED_OPERATOR = "mixed_operator"
     # A consumption product that returned no usable charge.
     NO_CONSUMPTION_CHARGES = "no_consumption_charges"
+    # Consumption agreements exist on this supply point but none is in force: every one is
+    # revoked or has ended, and nothing has replaced it. A customer mid-switch, or one who has
+    # moved out with the entry still installed.
+    #
+    # Distinguished from having no consumption agreement at all, which is an export-only or
+    # gas-only point and not a problem to report. Both leave the cost statistic absent, and
+    # without the distinction the second silences the first.
+    AGREEMENT_LAPSED = "agreement_lapsed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -324,8 +332,11 @@ def parse_supply_point_tariffs(
             supply_point_id = _identifier(point)
             if supply_point_id is None:
                 continue
-            product = _active_product(point.get("agreements"))
+            agreements = point.get("agreements")
+            product = _active_product(agreements)
             if product is None:
+                if _had_consumption_agreement(agreements):
+                    tariffs.append(_lapsed(account_number, supply_point_id))
                 continue
             tariffs.append(_parse_product(account_number, supply_point_id, product))
     return tuple(tariffs)
@@ -343,6 +354,35 @@ def _identifier(point: Mapping[str, Any]) -> str | None:
         if isinstance(value, str) and value.strip():
             return value
     return None
+
+
+def _had_consumption_agreement(agreements: object) -> bool:
+    """Report whether this supply point ever had a consumption agreement.
+
+    Separates a lapsed agreement from a point that never priced consumption at all. Revoked
+    ones count: a revoked agreement is still evidence that this point is billed for what it
+    consumes, and if it is the only one there is nothing in force now.
+    """
+    return any(
+        isinstance(agreement.get("product"), Mapping)
+        and _optional_string(agreement["product"].get("__typename")) in _CONSUMPTION_PRODUCTS
+        for agreement in _iter_mappings(agreements)
+    )
+
+
+def _lapsed(account_number: str, supply_point_id: str) -> SupplyPointTariff:
+    """Return a tariff that carries only the reason there is no price."""
+    return SupplyPointTariff(
+        account_number=account_number,
+        supply_point_id=supply_point_id,
+        product_code=None,
+        product_name=None,
+        steps=(),
+        standing_charge_per_day=None,
+        fuel_cost_adjustment=None,
+        renewable_energy_levy=None,
+        unpriceable_reason=TariffUnpriceable.AGREEMENT_LAPSED,
+    )
 
 
 def _active_product(agreements: object) -> Mapping[str, Any] | None:

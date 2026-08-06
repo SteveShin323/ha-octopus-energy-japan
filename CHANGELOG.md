@@ -9,6 +9,33 @@ published client ID before they can be completed.
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-08-06
+
+From a review of whether this integration copes with account shapes other than the one it
+was built against.
+
+### Added
+
+- **A supply point whose plan has lapsed now says so.** Every consumption agreement it has is
+  revoked or has ended with nothing to replace it — a plan switch, or a move-out with the
+  entry still installed. The cost statistic stops either way, and until now it stopped in
+  silence: the only other supply point that publishes no cost for a structural reason is an
+  export-only one, which is silent on purpose, and that rule was silencing both. They are now
+  told apart, and only the second is reported;
+- a test that an account with no electricity supply points, or a property with none, parses
+  rather than failing setup. A gas-only customer or one mid-move has that shape. It already
+  worked; nothing pinned it, and the difference between "absent" and "empty" is one word in
+  the parser.
+
+### Changed
+
+- `docs/API_CONTRACTS.md` now states which account shapes are measured and which are only
+  reasoned about. One shape is verified against a real account — one account, one property,
+  one electricity supply point, one agreement in force — and every other shape is exercised
+  by hand-written payloads alone. That is how two of this project's eight "looks implemented,
+  returns nothing" defects survived, so the table names them as unverified rather than
+  letting `1.0.0` imply otherwise.
+
 ## [0.9.4] - 2026-08-06
 
 ### Changed

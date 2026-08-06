@@ -790,3 +790,38 @@ def test_the_reading_schedule_day_needs_two_dates_that_agree(
     point["nextNextReadingDate"] = second
 
     assert _parsed_supply_point(payload, "supply-2").reading_schedule_day == expected
+
+
+def test_an_account_with_no_electricity_supply_points_is_not_a_failure() -> None:
+    """A gas-only customer, or one mid-move, has properties and no electricity points.
+
+    Nothing here should raise: an empty list is an answer, not a malformed response. Pinned
+    because the parser reaches for these lists by name and the difference between "absent"
+    and "empty" is one word in `_required_list`.
+    """
+    payload = {
+        "viewer": {
+            "accounts": [
+                {
+                    "number": "A-ACCOUNT",
+                    "status": "ON_SUPPLY",
+                    "properties": [
+                        {
+                            "id": "property-1",
+                            "address": None,
+                            "postcode": None,
+                            "electricitySupplyPoints": [],
+                        }
+                    ],
+                },
+                {"number": "B-ACCOUNT", "status": "ON_SUPPLY", "properties": []},
+            ]
+        }
+    }
+
+    accounts = parse_legacy_discovery(payload)
+
+    assert [account.number for account in accounts] == ["A-ACCOUNT", "B-ACCOUNT"]
+    assert accounts[0].properties[0].supply_points == ()
+    assert accounts[1].properties == ()
+    assert all(account.lifecycle is ResourceLifecycle.ACTIVE for account in accounts)

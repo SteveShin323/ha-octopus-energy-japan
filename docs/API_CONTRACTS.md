@@ -216,3 +216,32 @@ non-zero balance is the way to settle it.
 
 Publishing a field from any of these categories is a decision, not an omission to be
 corrected. Revisit them individually.
+
+## One account shape is measured; the rest are reasoned
+
+Everything above was read from a single real account: **one account, one property, one
+electricity supply point, electricity only, one consumption agreement in force.** That shape
+is verified end to end, by `tests/test_live_account.py` on every change.
+
+Every other shape this integration claims to handle is exercised only by hand-written
+payloads. Those are how two of this project's eight "looks implemented, returns nothing"
+defects survived — a fixture that agrees with the parser proves the parser agrees with
+itself. Only three contract fixtures are derived from real responses, and all three are
+readings.
+
+| Shape | Handled by | Evidence |
+| --- | --- | --- |
+| 1 account / 1 property / 1 point, electricity | the whole integration | **a real account** |
+| Several accounts on one login | discovery, ordinal device names | hand-written |
+| Several properties on one account | discovery | hand-written |
+| Several supply points on one property | discovery, per-point ledgers and statistics | hand-written |
+| Historical (moved-out) account or supply point | lifecycle, opt-in reporting | hand-written |
+| Several supply periods, with a gap | earliest billable period anchors the billing period | hand-written |
+| No electricity supply points at all | discovery returns an account with none | hand-written |
+| A gas supply point beside electricity | not queried; `GasTieredProduct` is not a consumption product here | none |
+| Readings only through the legacy path | capability detection; the history walk refuses | hand-written |
+| Every consumption agreement ended | reported as a repair issue | hand-written |
+
+Treat "hand-written" as unverified against reality, not as covered. The way to settle any
+row is a real account with that shape, and until one exists the honest statement is the one
+in this table.
