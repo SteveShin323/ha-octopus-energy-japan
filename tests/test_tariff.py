@@ -34,7 +34,7 @@ def _product(**overrides: Any) -> dict[str, Any]:
     product = {
         "__typename": "ElectricitySteppedProduct",
         "code": "JPN_KK_OCTOPUS_MAY_26",
-        "displayName": "KKオクトパス",
+        "displayName": "Demo Standard Plan",
         "standingChargeUnitType": "YEN_AMPERE_DAY",
         "standingChargePricePerDay": "38.80",
         "consumptionCharges": [

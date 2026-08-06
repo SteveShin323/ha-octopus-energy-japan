@@ -55,9 +55,12 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 NOW = datetime(2026, 8, 4, 12, tzinfo=UTC)
 SECRET = "01" * 32
 
-# Every value a real installation must never publish.
-ACCOUNT_NUMBER = "A-B71D14A3"
-SPIN = "03-0011-1000-1274-4432-3211"
+# Every value a real installation must never publish. Invented, and deliberately so: these
+# are the needles the assertions below search the report for, and using a real account's
+# number, supply-point number, product name, or bill amount would have put exactly what this
+# test defends into a public repository.
+ACCOUNT_NUMBER = "A-DEMO0001"
+SPIN = "03-0000-0000-0000-0000-0000"
 SUPPLY_POINT_ID = "PRIVATE-SUPPLY-POINT"
 EMAIL = "private@example.jp"
 ACCESS_TOKEN = "private-access-token-value"
@@ -182,7 +185,7 @@ def _entry(hass: HomeAssistant, *, loaded: bool = True) -> MockConfigEntry:
                     to_date=None,
                     issued_date=None,
                     due_date=None,
-                    gross_amount_minor=13773,
+                    gross_amount_minor=84200,
                     status=None,
                     is_annulled=False,
                     is_held=False,
@@ -205,7 +208,7 @@ def _entry(hass: HomeAssistant, *, loaded: bool = True) -> MockConfigEntry:
                 account_number=ACCOUNT_NUMBER,
                 supply_point_id=SUPPLY_POINT_ID,
                 product_code="JPN_KK_OCTOPUS_MAY_26",
-                product_name="KKオクトパス",
+                product_name="Demo Standard Plan",
                 steps=(
                     TariffStep(Decimal(0), Decimal(120), Decimal("20.62")),
                     TariffStep(Decimal(120), None, Decimal("25.29")),
@@ -249,7 +252,7 @@ async def test_diagnostics_never_contain_a_customer_value(hass: HomeAssistant) -
     for secret in SECRETS:
         assert secret not in serialized
     # A monetary amount is customer data even though it is only a number.
-    assert "13773" not in serialized
+    assert "84200" not in serialized
     assert "1234" not in serialized
 
 
