@@ -27,3 +27,26 @@ def test_english_and_japanese_translations_match_canonical_strings() -> None:
     assert _leaf_paths(_load(INTEGRATION / "translations" / "en.json")) == canonical
     assert _leaf_paths(_load(INTEGRATION / "translations" / "ja.json")) == canonical
     assert not (INTEGRATION / "translations" / "ko.json").exists()
+
+
+def _references(value: Any, prefix: tuple[str, ...] = ()) -> list[tuple[str, ...]]:
+    if isinstance(value, dict):
+        return [path for key, child in value.items() for path in _references(child, (*prefix, key))]
+    return [prefix] if isinstance(value, str) and "[%key:" in value else []
+
+
+def test_no_translation_still_points_at_a_shared_string() -> None:
+    """`[%key:...%]` is resolved by a build step this integration never runs.
+
+    Home Assistant's own repository expands those references when it compiles
+    `strings.json` into `translations/`. A custom integration ships its translations
+    directly, so a reference left in one is displayed to the user verbatim — which is
+    exactly what happened: the setup screen read
+    `[%key:common::config_flow::create_entry::authenticated%]`.
+
+    `strings.json` may keep them. It is the canonical source and is never displayed.
+    """
+    for language in ("en", "ja"):
+        path = INTEGRATION / "translations" / f"{language}.json"
+        unresolved = _references(_load(path))
+        assert not unresolved, f"{language}.json still references: {sorted(unresolved)}"

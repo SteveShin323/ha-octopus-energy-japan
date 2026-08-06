@@ -22,7 +22,6 @@ from .models import (
     CapabilityStatus,
     OejpAccount,
     OejpDevice,
-    OejpMeter,
     OejpProperty,
     OejpRegister,
     OejpSupplyPoint,
@@ -47,10 +46,6 @@ query ViewerResourceDiscovery {
             readingDateDayOfMonth
             nextReadingDate
             nextNextReadingDate
-            meters {
-              serialNumber
-              capacity
-            }
           }
         }
       }
@@ -174,7 +169,7 @@ async def async_paginate[T](
 async def async_discover_resources(
     client: AuthenticatedGraphQLClient,
 ) -> tuple[OejpAccount, ...]:
-    """Discover all legacy account/property/supply-point/meter resources."""
+    """Discover all legacy account/property/supply-point resources."""
     data = await client.execute(LEGACY_DISCOVERY_QUERY)
     return parse_legacy_discovery(data)
 
@@ -447,14 +442,6 @@ def _parse_supply_point(
     if provider_id is None and spin is None:
         raise OejpInvalidResponseError("Supply point discovery did not contain an identifier")
     status = _optional_string(raw.get("status"))
-    raw_meters = _required_list(
-        raw.get("meters"),
-        "Supply point discovery did not contain meters",
-    )
-    meters: dict[str, OejpMeter] = {}
-    for raw_meter in raw_meters:
-        meter = _parse_meter(raw_meter)
-        _insert_unique(meters, meter.serial_number, meter, "meter")
     return OejpSupplyPoint(
         id=provider_id or spin or "",
         account_number=account_number,
@@ -467,15 +454,6 @@ def _parse_supply_point(
             raw.get("nextReadingDate"),
             raw.get("nextNextReadingDate"),
         ),
-        meters=tuple(meters[key] for key in sorted(meters)),
-    )
-
-
-def _parse_meter(value: object) -> OejpMeter:
-    raw = _required_mapping(value, "Discovery response contained a malformed meter")
-    return OejpMeter(
-        serial_number=_required_string(raw, "serialNumber", "Meter"),
-        capacity=_optional_scalar_string(raw.get("capacity")),
     )
 
 
@@ -663,11 +641,3 @@ def _optional_datetime(value: object) -> datetime | None:
     except ValueError:
         return None
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
-
-
-def _optional_scalar_string(value: object) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
-        raise OejpInvalidResponseError("Meter capacity was malformed")
-    return str(value)

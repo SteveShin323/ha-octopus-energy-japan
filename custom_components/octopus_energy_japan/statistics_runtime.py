@@ -352,15 +352,24 @@ class HomeAssistantStatisticsProjector:
         tariff = self._tariff_lookup(account_id, supply_point_id)
         if tariff is None or not tariff.is_priceable:
             return None
-        # An empty archive is the ordinary state of a fresh install, and it prices every hour
-        # with whatever the provider reports now. That is what the archive exists to improve on
-        # as it fills, and it is already better than the nothing an uncovered hour used to get.
-        schedule = (
+        # An empty archive prices every hour with whatever the provider reports now. That is
+        # what the archive exists to improve on as it fills, and it is already better than the
+        # nothing an uncovered hour used to get.
+        #
+        # The fallback is reached in one situation that matters: an archive whose stored file
+        # could not be read is quarantined and answers empty, and the warning it logs promises
+        # exactly this. Writing the lookup as the only source made that promise unkeepable and
+        # priced those hours with no adjustment at all — silently low, rather than missing.
+        # In the ordinary case the archive is written before the tariff it came from is
+        # published, so the lookup already holds the same values this would produce.
+        archived = (
             self._adder_lookup(account_id, supply_point_id)
             if self._adder_lookup is not None
-            else live_schedule(tariff, observed_at=datetime.now(UTC))
+            else None
         )
-        return tariff, schedule
+        if archived is not None and archived.records:
+            return tariff, archived
+        return tariff, live_schedule(tariff, observed_at=datetime.now(UTC))
 
     def _repricing(
         self,

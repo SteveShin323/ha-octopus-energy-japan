@@ -9,6 +9,56 @@ published client ID before they can be completed.
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-08-06
+
+Everything here was found by running 0.9.1 on a real Home Assistant and looking at what it
+actually showed.
+
+### Fixed
+
+- **The setup screen displayed `[%key:common::config_flow::create_entry::authenticated%]`.**
+  That syntax is a reference resolved by a build step in Home Assistant's own repository,
+  which compiles `strings.json` into `translations/`. A custom integration ships its
+  translations directly and never runs that step, so every reference reached the user
+  verbatim — the setup screen and twelve OAuth abort messages, including two that email and
+  password sign-in can reach. All thirteen are now written out in both languages, and a test
+  fails if a reference ever returns. `strings.json` keeps them: it is the canonical source
+  and is never displayed. The Japanese for one of them was written here rather than taken
+  from Home Assistant, which ships no translation for it in any integration;
+- **a supply point could show energy and no cost for up to half an hour after a restart.**
+  The tariff arrives on a twelve-hour cadence and a cost series is only ever written by a
+  statistics pass, which runs every thirty minutes; a price arriving did nothing by itself.
+  It now provokes a pass. The readings have not moved, so the energy rows are left alone;
+- **pressing Import full history blanked the calendar sensors it was meant to fill.** Today,
+  this week and this month report a figure only when authoritative coverage reaches the
+  snapshot's own timestamp, so that a period nobody has read says `unknown` rather than
+  zero. A poll satisfies that by construction. Every other snapshot — a finished walk, a
+  background window, a recorded failure — was dated with the wall clock, which claims an
+  instant no window covers. Those snapshots now carry the last poll's date, which is what
+  they actually know about;
+- **fifteen sensors could go unavailable with no line anywhere saying why.** A poll where
+  some directions still succeed does not raise, so Home Assistant logged nothing of its own
+  and neither did this integration. A direction that stops being queryable now says so once,
+  and says so again when it comes back;
+- **an archive that could not be read priced its hours with no fuel-cost adjustment and no
+  renewable levy.** The warning it logs promises those hours will be priced from the rate the
+  provider reports now, and the code that would have done it could not be reached. Silently
+  low, rather than missing.
+
+### Changed
+
+- `meters { serialNumber capacity }` is no longer requested. It was parsed into a model
+  nothing ever read, and on the account measured the list is empty. `docs/API_CONTRACTS.md`
+  records that, and that no field an account user can reach reports the contracted capacity:
+  `contractedCapacity` and `contractedCapacityOld` are refused on both query paths, and
+  `supplyDetails` answers null;
+- the standing charge is documented as already resolved for the contract rather than as
+  unestablished. `standingChargeUnitType` reads `YEN_AMPERE_DAY`, which describes how the
+  charge is determined and not the unit of the number returned: on the account measured the
+  figure equalled the published per-day amount for that account's contracted amperage, and
+  the same amount appeared on its invoice. Using it as a daily amount, which is what this
+  integration already did, is correct.
+
 ## [0.9.1] - 2026-08-06
 
 Found by installing 0.9.0 in a real Home Assistant and pressing the button.
