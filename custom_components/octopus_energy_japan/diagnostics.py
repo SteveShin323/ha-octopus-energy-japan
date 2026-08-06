@@ -14,6 +14,7 @@ from .api import CapabilitySnapshot, ResourceLifecycle
 from .const import DOMAIN
 from .identity import stable_supply_point_identity
 from .ledger import LEDGER_SCHEMA_VERSION
+from .tariff_history import TARIFF_HISTORY_SCHEMA_VERSION
 
 if TYPE_CHECKING:
     from .commercial_coordinator import OejpCommercialCoordinator
@@ -274,4 +275,11 @@ async def async_get_config_entry_diagnostics(
     report["commercial"] = _commercial(runtime.commercial_coordinator)
     report["tariffs"] = _tariffs(runtime.commercial_coordinator, runtime.identity_secret)
     report["billing_periods"] = _billing_periods(data, runtime.identity_secret)
+    archive = runtime.tariff_archive
+    report["tariff_history"] = {
+        "schema_version": TARIFF_HISTORY_SCHEMA_VERSION,
+        "archived_records": archive.archived_records if archive else 0,
+        "revised_windows": archive.revised_windows if archive else 0,
+        "quarantined_supply_points": archive.quarantined_supply_points if archive else 0,
+    }
     return report

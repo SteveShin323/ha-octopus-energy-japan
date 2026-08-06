@@ -31,6 +31,7 @@ Grouped by responsibility. This is not a strict layering — see the dependency 
 | Transport | `api/client.py`, `api/auth.py`, `api/errors.py` | one GraphQL POST, error classification, retries |
 | Operations | `api/discovery.py`, `api/readings.py`, `api/commercial.py`, `api/tariff.py`, `api/operations.py` | query documents and parsers, returning typed models |
 | Ledger | `ledger.py`, `ledger_store.py` | store every interval, keyed so a correction replaces it |
+| Tariff history | `tariff_history.py`, `tariff_history_store.py` | archive the rate adjustments the API stops serving |
 | Aggregation | `aggregation.py` | Asia/Tokyo calendar totals over the ledger |
 | Statistics | `statistics.py`, `statistics_runtime.py`, `tariff_cost.py`, `billing_period.py` | external long-term statistics, energy and cost |
 | Coordination | `coordinator.py`, `commercial_coordinator.py`, `sync.py`, `sync_runtime.py`, `sync_store.py`, `background_sync.py` | the poll, the background worker, checkpoints |
@@ -166,6 +167,28 @@ provider says was in force then. A single-price plan is priced from its one char
 plan from its ladder. What the standing charge is measured in is reported rather than acted on,
 because one account reported `YEN_AMPERE_DAY` and the set of possible values is unknown.
 
+**The two per-kWh adjustments are archived, because the API forgets them.** `fuelCostAdjustment`
+and `renewableEnergyLevy` arrive with the period they apply to, and the provider serves only the
+one in force, so an hour from a replaced period can never be priced from the API again. Every
+other input can be re-fetched. `tariff_history.py` keeps a private archive per supply point;
+an hour outside every stored period is priced with the nearest stored value, the earliest for an
+hour before the archive begins and the latest for one after it ends. Using the newest value for
+every uncovered hour would price a two-year-old hour with this month's figure, which changes by
+several yen per kWh and changes sign.
+
+An archive that fails to load is put into **read-only quarantine**: the file is left exactly as
+it is, pricing falls back to the live tariff, and a repair issue says so. The ledger recovers
+from a corrupt partition by saving an empty one over it, which costs a re-fetch; doing that here
+would cost the only copy.
+
+**A change to any cost input republishes the whole cost series once.** `dirty_from` limits
+publication to recent hours, so a corrected price, a moved period boundary, or a newly archived
+adjustment would be computed for every hour and then discarded before it reached the recorder.
+The projector fingerprints what a cost was last computed from and republishes when it differs.
+The fingerprint is held in memory, so the first pass after a restart republishes — which is what
+lets a correction to this formula reach rows an earlier version wrote. Energy rows are untouched,
+because a price does not move them.
+
 Every price comes from the customer's own agreement, so nothing is entered by hand. Against
 one closed bill on one account the total came to 104% — a single measurement, taken before the
 period alignment below, not a figure to expect. The README's known limitations say what still
@@ -231,7 +254,8 @@ token, reading value, or amount appears.
 Repair issues are informational. Each explains a condition the user cannot fix by
 reconfiguring, and says whether anything needs doing. They cover a corrupt ledger partition,
 readings that stopped arriving, an unavailable capability, a missing commercial permission,
-and a tariff whose shape the cost formula cannot express. Reauthentication is not among them,
+a tariff whose shape the cost formula cannot express, and an archive of past rate
+adjustments that could not be read. Reauthentication is not among them,
 because Home Assistant owns that prompt.
 
 The last of those exists because an absent cost statistic looks the same whether the plan

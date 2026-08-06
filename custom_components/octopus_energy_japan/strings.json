@@ -198,6 +198,10 @@
       "title": "Octopus Energy Japan has not sent new readings",
       "description": "{count} reading series has produced nothing for more than {hours} hours. Half-hourly readings normally arrive several hours late, so a short gap is expected, but a longer silence usually means the meter data has not reached Octopus Energy Japan yet. No action is needed here; the integration keeps retrying and fills the gap once the data appears."
     },
+    "tariff_history_unreadable": {
+      "title": "Stored rate adjustments could not be read",
+      "description": "The archive of past fuel-cost adjustments and levies for {count} supply point(s) could not be read, so hours from earlier periods are priced with the rate Octopus Energy Japan reports now. The file is deliberately not overwritten: the provider does not serve a past adjustment again, so replacing it would destroy the only copy. Consumption and energy statistics are unaffected. If this persists, attach your diagnostics to an issue."
+    },
     "tariff_not_priceable": {
       "title": "A tariff Octopus Energy Japan reports cannot be priced",
       "description": "Octopus Energy Japan reports a plan this integration cannot turn into a cost ({reasons}). Consumption, calendar totals, and the Energy Dashboard energy statistics are unaffected; only the cost statistic is not published. Nothing needs doing, and there is no setting that changes it. Pricing part of such a plan and ignoring the rest would look like a working cost while being wrong."

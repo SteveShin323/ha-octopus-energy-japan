@@ -40,14 +40,19 @@ Everything below lives in your Home Assistant's own storage.
 | Account, supply point, meter, and register identifiers | calling the API and joining stored readings to a supply point | yes |
 | Half-hourly readings with version, quality, and the cost figure Octopus Energy Japan returns | totals and statistics that can be corrected later | yes |
 | Synchronisation checkpoints | resuming background work after a restart | yes |
+| The fuel-cost adjustment and renewable levy, with the periods they apply to | pricing past hours after Octopus Energy Japan stops serving them | yes |
 | An installation-local secret | deriving the private identifiers used for devices and statistics | with the last entry |
 | Energy Dashboard statistics | long-term energy history | yes |
 | Application credentials (client ID) | re-adding without retyping | **no**, see below |
 
-Two things are deliberately **not** in the table, because they are never written to storage.
-Your tariff prices and your property's address are held in memory and re-read from Octopus
-Energy Japan on each refresh. The one way either reaches disk is the Address entity: if you
-enable it, its state goes to the recorder database like any other entity.
+Your step prices and standing charge are **not** in the table: they are held in memory and
+re-read from Octopus Energy Japan on each refresh, because the provider serves them for as
+long as they apply. The two per-kWh adjustments are the exception and are stored, because the
+provider serves only the one in force — an hour from an earlier period could never be priced
+again once its adjustment was replaced.
+
+Your property's address is not stored either. The one way it reaches disk is the Address
+entity: if you enable it, its state goes to the recorder database like any other entity.
 
 ## What never appears in the user interface
 
@@ -109,7 +114,8 @@ deleted with the entry.
 
 If you removed an entry from a build before this, look under **Developer tools →
 Statistics** for series named after a supply point you no longer have and delete them there.
-Files named `octopus_energy_japan.ledger.*` and `octopus_energy_japan.sync.*` may also remain
+Files named `octopus_energy_japan.ledger.*`, `octopus_energy_japan.sync.*`, and
+`octopus_energy_japan.tariff_history.*` may also remain
 in your storage directory and can be deleted by hand.
 
 **Removing an email and password entry cannot revoke its token.** Octopus Energy Japan does

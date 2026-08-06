@@ -3,11 +3,12 @@
 A Japanese electricity bill is not consumption times a rate. It is:
 
     energy   — kWh priced by which step the *billing period's cumulative* kWh has reached
-    adders   — kWh times the monthly fuel-cost adjustment plus the annual levy
+    adders   — kWh times the fuel-cost adjustment and levy that applied at that hour
     standing — a fixed charge per day, independent of consumption
 
-Only the first depends on the reading alone. The second needs the moment, because the
-fuel adjustment changes monthly and the provider states the month it covers. The third
+Only the first depends on the reading alone. The second needs the moment, because the fuel
+adjustment changes monthly, the provider states the month it covers, and it serves only the
+one in force — `tariff_history.py` keeps the rest. The third
 depends on nothing but the calendar, which is why a per-kWh price can never express it and
 why this is computed here rather than handed to Home Assistant as a unit price.
 
@@ -35,6 +36,7 @@ from typing import Final
 from .api import ReadingDirection
 from .api.tariff import SupplyPointTariff, TariffStep
 from .billing_period import BillingPeriodCalendar
+from .tariff_history import AdderSchedule
 
 # One hour's share of a daily standing charge. A day with only some hours published
 # accrues only that share, and the rest arrives with the remaining readings, so a
@@ -72,6 +74,7 @@ def project_hourly_cost(
     tariff: SupplyPointTariff,
     *,
     periods: BillingPeriodCalendar,
+    adders: AdderSchedule,
     direction: ReadingDirection = ReadingDirection.IMPORT,
 ) -> tuple[HourlyCost, ...]:
     """Price each hour of consumption, in provider currency.
@@ -103,14 +106,14 @@ def project_hourly_cost(
 
         energy = _price_across_steps(tariff.steps_at(moment), cumulative, kwh)
         cumulative_by_period[period] = cumulative + kwh
-        adders = kwh * tariff.adders_at(moment)
+        addition = kwh * adders.rate_at(moment).total
 
         costs.append(
             HourlyCost(
                 start=moment,
                 components=CostComponents(
                     energy=energy,
-                    adders=adders,
+                    adders=addition,
                     standing=standing_per_hour,
                 ),
             )
