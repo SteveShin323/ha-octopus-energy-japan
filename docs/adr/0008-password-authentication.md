@@ -3,6 +3,10 @@
 Status: accepted
 Date: 2026-08-04
 Amends: [ADR 0001](0001-oauth-public-client.md)
+Updated: 2026-08-06 — asked directly, Octopus Energy Japan replied that the capability is
+not supported in Japan and that it offers no API service to individual customers. This is
+therefore not a stopgap until an OAuth client arrives: it is the supported way to connect,
+and the OAuth methods are hidden from the setup menu while no client exists.
 
 ## Context
 

@@ -13,6 +13,7 @@ from homeassistant.config_entries import SOURCE_REAUTH, ConfigFlowResult
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.helpers import config_entry_oauth2_flow, selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.config_entry_oauth2_flow import ImplementationUnavailableError
 
 from .api import (
     DeviceAuthorization,
@@ -40,6 +41,7 @@ from .const import (
     CONF_REFRESH_EXPIRES_AT,
     CONF_REFRESH_TOKEN,
     DOMAIN,
+    OAUTH_AUTH_METHODS,
 )
 from .identity import async_get_identity_secret, stable_login_identity
 from .oauth_metadata import OEJP_AUTH_ISSUER, AuthorizationHeaderScheme, OejpOAuthMetadata
@@ -96,15 +98,33 @@ class OctopusEnergyJapanConfigFlow(
         self,
         user_input: dict[str, Any] | None = None,
     ) -> ConfigFlowResult:
-        """Let the user pick a login method.
+        """Let the user pick a login method, offering only the ones that can finish.
 
-        OAuth is listed first because it is the method OEJP is moving to, and the
-        only one that never hands this integration a password. Email and password is
-        offered because it is the only method that works before a client ID exists,
-        and because OEJP has not yet withdrawn it.
+        Octopus Energy Japan confirmed on 2026-08-06 that it issues no OAuth client to
+        individual customers and has no plan to, so on every installation today the two
+        OAuth methods can only end at "the provider has not issued a client". Listing a
+        choice that cannot be completed is worse than not listing it: the user picks the
+        method that sounds safer, reads an apology, and comes back none the wiser.
+
+        They are hidden rather than deleted. The implementation is complete and measured
+        against the provider's own authorization server; what is missing is a client id,
+        and if one is ever issued — or a user holds their own and adds it through
+        Application Credentials — this menu offers the methods again with no further
+        change. That is what makes the condition an availability check rather than a flag.
         """
+        self._async_offer_the_built_in_client()
+        try:
+            implementations = await config_entry_oauth2_flow.async_get_implementations(
+                self.hass,
+                self.DOMAIN,
+            )
+        except ImplementationUnavailableError:
+            implementations = {}
         # Generated from the constant so adding a method cannot leave the menu behind.
-        return self.async_show_menu(step_id="user", menu_options=list(AUTH_METHODS))
+        offered = [
+            method for method in AUTH_METHODS if implementations or method not in OAUTH_AUTH_METHODS
+        ]
+        return self.async_show_menu(step_id="user", menu_options=offered)
 
     async def async_step_device(
         self,
