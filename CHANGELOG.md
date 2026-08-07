@@ -4,10 +4,36 @@ All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Sign-in with email and password works. The two OAuth methods are implemented and need a
-published client ID before they can be completed.
+Sign-in is by email and password. The two OAuth methods are implemented and kept, but not
+offered: Octopus Energy Japan replied on 2026-08-06 that it will issue no client to
+individual customers.
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-08-06
+
+Stable. Entity IDs, unique IDs, statistic IDs, and stored formats are settled from here:
+changing one breaks somebody's automation or their Energy dashboard, so it now needs a
+major version.
+
+An OAuth application had been the last condition for this release. It was removed as a
+condition rather than met. Asked directly, Octopus Energy Japan replied on 2026-08-06 that
+OAuth is not supported in Japan and that it offers no API service to individual customers —
+there is no client to wait for, and waiting would have meant never releasing.
+
+### Changed
+
+- **The two OAuth sign-in methods are no longer offered at setup.** They can only end at
+  "the provider has not issued a client", and a choice that ends in an apology is worse
+  than no choice: the user picks the method that sounds safer and comes away none the
+  wiser. Email and password is what the menu offers, because it is what works.
+
+  Nothing is deleted. Both implementations are complete and measured against the provider's
+  own authorization server, and keeping them costs an empty constant. The menu asks whether
+  an OAuth implementation exists rather than reading a flag, so they reappear by themselves
+  the moment a client does — one issued to this integration, or one a user holds and adds
+  through Application Credentials. Existing OAuth entries keep loading, and reauth and
+  reconfigure still reach their steps.
 
 ## [0.9.7] - 2026-08-06
 

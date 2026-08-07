@@ -1,6 +1,6 @@
 # ADR 0001: Use an OAuth public client
 
-Status: accepted, pending OEJP application approval
+Status: accepted; implemented and kept, but not reachable — the provider will issue no client
 Date: 2026-07-29
 Amended by: [ADR 0008](0008-password-authentication.md), on the single point of
 whether the email and password login may be offered to users
@@ -52,9 +52,23 @@ and a hand-added credential is offered alongside the shipped one.
 > amends it, because no OAuth application arrived and the legacy login became the only
 > way for anyone to connect. The rest of this decision stands unchanged.
 
+> [!IMPORTANT]
+> **Octopus Energy Japan will not issue one.** Asked directly, its customer service
+> replied on 2026-08-06 that the capability is not supported in Japan and that it does
+> not offer an API service to individual customers. There is no client to wait for.
+>
+> Nothing here is withdrawn. The implementation is complete and measured against the
+> provider's own authorization server, and it costs nothing to keep: the client id is an
+> empty constant, and filling it in is the only change needed. What changed is that the
+> two OAuth methods are no longer offered in the setup menu while no client exists —
+> a choice that can only end in an apology is worse than no choice. They reappear by
+> themselves if a client is ever issued, or if a user adds one of their own.
+
 ## Consequences
 
-- OAuth application approval is a release blocker.
+- ~~OAuth application approval is a release blocker.~~ It is not: the provider has said
+  it will not issue one, so waiting would block the release forever. Email and password
+  is the supported path, under [ADR 0008](0008-password-authentication.md).
 - Tokens remain local to each Home Assistant instance.
 - Revocation and refresh failures use Home Assistant reauthentication.
 - Tests need a deterministic local OAuth server and fake auth session.

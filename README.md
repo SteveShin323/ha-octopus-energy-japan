@@ -10,7 +10,7 @@
 [![Security](https://github.com/SteveShin323/ha-octopus-energy-japan/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/SteveShin323/ha-octopus-energy-japan/actions/workflows/security.yml)
 [![CodeQL](https://github.com/SteveShin323/ha-octopus-energy-japan/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/SteveShin323/ha-octopus-energy-japan/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/github/license/SteveShin323/ha-octopus-energy-japan)](LICENSE)
-![Project status](https://img.shields.io/badge/status-beta-yellow)
+![Project status](https://img.shields.io/badge/status-stable-brightgreen)
 
 A read-only Home Assistant custom integration for Octopus Energy Japan. It brings
 your half-hourly electricity readings, calendar totals, and Energy Dashboard statistics —
@@ -86,13 +86,23 @@ It is not a billing tool. See [known limitations](#known-limitations).
 1. Add this repository to HACS and install **Octopus Energy Japan**.
 2. Restart Home Assistant.
 3. **Settings → Devices & services → Add integration → Octopus Energy Japan**.
-4. Choose a sign-in method.
+4. Sign in with your Octopus Energy Japan email address and password.
 
-### Choosing a sign-in method
+### About the sign-in method
+
+Email and password is the only method offered, and the only one that can work.
+
+Asked directly, Octopus Energy Japan replied on 2026-08-06 that OAuth is not supported in
+Japan and that it offers no API service to individual customers. Two OAuth methods —
+**Account (browser)** and **Device code** — are implemented and measured against the
+provider's own authorization server, but both need a client the provider will not issue,
+so neither is listed. They appear by themselves if that ever changes, or if you hold a
+client of your own and add it under **Settings → Devices & services → Application
+credentials**.
 
 | | Email and password | Device code | Account (browser) |
 |---|---|---|---|
-| Usable today | **yes** | awaiting the provider's client | awaiting the provider's client |
+| Offered today | **yes** | no — no client exists | no — no client exists |
 | Where you sign in | in Home Assistant | on the Octopus Energy Japan website, from any device | on the Octopus Energy Japan website |
 | Your password | **stored in Home Assistant** | never requested | never requested |
 | Needs My Home Assistant | no | no | yes |
@@ -103,15 +113,10 @@ extend those seven days, so after that nothing but the credential itself can sig
 stored and where is in [`PRIVACY.md`](PRIVACY.md). This is Octopus Energy Japan's older login
 and can stop being accepted without notice; Home Assistant then asks you to reconnect.
 
-**Device code** and **Account** are the two OAuth methods. Both are implemented and both
-need the OAuth client that Octopus Energy Japan issues to this integration. One client serves
-every installation, so it ships in the code and there is nothing to enter — but none has been
-issued yet, so neither method can be completed, and choosing one says so. Device code needs no
-browser redirect, which makes it the better of the two for an instance with no public address.
-
-If you hold a client of your own, add it under **Settings → Devices & services →
-Application credentials** and it is offered alongside the shipped one. Leave the secret field
-empty for a public client; Home Assistant omits an empty secret from the token request.
+**Device code** and **Account** are kept but not offered, for the reason above. The client
+id is an empty constant in the code; filling it in is the only change either would need.
+Device code needs no browser redirect, which would make it the better of the two for an
+instance with no public address.
 
 ### Switching later, without losing history
 
@@ -327,12 +332,15 @@ developer-operated server. See [`PRIVACY.md`](PRIVACY.md).
 
 ## Project status
 
-Beta. Everything listed under [what it does](#what-it-does) is implemented, covered by
-tests, and verified against a real account. Outstanding:
+Stable, from 1.0.0. Everything listed under [what it does](#what-it-does) is implemented,
+covered by tests, and verified against a real account. Entity IDs, unique IDs, statistic IDs,
+and stored formats are settled: a change that would break an automation or an Energy
+dashboard now needs a major version.
 
 | Item | State |
 |---|---|
-| The two OAuth sign-in methods | implemented; need a published client ID to complete |
+| The two OAuth sign-in methods | implemented and kept, not offered — the provider will issue no client. [ADR 0001](docs/adr/0001-oauth-public-client.md) |
+| Account shapes other than one account with one supply point | handled in code, not verified against a real account of that shape. [API contracts](docs/API_CONTRACTS.md) |
 
 ## Documentation
 

@@ -173,8 +173,13 @@ it set itself, so a user who enables one keeps that choice.
 ## Releases
 
 Versions are `MAJOR.MINOR.PATCH`, with the stage carried by the range rather than a
-suffix: `0.1.x` alpha, `0.5.x` through `0.9.x` beta, `1.0.0` once migrations, security,
-documentation, translations, and quality gates are all met.
+suffix: `0.1.x` alpha, `0.5.x` through `0.9.x` beta, `1.0.0` onwards stable.
+
+`1.0.0` was reached on 2026-08-06, once migrations, security, documentation, translations,
+and the quality gates were all met. An OAuth application had been listed as the last
+condition; it was removed as a condition rather than met, because the provider replied that
+it will not issue one — see [ADR 0001](adr/0001-oauth-public-client.md). Waiting for it
+would have meant never releasing.
 
 `1.0.0` also means the entity IDs, unique IDs, statistic IDs, and stored formats are
 settled, because changing one breaks a user's automations or their Energy dashboard. That

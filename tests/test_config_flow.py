@@ -82,10 +82,15 @@ async def _choose_method(
     result: dict[str, Any],
     method: str,
 ) -> dict[str, Any]:
-    """Advance past the login-method menu that now opens every flow."""
+    """Advance past the login-method menu that now opens every flow.
+
+    The menu offers an OAuth method only when something could complete it, so the
+    assertion is that the method under test is on offer — not that all three always are.
+    `test_the_menu_offers_only_what_can_be_completed` pins which ones appear when.
+    """
     assert result["type"] is FlowResultType.MENU
     assert result["step_id"] == "user"
-    assert result["menu_options"] == ["oauth", "device", "password"]
+    assert method in result["menu_options"], result["menu_options"]
     return await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {"next_step_id": method},
@@ -373,25 +378,35 @@ async def test_reconfigure_aborts_without_runtime_or_history(
     assert no_history["reason"] == "no_historical_resources"
 
 
-async def test_first_run_without_application_credentials_tells_the_user_where_to_go(
-    hass: HomeAssistant,
-) -> None:
-    """This is today's real first-run experience: no client ID exists yet.
+async def test_the_menu_offers_only_what_can_be_completed(hass: HomeAssistant) -> None:
+    """Today's real first run: Octopus Energy Japan issues no client to individuals.
 
-    Home Assistant's `missing_configuration` text points at Application Credentials,
-    which is exactly where the user has to act, so the flow must reach that abort
-    rather than a bare error.
+    Offering a method that can only end in an apology is worse than not offering it —
+    the user picks the one that sounds safer and learns nothing. Nothing is deleted: the
+    moment a client exists, whether shipped or added by hand, all three appear again.
     """
     await async_setup_component(hass, "application_credentials", {})
 
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN,
-        context={"source": config_entries.SOURCE_USER},
-    )
-    result = await _choose_method(hass, result, "oauth")
+    with patch(
+        "custom_components.octopus_energy_japan.application_credentials.OEJP_OAUTH_CLIENT_ID",
+        "",
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_USER},
+        )
+    assert result["type"] is FlowResultType.MENU
+    assert result["menu_options"] == ["password"]
 
-    assert result["type"] is FlowResultType.ABORT
-    assert result["reason"] == "missing_credentials"
+    with patch(
+        "custom_components.octopus_energy_japan.application_credentials.OEJP_OAUTH_CLIENT_ID",
+        "a-public-client",
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_USER},
+        )
+    assert result["menu_options"] == ["oauth", "device", "password"]
 
 
 @pytest.mark.parametrize(
@@ -870,16 +885,24 @@ async def test_device_flow_owns_the_same_entry_as_the_other_methods(
     )
 
 
-async def test_device_flow_needs_a_client_id_like_the_browser_flow(
+async def test_the_device_step_still_refuses_when_nothing_can_complete_it(
     hass: HomeAssistant,
 ) -> None:
+    """The menu no longer offers this without a client, so the guard is now defence.
+
+    It is kept, and tested by reaching the step directly: a step can be entered by a
+    reauth or reconfigure that did not come through the menu, and the abort names the
+    reason where a bare failure would not.
+    """
     await async_setup_component(hass, "application_credentials", {})
 
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN,
-        context={"source": config_entries.SOURCE_USER},
-    )
-    result = await _choose_method(hass, result, "device")
+    flow = OctopusEnergyJapanConfigFlow()
+    flow.hass = hass
+    with patch(
+        "custom_components.octopus_energy_japan.application_credentials.OEJP_OAUTH_CLIENT_ID",
+        "",
+    ):
+        result = await flow.async_step_device()
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "missing_credentials"
@@ -1331,7 +1354,8 @@ async def test_no_shipped_client_still_says_so_rather_than_failing_obscurely(
             DOMAIN,
             context={"source": config_entries.SOURCE_USER},
         )
-        result = await _choose_method(hass, result, "device")
 
-    assert result["type"] is FlowResultType.ABORT
-    assert result["reason"] == "missing_credentials"
+    # Not an abort any more: the method is simply not offered, which is the same fact
+    # told earlier and without a dead end.
+    assert result["type"] is FlowResultType.MENU
+    assert "device" not in result["menu_options"]
