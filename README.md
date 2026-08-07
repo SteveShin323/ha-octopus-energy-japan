@@ -51,11 +51,6 @@ computed from your own tariff rather than a price you type in.
 
 ![The Home Assistant Energy Dashboard showing a day of hourly electricity use and its cost in yen](docs/images/energy-dashboard.png)
 
-Each supply point is a device. **Import full history** walks its readings back to the day
-supply began; the rest is what the integration reports about it.
-
-![The device page for a supply point, listing its import and export sensors](docs/images/supply-point-device.png)
-
 Each account is a device too, carrying the contract and billing summaries. The financial
 entities are off by default and are enabled here to show them.
 
