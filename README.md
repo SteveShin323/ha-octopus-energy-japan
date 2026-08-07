@@ -12,7 +12,7 @@
 [![License: MIT](https://img.shields.io/github/license/SteveShin323/ha-octopus-energy-japan)](LICENSE)
 ![Project status](https://img.shields.io/badge/status-stable-brightgreen)
 
-See your Octopus Energy Japan electricity use in Home Assistant — half-hourly readings,
+See your Octopus Energy Japan electricity(TGオクトパスエナジー) use in Home Assistant — half-hourly readings,
 daily and monthly totals, and Energy Dashboard statistics with cost.
 
 The integration only reads. It never changes your account.
