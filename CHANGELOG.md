@@ -9,6 +9,15 @@ published client ID before they can be completed.
 
 ## [Unreleased]
 
+## [0.9.7] - 2026-08-06
+
+### Removed
+
+- the supply-point screenshot. Its address was invented, but the ward in it was the real
+  one — specific enough to narrow down where the account is, which is the thing the caption
+  promised the image did not do. Removed rather than edited; it will be retaken with an
+  address that names nowhere.
+
 ## [0.9.6] - 2026-08-06
 
 ### Added

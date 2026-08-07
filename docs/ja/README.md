@@ -39,11 +39,6 @@ Octopus Energy Japan の電気使用量を Home Assistant に取り込む、読�
 
 ![1 日分の時間別電力使用量と円建ての料金を表示した Home Assistant のエネルギーダッシュボード](../images/energy-dashboard.png)
 
-供給地点ごとに 1 つのデバイスができます。**Import full history** は供給開始日まで検針値を
-さかのぼって取得します。
-
-![供給地点のデバイスページ。受電と送電のセンサーが並んでいる](../images/supply-point-device.png)
-
 アカウントもデバイスになり、契約と請求の要約を持ちます。金額系のエンティティは既定で無効で、
 この画面では表示のために有効化しています。
 
