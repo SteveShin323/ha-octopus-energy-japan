@@ -10,6 +10,18 @@ individual customers.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-08-06
+
+### Changed
+
+- the README is rewritten for readability. Same facts, shorter sentences, and the reasoning
+  moved out of the reader's way: setup is now four steps and a line saying there is nothing
+  else to enter, with the explanation of why browser sign-in is missing folded into a
+  collapsed section. Sections a user scans — entities, updates, limitations, removal — lead
+  with what happens rather than with why. The Japanese guide follows the same shape.
+- `PRIVACY.md` notes that the OAuth column of its comparison applies only to a client you
+  add yourself, since none is offered.
+
 ## [1.0.0] - 2026-08-06
 
 Stable. Entity IDs, unique IDs, statistic IDs, and stored formats are settled from here:

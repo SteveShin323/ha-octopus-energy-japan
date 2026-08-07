@@ -8,6 +8,11 @@ sent anywhere except to Octopus Energy Japan, on your behalf, to read your own d
 
 The sign-in method you choose is the one thing that changes what is stored about you.
 
+> [!NOTE]
+> Only email and password is offered today. The two OAuth methods are implemented but need
+> a client Octopus Energy Japan will not issue, so the OAuth column applies only if you add
+> a client of your own. See the [README](README.md#about-signing-in).
+
 | | Email and password | Device code or account (OAuth) |
 |---|---|---|
 | Where you sign in | in Home Assistant | on the Octopus Energy Japan website |
