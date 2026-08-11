@@ -59,7 +59,11 @@
         "description": "有効なアカウントと供給地点は常に有効です。終了済みアカウントを選択すると、そのすべての供給地点が有効になります。有効なアカウント配下の終了済み供給地点は個別に選択できます。",
         "title": "過去の OEJP リソースを管理",
         "data": {
-          "enabled_historical_resources": "有効にする過去のリソース"
+          "enabled_historical_resources": "有効にする過去のリソース",
+          "connection_label": "この接続の名前"
+        },
+        "data_description": {
+          "connection_label": "デバイス名と統計名に表示され、2 つのログインを区別できます。空欄のままにすると既定の名前になります。"
         }
       },
       "user": {

@@ -56,7 +56,11 @@
         "description": "Active accounts and supply points are always enabled. Selecting an ended account enables all of its supply points; ended supply points under an active account can be selected individually.",
         "title": "Manage historical OEJP resources",
         "data": {
-          "enabled_historical_resources": "Enabled historical resources"
+          "enabled_historical_resources": "Enabled historical resources",
+          "connection_label": "Name for this connection"
+        },
+        "data_description": {
+          "connection_label": "Shown in device and statistic names, so two logins can be told apart. Leave empty to keep the default names."
         }
       },
       "user": {

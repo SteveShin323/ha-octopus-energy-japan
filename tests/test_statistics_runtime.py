@@ -1241,3 +1241,45 @@ async def test_an_unchanged_price_leaves_the_past_alone(hass: HomeAssistant) -> 
         for row in args[2]  # type: ignore[index]
     ]
     assert cost_starts == [AUGUST_HOUR]
+
+
+async def test_a_renamed_device_renames_its_statistics(hass: HomeAssistant) -> None:
+    """The Energy dashboard picker shows this name and nothing else.
+
+    Reading only the generated name meant an installation with two logins saw two
+    identically named series there, even after renaming both devices to tell them apart.
+    """
+    from custom_components.octopus_energy_japan.const import DOMAIN as OEJP_DOMAIN
+    from custom_components.octopus_energy_japan.identity import (
+        stable_supply_point_identity,
+    )
+    from homeassistant.helpers import device_registry as dr
+
+    hass.config.components.add(RECORDER)
+    identity = stable_supply_point_identity(SECRET, "A-1", "SP-1")
+    entry = MockConfigEntry(domain=OEJP_DOMAIN)
+    entry.add_to_hass(hass)
+    registry = dr.async_get(hass)
+    device = registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(OEJP_DOMAIN, identity)},
+        name="OEJP supply point 1-1",
+    )
+    registry.async_update_device(device.id, name_by_user="Old flat")
+
+    published: list[tuple[object, ...]] = []
+    projector = HomeAssistantStatisticsProjector(
+        hass,
+        SECRET,
+        publisher=lambda *args: published.append(args),
+    )
+    await projector.async_project_supply_point(
+        _Ledger((_record(),)),  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+
+    names = {args[1]["name"] for args in published}
+    assert names == {"Old flat Import energy"}

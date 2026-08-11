@@ -524,13 +524,19 @@ def _statistic_name(
 
     The Energy dashboard picker shows this name and nothing else, so an identity digest
     there is unreadable: a household with two supply points cannot tell which is which.
-    The supply-point device is already named with a per-account ordinal, so reusing it
-    keeps one human label instead of two schemes that can drift apart. It still contains
-    no account number, supply-point number, or address.
+    The supply-point device is already named, so reusing that name keeps one human label
+    instead of two schemes that can drift apart. It still contains no account number,
+    supply-point number, or address.
+
+    A name the user gave the device wins. Renaming a device is how somebody says "this one
+    is the old flat", and reading only the name this integration generated meant that a
+    household with two entries saw two identically named series in the picker even after
+    telling them apart everywhere else — measured on an installation with two logins.
     """
     direction = series.key.direction.value.title()
     device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, supply_point_identity)})
-    label = device.name if device is not None and device.name else None
+    label = (device.name_by_user or device.name) if device is not None else None
+    label = label or None
     if label is None:
         # Only before the device registry has caught up, which self-corrects on the
         # next refresh. Never a provider identifier.

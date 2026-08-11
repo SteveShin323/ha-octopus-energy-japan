@@ -10,6 +10,11 @@ DEFAULT_SCAN_INTERVAL_MINUTES = 30
 CONF_ACCOUNT_NUMBER = "account_number"
 CONF_ENABLED_HISTORICAL_RESOURCES = "enabled_historical_resources"
 
+# A name the user gives one login, used in its device names so two entries can be told
+# apart. Empty by default: with a single entry the ordinal names are unambiguous already,
+# and changing them for everybody would rename entities that automations refer to.
+CONF_CONNECTION_LABEL = "connection_label"
+
 # Which authentication method an entry was created with. Absent on entries created
 # before more than one method existed, which were all OAuth, so `AUTH_METHOD_OAUTH`
 # is the default when the key is missing.
