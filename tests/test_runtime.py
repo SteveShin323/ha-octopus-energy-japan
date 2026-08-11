@@ -436,3 +436,57 @@ async def test_a_supply_point_without_a_spin_falls_back_to_its_internal_id(
 
     assert supply_point is not None
     assert supply_point.serial_number == "INTERNAL-ONLY"
+
+
+async def test_two_logins_get_distinguishable_device_names(hass: HomeAssistant) -> None:
+    """Measured on an installation with two logins: both produced `OEJP account 1`.
+
+    One was the current address and one from before a move, and the only way to tell the
+    devices apart was to rename every one of them by hand. An ordinal cannot be made unique
+    across entries without becoming unstable — it would depend on how many other entries
+    exist, so removing one would renumber the rest — which is why the name is the user's to
+    give.
+    """
+    from custom_components.octopus_energy_japan.const import CONF_CONNECTION_LABEL
+    from custom_components.octopus_energy_japan.runtime import (
+        async_project_discovered_devices,
+        connection_label,
+    )
+
+    names: list[str] = []
+    for label in ("home", "old flat"):
+        entry = MockConfigEntry(domain=DOMAIN, options={CONF_CONNECTION_LABEL: label})
+        entry.add_to_hass(hass)
+        runtime = _runtime()
+        assert connection_label(entry) == label
+        async_project_discovered_devices(hass, entry, runtime)
+        registry = dr.async_get(hass)
+        names += [
+            device.name
+            for device in registry.devices.values()
+            if device.config_entries == {entry.entry_id} and device.name
+        ]
+
+    assert "OEJP home account 1" in names
+    assert "OEJP old flat account 1" in names
+    # The point of the exercise: no name appears twice.
+    assert len(names) == len(set(names))
+
+
+async def test_no_label_keeps_the_names_an_existing_install_already_has(
+    hass: HomeAssistant,
+) -> None:
+    """Renaming every device of every existing installation would break automations."""
+    from custom_components.octopus_energy_japan.runtime import (
+        async_project_discovered_devices,
+        connection_label,
+    )
+
+    entry = MockConfigEntry(domain=DOMAIN)
+    entry.add_to_hass(hass)
+    assert connection_label(entry) == ""
+
+    async_project_discovered_devices(hass, entry, _runtime())
+
+    names = {device.name for device in dr.async_get(hass).devices.values()}
+    assert "OEJP account 1" in names

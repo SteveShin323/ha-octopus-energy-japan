@@ -37,6 +37,7 @@ from .const import (
     AUTH_METHODS,
     CONF_ACCESS_TOKEN,
     CONF_AUTH_METHOD,
+    CONF_CONNECTION_LABEL,
     CONF_ENABLED_HISTORICAL_RESOURCES,
     CONF_REFRESH_EXPIRES_AT,
     CONF_REFRESH_TOKEN,
@@ -47,6 +48,7 @@ from .identity import async_get_identity_secret, stable_login_identity
 from .oauth_metadata import OEJP_AUTH_ISSUER, AuthorizationHeaderScheme, OejpOAuthMetadata
 from .runtime import (
     OejpRuntimeData,
+    connection_label,
     normalize_historical_selection,
     selected_historical_resources,
 )
@@ -460,15 +462,18 @@ class OctopusEnergyJapanConfigFlow(
         self,
         user_input: dict[str, Any] | None = None,
     ) -> ConfigFlowResult:
-        """Select historical resources while active resources remain automatic."""
+        """Name this login, and choose which ended resources keep reporting.
+
+        The name is always offered; the resource list only when there is something ended to
+        list. Before the name existed this step aborted outright on an account with nothing
+        ended, which left an installation with two logins no way to tell its devices apart.
+        """
         entry = self._get_reconfigure_entry()
         runtime = getattr(entry, "runtime_data", None)
         if not isinstance(runtime, OejpRuntimeData):
             return self.async_abort(reason="reconfigure_unavailable")
 
         options = runtime.historical_resource_options()
-        if not options:
-            return self.async_abort(reason="no_historical_resources")
 
         if user_input is not None:
             requested = user_input.get(CONF_ENABLED_HISTORICAL_RESOURCES, [])
@@ -481,32 +486,39 @@ class OctopusEnergyJapanConfigFlow(
                 if isinstance(requested, list)
                 else ()
             )
+            label = user_input.get(CONF_CONNECTION_LABEL, "")
+            label = label.strip() if isinstance(label, str) else ""
             return self.async_update_reload_and_abort(
                 entry,
+                title=f"Octopus Energy Japan ({label})" if label else "Octopus Energy Japan",
                 options={
                     **entry.options,
+                    CONF_CONNECTION_LABEL: label,
                     CONF_ENABLED_HISTORICAL_RESOURCES: list(enabled),
                 },
             )
 
         selected = selected_historical_resources(entry)
-        return self.async_show_form(
-            step_id="reconfigure",
-            data_schema=vol.Schema(
-                {
-                    vol.Optional(
-                        CONF_ENABLED_HISTORICAL_RESOURCES,
-                        default=sorted(selected & options.keys()),
-                    ): selector.SelectSelector(
-                        selector.SelectSelectorConfig(
-                            options=[
-                                selector.SelectOptionDict(value=value, label=label)
-                                for value, label in options.items()
-                            ],
-                            multiple=True,
-                            mode=selector.SelectSelectorMode.LIST,
-                        )
-                    )
-                }
-            ),
-        )
+        schema: dict[Any, Any] = {
+            vol.Optional(
+                CONF_CONNECTION_LABEL,
+                default=connection_label(entry),
+            ): selector.TextSelector(selector.TextSelectorConfig())
+        }
+        if options:
+            schema[
+                vol.Optional(
+                    CONF_ENABLED_HISTORICAL_RESOURCES,
+                    default=sorted(selected & options.keys()),
+                )
+            ] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(value=value, label=label)
+                        for value, label in options.items()
+                    ],
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.LIST,
+                )
+            )
+        return self.async_show_form(step_id="reconfigure", data_schema=vol.Schema(schema))

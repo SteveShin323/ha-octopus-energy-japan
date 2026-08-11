@@ -343,9 +343,15 @@ async def test_reconfigure_selects_historical_resources(hass: HomeAssistant) -> 
     assert entry.options["future_option"] == "preserved"
 
 
-async def test_reconfigure_aborts_without_runtime_or_history(
+async def test_reconfigure_needs_a_loaded_entry_but_not_something_ended(
     hass: HomeAssistant,
 ) -> None:
+    """Naming the connection is always on offer; the ended-resource list is not.
+
+    This step used to abort outright when nothing had ended, which left an installation
+    with two logins no way to tell its identically named devices apart.
+    """
+
     entry = MockConfigEntry(domain=DOMAIN)
     entry.add_to_hass(hass)
 
@@ -374,8 +380,9 @@ async def test_reconfigure_aborts_without_runtime_or_history(
         },
     )
 
-    assert no_history["type"] is FlowResultType.ABORT
-    assert no_history["reason"] == "no_historical_resources"
+    assert no_history["type"] is FlowResultType.FORM
+    assert no_history["step_id"] == "reconfigure"
+    assert "connection_label" in str(no_history["data_schema"].schema)
 
 
 async def test_the_menu_offers_only_what_can_be_completed(hass: HomeAssistant) -> None:

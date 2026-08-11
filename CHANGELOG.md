@@ -10,6 +10,39 @@ individual customers.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-11
+
+Found on an installation with two logins — one for the current address, one from before a
+move, whose contract has ended. Everything about collecting the data worked: both entries
+loaded, the closed account's history was walked back seventeen months, and the cost
+statistic was correctly absent where no agreement is in force. The names were the problem.
+
+### Fixed
+
+- **Energy Dashboard statistics ignored a name you gave a device.** The picker shows the
+  statistic's name and nothing else, and the name was built from the name this integration
+  generated rather than the one the user set. So an installation with two logins saw two
+  identically named series there, even after renaming both devices to tell them apart. A
+  name given by the user now wins. Statistic ids are unchanged, so no history moves.
+
+### Added
+
+- **A name for each connection**, under the integration's **Configure**. Devices are
+  numbered within one entry, so two logins both produce `OEJP account 1` and
+  `OEJP supply point 1-1`; naming them "home" and "old flat" makes the devices and their
+  statistics `OEJP home account 1` and `OEJP old flat account 1`.
+
+  Empty by default, which leaves every existing installation's names exactly as they are —
+  renaming devices would rename entities that automations refer to. An ordinal cannot be
+  made unique across entries without becoming unstable: it would depend on how many other
+  entries exist, so removing one would renumber the rest.
+
+### Changed
+
+- **Configure** no longer refuses to open when nothing has ended. It aborted with "no
+  historical resources", which is why an installation with two logins had no way to reach a
+  setting that would have told them apart.
+
 ## [1.0.1] - 2026-08-06
 
 ### Changed

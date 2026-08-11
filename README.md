@@ -121,10 +121,21 @@ and any stored password is deleted. Do not delete and re-add the integration.
 | Setting | Where | Meaning |
 |---|---|---|
 | Email and password | during setup | your Octopus Energy Japan sign-in |
+| Name for this connection | integration → **Configure** | shown in device and statistic names |
 | Ended accounts and supply points | integration → **Configure** | which closed accounts or supply points keep reporting |
 
 Active accounts and supply points are always on, so a new supply point starts reporting by
 itself.
+
+### If you have two logins
+
+Devices are numbered within one connection, so two logins both produce `OEJP account 1` and
+`OEJP supply point 1-1`. Give each connection a name under **Configure** — "home" and "old
+flat", say — and its devices and statistics become `OEJP home account 1` and
+`OEJP old flat account 1`.
+
+Renaming a device yourself works too: the Energy Dashboard statistics follow the name you
+gave it.
 
 ## Entities
 
