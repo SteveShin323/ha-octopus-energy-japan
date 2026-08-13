@@ -3145,3 +3145,73 @@ async def test_a_failed_refill_is_not_recorded_as_a_failed_window(hass: HomeAssi
 
     assert state.checkpoint.failed_windows == ()
     assert state.checkpoint.gap_attempts == ()
+
+
+async def test_a_refill_takes_its_own_path_through_the_worker(hass: HomeAssistant) -> None:
+    """Its obligation is not a registered generation, so the ordinary path would refuse it.
+
+    `mark_durable` raises on an obligation it cannot match to a generation, which is why the
+    history walk has its own branch and why this needs one too.
+    """
+    coordinator = _coordinator(hass)
+    point = _point()
+    direction = ReadingDirection.IMPORT
+    window = BackgroundWindow(NOW - timedelta(days=40), NOW - timedelta(days=33))
+    ledger = AsyncMock()
+    ledger.corrupt_partitions = frozenset()
+    ledger.known_partitions = frozenset()
+    ledger.async_records.return_value = ()
+    ledger.async_reconcile.return_value = CorrectionResult()
+    router = AsyncMock()
+    router.async_get_readings.return_value = _direction_result(direction, point=point)
+    state = _SupplyPointRuntime(
+        point,
+        AsyncMock(),
+        ledger,
+        router,
+        AsyncMock(),
+        SyncCheckpoint.empty(NOW),
+    )
+    coordinator._supply_points[(point.account_number, point.id)] = state
+    coordinator._ensure_direction_status(state, direction)
+    coordinator._background_queue.enqueue_item(
+        BackgroundSyncItem(
+            BackgroundSyncScope(coordinator._status_identity(state), direction, window),
+            frozenset({SyncObligation(BackgroundSyncReason.GAP_REFILL, GAP_REFILL_GENERATION)}),
+        )
+    )
+    coordinator.async_set_updated_data = Mock()
+
+    await coordinator._async_background_worker()
+
+    # Nothing was returned for the window, so it is counted against the limit — and no
+    # checkpoint completion was registered, which is what would have raised.
+    (attempt,) = state.checkpoint.gap_attempts
+    assert attempt.empty_streak == 1
+    assert state.checkpoint.completed_windows == ()
+    assert coordinator._background_queue.snapshot() == ()
+
+
+async def test_the_windows_taken_at_the_providers_word_are_reported(hass: HomeAssistant) -> None:
+    """A history that stays short needs an explanation, not just an absence."""
+    coordinator = _coordinator(hass)
+    point = _point()
+    _ledger, _backend = _install_state(coordinator, point, router=AsyncMock())
+    state = coordinator._supply_points[(point.account_number, point.id)]
+    window = BackgroundWindow(datetime(2026, 6, 2, tzinfo=UTC), datetime(2026, 6, 5, tzinfo=UTC))
+    checkpoint = state.checkpoint
+    for _ in range(GAP_EMPTY_LIMIT):
+        checkpoint = checkpoint.record_gap_attempt(
+            ReadingDirection.IMPORT,
+            window,
+            filled=False,
+            at=NOW,
+        )
+    state.checkpoint = checkpoint
+
+    (reported,) = coordinator.abandoned_gap_windows()
+
+    assert reported["direction"] == "import"
+    assert reported["empty_attempts"] == GAP_EMPTY_LIMIT
+    assert reported["start_at"] == window.start_at.isoformat()
+    assert SUPPLY_POINT_ID not in reported["supply_point"]
