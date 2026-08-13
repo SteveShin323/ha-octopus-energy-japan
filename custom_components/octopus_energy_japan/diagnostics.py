@@ -278,6 +278,20 @@ async def async_get_config_entry_diagnostics(
     report["commercial"] = _commercial(runtime.commercial_coordinator)
     report["tariffs"] = _tariffs(runtime.commercial_coordinator, runtime.identity_secret)
     report["billing_periods"] = _billing_periods(data, runtime.identity_secret)
+    # Holes in the collected history. Reading every stored month to find them is why this is
+    # here rather than on the poll: a download is asked for once, a refresh happens twice an hour.
+    report["history_gaps"] = [
+        {
+            "account": gap.account,
+            "supply_point": gap.supply_point,
+            "direction": gap.direction.value,
+            "gaps": gap.gaps,
+            "missing_hours": gap.missing_hours,
+            "earliest_gap_at": _timestamp(gap.earliest_gap_at),
+            "latest_gap_end_at": _timestamp(gap.latest_gap_end_at),
+        }
+        for gap in await coordinator.async_history_gaps()
+    ]
     archive = runtime.tariff_archive
     report["tariff_history"] = {
         "schema_version": TARIFF_HISTORY_SCHEMA_VERSION,

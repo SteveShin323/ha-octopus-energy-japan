@@ -2902,3 +2902,88 @@ async def test_a_snapshot_with_nothing_new_keeps_the_calendar_sensors(
 
     (snapshot,) = published
     assert snapshot.aggregation.generated_at == NOW
+
+
+async def test_a_hole_in_the_collected_history_is_reported(hass: HomeAssistant) -> None:
+    """A hole is otherwise invisible: the dashboard simply shows less.
+
+    Two on one real installation went unnoticed for days, and the one that was spotted was only
+    spotted because it produced a negative figure.
+    """
+    coordinator = _coordinator(hass)
+    first = replace(
+        _reading(),
+        start_at=datetime(2026, 7, 1, tzinfo=UTC),
+        end_at=datetime(2026, 7, 1, 0, 30, tzinfo=UTC),
+    )
+    after_the_hole = replace(
+        _reading(),
+        start_at=datetime(2026, 7, 3, tzinfo=UTC),
+        end_at=datetime(2026, 7, 3, 0, 30, tzinfo=UTC),
+    )
+    ledger, _backend = _install_state(
+        coordinator,
+        _point(),
+        router=AsyncMock(),
+        records=(LedgerRecord(first), LedgerRecord(after_the_hole)),
+    )
+    ledger.known_partitions = frozenset({"2026-07"})
+
+    (summary,) = await coordinator.async_history_gaps()
+
+    assert summary.direction is ReadingDirection.IMPORT
+    assert summary.gaps == 1
+    assert summary.missing_hours == 47.5
+    assert summary.earliest_gap_at == datetime(2026, 7, 1, 0, 30, tzinfo=UTC)
+    assert summary.latest_gap_end_at == datetime(2026, 7, 3, tzinfo=UTC)
+    # The identities are the installation-local HMACs, never the provider's own.
+    assert ACCOUNT_ID not in summary.account
+    assert SUPPLY_POINT_ID not in summary.supply_point
+
+
+async def test_a_recent_absence_is_not_reported_as_a_hole(hass: HomeAssistant) -> None:
+    """The provider publishes days late, so the newest hours are absent rather than lost.
+
+    Measured over 245 readings on an account collecting normally, the lag ran from 4 hours to
+    4.6 days, which is what `HISTORY_GAP_GRACE` is sized against.
+    """
+    coordinator = _coordinator(hass)
+    older = replace(
+        _reading(),
+        start_at=NOW - timedelta(days=3),
+        end_at=NOW - timedelta(days=3) + timedelta(minutes=30),
+    )
+    newest = replace(
+        _reading(),
+        start_at=NOW - timedelta(hours=2),
+        end_at=NOW - timedelta(hours=2) + timedelta(minutes=30),
+    )
+    ledger, _backend = _install_state(
+        coordinator,
+        _point(),
+        router=AsyncMock(),
+        records=(LedgerRecord(older), LedgerRecord(newest)),
+    )
+    ledger.known_partitions = frozenset({"2026-07"})
+
+    assert await coordinator.async_history_gaps() == ()
+
+
+async def test_a_supply_point_with_nothing_collected_reports_no_holes(hass: HomeAssistant) -> None:
+    coordinator = _coordinator(hass)
+    ledger, _backend = _install_state(coordinator, _point(), router=AsyncMock())
+    ledger.known_partitions = frozenset()
+
+    assert await coordinator.async_history_gaps() == ()
+
+
+async def test_a_corrupt_partition_does_not_take_the_rest_of_the_report_with_it(
+    hass: HomeAssistant,
+) -> None:
+    """It is reported on its own; refusing the download would remove the other evidence."""
+    coordinator = _coordinator(hass)
+    ledger, _backend = _install_state(coordinator, _point(), router=AsyncMock())
+    ledger.known_partitions = frozenset({"2026-07"})
+    ledger.async_records.side_effect = LedgerError("unreadable")
+
+    assert await coordinator.async_history_gaps() == ()
