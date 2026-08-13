@@ -10,11 +10,11 @@ individual customers.
 
 ## [Unreleased]
 
-## [1.2.0b4] - 2026-08-13
+## [1.2.0] - 2026-08-13
 
-A pre-release, so the customer who reported
-[#93](https://github.com/SteveShin323/ha-octopus-energy-japan/issues/93) can check it against a
-real time-of-use account. Nobody here is on one. It carries everything in 1.1.1.
+Verified against a real EV-tariff account by the customer who reported
+[#93](https://github.com/SteveShin323/ha-octopus-energy-japan/issues/93): a finished month's
+cost statistic landed within 100 yen of the actual invoice.
 
 ### Added
 
@@ -46,10 +46,7 @@ real time-of-use account. Nobody here is on one. It carries everything in 1.1.1.
   [1.1.1](https://github.com/SteveShin323/ha-octopus-energy-japan/releases/tag/v1.1.1).
 
   Recovering a hole no longer needs a storage file deleted by hand.
-  Closes [#98](https://github.com/SteveShin323/ha-octopus-energy-japan/issues/98).
 
-
-### Added
 - **Diagnostics now report holes in the collected history.** Per direction: how many stretches
   hold no reading, how many hours they add up to, and the span they cover. A hole was previously
   invisible — the Energy Dashboard just showed less — and two on one real installation went
@@ -59,8 +56,7 @@ real time-of-use account. Nobody here is on one. It carries everything in 1.1.1.
   hours and 4.6 days after it happens, measured over 245 readings, so a more recent absence has
   not gone missing.
 
-  Refilling a hole is not implemented yet:
-  [#98](https://github.com/SteveShin323/ha-octopus-energy-japan/issues/98) tracks that.
+  Closes [#98](https://github.com/SteveShin323/ha-octopus-energy-japan/issues/98).
 
 ## [1.1.1] - 2026-08-13
 
