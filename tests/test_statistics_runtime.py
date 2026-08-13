@@ -86,6 +86,7 @@ async def test_publishes_safe_energy_metadata_and_dirty_rows(hass: HomeAssistant
         hass,
         SECRET,
         publisher=publisher,
+        cleaner=Mock(),
     )
 
     await projector.async_project_supply_point(
@@ -120,6 +121,7 @@ async def test_official_cost_requires_explicit_activation(hass: HomeAssistant) -
         hass,
         SECRET,
         publisher=default_publisher,
+        cleaner=Mock(),
     ).async_project_supply_point(
         ledger,  # type: ignore[arg-type]
         "A-1",
@@ -132,6 +134,7 @@ async def test_official_cost_requires_explicit_activation(hass: HomeAssistant) -
         SECRET,
         include_official_cost=True,
         publisher=enabled_publisher,
+        cleaner=Mock(),
     ).async_project_supply_point(
         ledger,  # type: ignore[arg-type]
         "A-1",
@@ -157,6 +160,7 @@ async def test_empty_ledger_is_a_noop(hass: HomeAssistant) -> None:
         hass,
         SECRET,
         publisher=publisher,
+        cleaner=Mock(),
     ).async_project_supply_point(
         ledger,  # type: ignore[arg-type]
         "A-1",
@@ -177,6 +181,7 @@ async def test_empty_projection_rows_are_not_published(hass: HomeAssistant) -> N
         hass,
         SECRET,
         publisher=publisher,
+        cleaner=Mock(),
     ).async_project_supply_point(
         ledger,  # type: ignore[arg-type]
         "A-1",
@@ -578,6 +583,7 @@ async def test_a_cost_series_is_published_when_a_tariff_is_known(hass: HomeAssis
         hass,
         SECRET,
         publisher=lambda *args: published.append(args),
+        cleaner=Mock(),
         tariff_lookup=lambda _account, _point: _priceable_tariff(),
     )
 
@@ -616,6 +622,7 @@ async def test_no_cost_series_without_a_tariff(hass: HomeAssistant) -> None:
         hass,
         SECRET,
         publisher=lambda *args: published.append(args),
+        cleaner=Mock(),
         tariff_lookup=lambda _account, _point: None,
     )
 
@@ -651,6 +658,7 @@ async def test_no_cost_series_when_the_tariff_carries_no_steps(hass: HomeAssista
         hass,
         SECRET,
         publisher=lambda *args: published.append(args),
+        cleaner=Mock(),
         tariff_lookup=lambda _account, _point: unpriceable,
     )
 
@@ -677,6 +685,7 @@ async def test_the_cost_sum_continues_across_a_correction(hass: HomeAssistant) -
         hass,
         SECRET,
         publisher=lambda *args: published.append(args),
+        cleaner=Mock(),
         tariff_lookup=lambda _account, _point: _priceable_tariff(),
     )
     earlier = replace(
@@ -738,6 +747,7 @@ async def test_an_archive_with_nothing_in_it_prices_from_the_reported_rate(
             hass,
             SECRET,
             publisher=lambda *args: published.append(args),
+            cleaner=Mock(),
             tariff_lookup=lambda _account, _point: _priceable_tariff(),
             adder_lookup=adder_lookup,  # type: ignore[arg-type]
         )
@@ -770,6 +780,7 @@ async def test_an_archive_with_nothing_in_it_prices_from_the_reported_rate(
         hass,
         SECRET,
         publisher=lambda *args: published.append(args),
+        cleaner=Mock(),
         tariff_lookup=lambda _account, _point: bare,
         adder_lookup=lambda _account, _point: AdderSchedule(),
     )
@@ -849,6 +860,7 @@ async def test_a_truncated_projection_does_not_restart_the_cumulative_sum(
         hass,
         SECRET,
         publisher=lambda *args: published.append(args),
+        cleaner=Mock(),
     )
     ledger = _RangedLedger((_record_at(JULY_HOUR, "1.0"), _record_at(AUGUST_HOUR, "0.5")))
 
@@ -886,7 +898,7 @@ async def test_a_correction_older_than_the_remembered_boundaries_reads_everythin
     ledger rather than resuming from a total that was never recorded.
     """
     hass.config.components.add(RECORDER)
-    projector = HomeAssistantStatisticsProjector(hass, SECRET, publisher=Mock())
+    projector = HomeAssistantStatisticsProjector(hass, SECRET, publisher=Mock(), cleaner=Mock())
     partitions = frozenset({"2026-05", "2026-06", "2026-07", "2026-08"})
     ledger = _RangedLedger((_record_at(AUGUST_HOUR, "0.5"),), partitions)
 
@@ -913,7 +925,7 @@ async def test_a_correction_in_the_earliest_month_reads_everything(
 ) -> None:
     """There is nothing before the first month to resume from, so truncating buys nothing."""
     hass.config.components.add(RECORDER)
-    projector = HomeAssistantStatisticsProjector(hass, SECRET, publisher=Mock())
+    projector = HomeAssistantStatisticsProjector(hass, SECRET, publisher=Mock(), cleaner=Mock())
     ledger = _RangedLedger((_record_at(JULY_HOUR, "1.0"),))
 
     await projector.async_project_supply_point(
@@ -945,6 +957,7 @@ async def test_a_total_is_remembered_when_every_hour_precedes_the_boundary(
         hass,
         SECRET,
         publisher=lambda *args: published.append(args),
+        cleaner=Mock(),
     )
     ledger = _RangedLedger((_record_at(JULY_HOUR, "1.0"),))
 
@@ -980,7 +993,7 @@ async def test_a_boundary_the_cadence_no_longer_reaches_is_forgotten(
     the hours before it, and keeping one per month collected would grow without limit.
     """
     hass.config.components.add(RECORDER)
-    projector = HomeAssistantStatisticsProjector(hass, SECRET, publisher=Mock())
+    projector = HomeAssistantStatisticsProjector(hass, SECRET, publisher=Mock(), cleaner=Mock())
     october = datetime(2026, 10, 3, 3, tzinfo=UTC)
     ledger = _RangedLedger(
         (_record_at(JULY_HOUR, "1.0"), _record_at(AUGUST_HOUR, "0.5")),
@@ -1020,7 +1033,7 @@ async def test_changing_the_calendar_discards_the_remembered_totals(
     the sums at instants the new calendar does not have.
     """
     hass.config.components.add(RECORDER)
-    projector = HomeAssistantStatisticsProjector(hass, SECRET, publisher=Mock())
+    projector = HomeAssistantStatisticsProjector(hass, SECRET, publisher=Mock(), cleaner=Mock())
     ledger = _RangedLedger((_record_at(JULY_HOUR, "1.0"), _record_at(AUGUST_HOUR, "0.5")))
     anchored = BillingPeriodCalendar.from_supply_start(
         datetime(2026, 6, 17, 15, tzinfo=UTC),
@@ -1053,7 +1066,7 @@ async def test_changing_the_calendar_discards_the_remembered_totals(
 async def test_a_deletion_driven_rebuild_still_reads_everything(hass: HomeAssistant) -> None:
     """A reset clears the series, so its replacement cannot resume from a stored total."""
     hass.config.components.add(RECORDER)
-    projector = HomeAssistantStatisticsProjector(hass, SECRET, publisher=Mock())
+    projector = HomeAssistantStatisticsProjector(hass, SECRET, publisher=Mock(), cleaner=Mock())
     ledger = _RangedLedger((_record_at(JULY_HOUR, "1.0"), _record_at(AUGUST_HOUR, "0.5")))
 
     await projector.async_project_supply_point(
@@ -1091,6 +1104,7 @@ async def test_a_quiet_tariff_lookup_does_not_lose_the_cost_total(
         hass,
         SECRET,
         publisher=lambda *args: published.append(args),
+        cleaner=Mock(),
         tariff_lookup=lambda _account, _point: tariff[0],  # type: ignore[arg-type,return-value]
     )
     ledger = _RangedLedger((_record_at(JULY_HOUR, "1.0"), _record_at(AUGUST_HOUR, "0.5")))
@@ -1136,6 +1150,7 @@ async def test_export_energy_never_gets_a_cost_series(hass: HomeAssistant) -> No
         hass,
         SECRET,
         publisher=lambda *args: published.append(args),
+        cleaner=Mock(),
         tariff_lookup=lambda _account, _point: _priceable_tariff(),
     )
 
@@ -1167,6 +1182,7 @@ async def test_a_changed_price_republishes_the_whole_cost_history(
         hass,
         SECRET,
         publisher=lambda *args: published.append(args),
+        cleaner=Mock(),
         tariff_lookup=lambda _account, _point: tariff[0],  # type: ignore[arg-type,return-value]
     )
     ledger = _RangedLedger((_record_at(JULY_HOUR, "1.0"), _record_at(AUGUST_HOUR, "0.5")))
@@ -1214,6 +1230,7 @@ async def test_an_unchanged_price_leaves_the_past_alone(hass: HomeAssistant) -> 
         hass,
         SECRET,
         publisher=lambda *args: published.append(args),
+        cleaner=Mock(),
         tariff_lookup=lambda _account, _point: _priceable_tariff(),
     )
     ledger = _RangedLedger((_record_at(JULY_HOUR, "1.0"), _record_at(AUGUST_HOUR, "0.5")))
@@ -1272,6 +1289,7 @@ async def test_a_renamed_device_renames_its_statistics(hass: HomeAssistant) -> N
         hass,
         SECRET,
         publisher=lambda *args: published.append(args),
+        cleaner=Mock(),
     )
     await projector.async_project_supply_point(
         _Ledger((_record(),)),  # type: ignore[arg-type]
@@ -1283,3 +1301,145 @@ async def test_a_renamed_device_renames_its_statistics(hass: HomeAssistant) -> N
 
     names = {args[1]["name"] for args in published}
     assert names == {"Old flat Import energy"}
+
+
+@pytest.mark.recorder_harness
+async def test_an_hour_withdrawn_from_the_middle_leaves_no_stale_row(
+    recorder_mock: Recorder,
+    hass: HomeAssistant,
+) -> None:
+    """A reading the provider withdraws must take its published row with it.
+
+    Rows are written by statistic id and hour, so an hour that stops being projected is not
+    overwritten by anything — it is simply left behind, carrying a cumulative from before the
+    withdrawal. The next hour then resumes lower, and the Energy Dashboard draws the drop as a
+    negative day. That is what a real installation showed on 2026-08-13.
+    """
+    first = datetime(2026, 8, 3, 0, tzinfo=UTC)
+    middle = datetime(2026, 8, 3, 1, tzinfo=UTC)
+    last = datetime(2026, 8, 3, 2, tzinfo=UTC)
+    ledger = _Ledger(
+        (
+            _record_at(first, "1.0"),
+            _record_at(middle, "2.0"),
+            _record_at(last, "4.0"),
+        )
+    )
+    projector = HomeAssistantStatisticsProjector(hass, SECRET)
+
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+    await async_recorder_block_till_done(hass)
+
+    metadata = await hass.async_add_executor_job(
+        partial(get_metadata, hass, statistic_source="octopus_energy_japan")
+    )
+    statistic_id = next(iter(metadata))
+
+    async def _sums() -> list[float]:
+        rows = await hass.async_add_executor_job(
+            statistics_during_period,
+            hass,
+            first,
+            NOW,
+            {statistic_id},
+            "hour",
+            None,
+            {"state", "sum"},
+        )
+        return [row["sum"] for row in rows[statistic_id]]
+
+    assert await _sums() == [1.0, 3.0, 7.0]
+
+    # The provider withdraws the middle hour: it is gone from the ledger, and the projection
+    # no longer contains it.
+    ledger.records = (_record_at(first, "1.0"), _record_at(last, "4.0"))
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=middle,
+        reset_directions=frozenset({ReadingDirection.IMPORT}),
+    )
+    await async_recorder_block_till_done(hass)
+
+    # Two rows, and the cumulative never goes backwards. A third row here would be the
+    # withdrawn hour left behind at 3.0, ahead of a 5.0 that follows it.
+    assert await _sums() == [1.0, 5.0]
+
+
+@pytest.mark.recorder_harness
+async def test_a_withdrawal_lost_to_a_restart_leaves_the_row_behind(
+    recorder_mock: Recorder,
+    hass: HomeAssistant,
+) -> None:
+    """A restart drops the instruction to clear, so the pass must decide for itself.
+
+    `reset_directions` is set when the ledger deletes a reading and is carried in the
+    coordinator's in-memory pending map. If Home Assistant restarts between the deletion and
+    the projection — which is exactly what an integration upgrade does — the next pass
+    projects the whole series again but never clears it. Rows for hours that no longer exist
+    stay behind, holding a cumulative from before the withdrawal.
+
+    This is the shape a real installation was found in on 2026-08-13: rows continuing past the
+    withdrawal, then the next real hour resuming lower, drawn as a negative day.
+    """
+    first = datetime(2026, 8, 3, 0, tzinfo=UTC)
+    middle = datetime(2026, 8, 3, 1, tzinfo=UTC)
+    last = datetime(2026, 8, 3, 2, tzinfo=UTC)
+    ledger = _Ledger(
+        (
+            _record_at(first, "1.0"),
+            _record_at(middle, "2.0"),
+            _record_at(last, "4.0"),
+        )
+    )
+    await HomeAssistantStatisticsProjector(hass, SECRET).async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+    await async_recorder_block_till_done(hass)
+
+    metadata = await hass.async_add_executor_job(
+        partial(get_metadata, hass, statistic_source="octopus_energy_japan")
+    )
+    statistic_id = next(iter(metadata))
+
+    async def _sums() -> list[float]:
+        rows = await hass.async_add_executor_job(
+            statistics_during_period,
+            hass,
+            first,
+            NOW,
+            {statistic_id},
+            "hour",
+            None,
+            {"state", "sum"},
+        )
+        return [row["sum"] for row in rows[statistic_id]]
+
+    assert await _sums() == [1.0, 3.0, 7.0]
+
+    # The middle hour is withdrawn, and a restart loses the reset before it is acted on. A
+    # fresh projector is what a restart produces: no remembered fingerprints, no pending
+    # reset, so the pass republishes from the beginning without clearing.
+    ledger.records = (_record_at(first, "1.0"), _record_at(last, "4.0"))
+    await HomeAssistantStatisticsProjector(hass, SECRET).async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+    await async_recorder_block_till_done(hass)
+
+    assert await _sums() == [1.0, 5.0]

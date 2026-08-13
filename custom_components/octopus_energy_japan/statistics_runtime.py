@@ -31,6 +31,7 @@ from .identity import stable_supply_point_identity
 from .ledger import PersistentIntervalLedger, partition_bounds
 from .statistics import (
     StatisticKind,
+    StatisticsProjection,
     StatisticsSeriesProjection,
     project_hourly_statistics,
 )
@@ -41,6 +42,9 @@ type StatisticsPublisher = Callable[
     [HomeAssistant, StatisticMetaData, tuple[StatisticData, ...]],
     None,
 ]
+# Removing rows is the other half of writing them, and it is injected for the same reason: a
+# test that hands in a publisher has no recorder instance to ask for one.
+type StatisticsCleaner = Callable[[HomeAssistant, tuple[str, ...]], None]
 type TariffLookup = Callable[[str, str], SupplyPointTariff | None]
 type AdderLookup = Callable[[str, str], AdderSchedule]
 
@@ -70,6 +74,26 @@ CALENDAR_MONTHS = BillingPeriodCalendar.calendar_months(TOKYO)
 
 def _hour_start(value: datetime) -> datetime:
     return value.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
+
+
+def _projected_directions(projection: StatisticsProjection) -> frozenset[ReadingDirection]:
+    """Return the directions this pass is about to republish in full.
+
+    Only those are cleared. A direction the pass has nothing to say about — export on a supply
+    point that never exported — keeps whatever it already published, because clearing it here
+    would remove rows that nothing is going to write back.
+    """
+    return frozenset(series.key.direction for series in projection.series)
+
+
+def _clear_statistics(hass: HomeAssistant, statistic_ids: tuple[str, ...]) -> None:
+    """Queue a removal of whole statistic series on the recorder.
+
+    Clear and the imports that follow it share the recorder's FIFO queue, so the order is the
+    order they were queued in. Waiting for a callback would block a refresh for no gain, and
+    would fail outright while the recorder is stopping.
+    """
+    get_instance(hass).async_clear_statistics(list(statistic_ids))
 
 
 def _pricing_fingerprint(
@@ -138,6 +162,7 @@ class HomeAssistantStatisticsProjector:
         *,
         include_official_cost: bool = False,
         publisher: StatisticsPublisher = async_add_external_statistics,
+        cleaner: StatisticsCleaner = _clear_statistics,
         tariff_lookup: TariffLookup | None = None,
         adder_lookup: AdderLookup | None = None,
     ) -> None:
@@ -145,6 +170,7 @@ class HomeAssistantStatisticsProjector:
         self._identity_secret = identity_secret
         self._include_official_cost = include_official_cost
         self._publisher = publisher
+        self._cleaner = cleaner
         self._tariff_lookup = tariff_lookup
         self._adder_lookup = adder_lookup
         self._warned_about_recorder = False
@@ -212,13 +238,29 @@ class HomeAssistantStatisticsProjector:
             account_id,
             supply_point_id,
         )
-        if reset_directions:
+        boundary = _hour_start(effective_dirty) if effective_dirty is not None else None
+        # Rows are written by statistic id and hour, so an hour that stops being projected is
+        # never overwritten — it is left behind holding a cumulative from before it was
+        # withdrawn, and every later hour then resumes lower than it. A real installation was
+        # found that way on 2026-08-13, and the Energy Dashboard drew the drop as a single day
+        # of -62.1 kWh.
+        #
+        # `reset_directions` says a deletion happened, but it lives in the coordinator's memory:
+        # a restart drops it, and so does a projection that raised before consuming it. Neither
+        # is rare — upgrading the integration is a restart. So the clear is driven by the shape
+        # of this pass as well: one that republishes a series from its earliest hour is
+        # authoritative for every row in it, and the rows it is about to write are already
+        # computed, so clearing first can only remove rows with no reading left behind them.
+        #
+        # It costs one extra recorder operation on a pass that was already going to rewrite the
+        # whole series — the first pass after a restart, and any pass that reprices.
+        rebuilding = boundary is None and start_at <= earliest
+        if reset_directions or rebuilding:
             self._clear_directions(
                 account_id,
                 supply_point_id,
-                reset_directions,
+                reset_directions | _projected_directions(projection),
             )
-        boundary = _hour_start(effective_dirty) if effective_dirty is not None else None
         totals: dict[str, tuple[tuple[datetime, Decimal], ...]] = {}
         for series in projection.series:
             if series.key.kind is StatisticKind.OFFICIAL_COST and not self._include_official_cost:
@@ -490,9 +532,7 @@ class HomeAssistantStatisticsProjector:
         if not statistic_ids:
             return
 
-        # Clear and subsequent imports use the same Recorder FIFO queue. Waiting
-        # for a callback would unnecessarily block if Recorder is stopping.
-        get_instance(self._hass).async_clear_statistics(statistic_ids)
+        self._cleaner(self._hass, tuple(statistic_ids))
 
     def _recorder_available(self) -> bool:
         """Report whether statistics can be written at all.

@@ -1016,3 +1016,81 @@ def test_correction_result_combines_counts_and_corruption() -> None:
     )
     assert combined.inserted_count == 1
     assert combined.skipped_corrupt_partitions == ("2026-06",)
+
+
+async def test_a_partition_the_snapshot_returned_nothing_for_keeps_its_records() -> None:
+    """A window spanning several months is split per partition, and one can come back empty.
+
+    That happens whenever the response stopped short of it — a page that ended early, a
+    transient provider error, a partial read — and it is indistinguishable from the provider
+    withdrawing the whole month. Reading it as a withdrawal deleted 35 days of a real
+    account's history on 2026-08-13, while the provider still served every reading when asked
+    again. Absence is not evidence.
+    """
+    backend = MemoryLedgerBackend()
+    persistent = _persistent(backend)
+    await persistent.async_initialize(OBSERVED)
+    july = _reading(start=START)
+    august = _reading(start=datetime(2026, 8, 1, tzinfo=UTC), fetched_at=OBSERVED)
+    window_start = START
+    window_end = datetime(2026, 8, 2, tzinfo=UTC)
+
+    await persistent.async_reconcile(
+        _series(july) | _series(august),
+        window_start,
+        window_end,
+        [july, august],
+        OBSERVED,
+    )
+    # The same window again, but this time only August came back.
+    later = OBSERVED + timedelta(hours=1)
+    result = await persistent.async_reconcile(
+        _series(july) | _series(august),
+        window_start,
+        window_end,
+        [_reading(start=datetime(2026, 8, 1, tzinfo=UTC), fetched_at=later)],
+        later,
+    )
+
+    assert result.deleted_count == 0
+    assert result.skipped_empty_partitions == ("2026-07",)
+    records = await persistent.async_records(window_start, window_end)
+    assert [record.reading.start_at for record in records] == [
+        july.start_at,
+        august.start_at,
+    ]
+
+
+async def test_a_reading_the_provider_replaced_within_a_returned_month_is_still_removed() -> None:
+    """The withdrawal rule still applies where the provider actually answered.
+
+    Only a partition that returned nothing at all is left alone. One that returned some
+    readings answered authoritatively, so an interval missing from it is a real withdrawal.
+    """
+    backend = MemoryLedgerBackend()
+    persistent = _persistent(backend)
+    await persistent.async_initialize(OBSERVED)
+    first = _reading(start=START)
+    second = _reading(start=START + timedelta(minutes=30))
+    window_end = START + timedelta(hours=1)
+
+    await persistent.async_reconcile(
+        _series(first),
+        START,
+        window_end,
+        [first, second],
+        OBSERVED,
+    )
+    later = OBSERVED + timedelta(hours=1)
+    result = await persistent.async_reconcile(
+        _series(first),
+        START,
+        window_end,
+        [_reading(start=START, fetched_at=later)],
+        later,
+    )
+
+    assert result.deleted_count == 1
+    assert result.skipped_empty_partitions == ()
+    records = await persistent.async_records(START, window_end)
+    assert [record.reading.start_at for record in records] == [first.start_at]

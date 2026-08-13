@@ -10,6 +10,37 @@ individual customers.
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-08-13
+
+### Fixed
+
+- **A provider hiccup could delete collected history.** A refresh window spanning several
+  months is split by month before merging, and any month the response did not reach came
+  through as empty. That was read as the provider withdrawing the whole month, and the stored
+  readings were deleted.
+
+  On one real account this erased 35 days in a single afternoon, over two passes, while the
+  provider still returned every one of those readings when asked again. It also left the
+  cumulative total going backwards, which the Energy Dashboard drew as a single day of
+  −62.1 kWh.
+
+  A month that comes back empty is now left alone. Deletion still applies inside a month that
+  returned something, because there the provider did answer.
+
+  Nothing is lost permanently: re-running **Import full history** restores whatever the
+  provider still holds. A hole that predates this fix is not refilled on its own —
+  [#98](https://github.com/SteveShin323/ha-octopus-energy-japan/issues/98) tracks that.
+
+- **A withdrawn reading left its cost and energy rows behind.** Statistics are written by hour,
+  so an hour that stops being collected was never overwritten — it kept a running total from
+  before it was withdrawn, and every later hour resumed lower than it. That is what drew the
+  −62.1 kWh day above.
+
+  The projector was already told to rebuild the series when a reading is deleted, but that
+  instruction was held in memory and a restart dropped it — and upgrading the integration is a
+  restart. A pass that republishes a series from its earliest hour now rebuilds it outright,
+  which is the only state in which it is authoritative for every row.
+
 ## [1.1.0] - 2026-08-11
 
 Found on an installation with two logins — one for the current address, one from before a
