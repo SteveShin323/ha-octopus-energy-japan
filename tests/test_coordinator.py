@@ -3215,3 +3215,86 @@ async def test_the_windows_taken_at_the_providers_word_are_reported(hass: HomeAs
     assert reported["empty_attempts"] == GAP_EMPTY_LIMIT
     assert reported["start_at"] == window.start_at.isoformat()
     assert SUPPLY_POINT_ID not in reported["supply_point"]
+
+
+async def test_the_legacy_path_is_not_taken_as_the_provider_having_nothing(
+    hass: HomeAssistant,
+) -> None:
+    """It answers with the most recent 31 days however wide the window was.
+
+    Its silence about an older stretch says nothing, so counting it against the limit would
+    abandon a hole the modern path could still fill.
+    """
+    coordinator = _coordinator(hass)
+    point = _point()
+    _ledger, _backend = _install_state(coordinator, point, router=AsyncMock())
+    state = coordinator._supply_points[(point.account_number, point.id)]
+    window = BackgroundWindow(datetime(2026, 6, 2, tzinfo=UTC), datetime(2026, 6, 5, tzinfo=UTC))
+    item = BackgroundSyncItem(
+        BackgroundSyncScope(coordinator._status_identity(state), ReadingDirection.IMPORT, window),
+        (SyncObligation(BackgroundSyncReason.GAP_REFILL, GAP_REFILL_GENERATION),),
+    )
+    legacy = replace(
+        _direction_result(ReadingDirection.IMPORT, point=point),
+        provider=ReadingProviderName.LEGACY,
+    )
+
+    await coordinator._async_complete_gap_refill(state, item, legacy)
+
+    assert state.checkpoint.gap_attempts == ()
+
+
+async def test_a_refill_that_produced_readings_republishes_the_statistics(
+    hass: HomeAssistant,
+) -> None:
+    """Inserting an hour moves every cumulative after it, so those hours are republished."""
+    coordinator = _coordinator(hass)
+    point = _point()
+    ledger, _backend = _install_state(coordinator, point, router=AsyncMock())
+    reading = replace(
+        _reading(),
+        start_at=datetime(2026, 6, 3, tzinfo=UTC),
+        end_at=datetime(2026, 6, 3, 0, 30, tzinfo=UTC),
+    )
+    ledger.async_reconcile.return_value = CorrectionResult(
+        (LedgerChange(LedgerRecord(reading).key, LedgerMergeStatus.INSERTED),)
+    )
+    state = coordinator._supply_points[(point.account_number, point.id)]
+    window = BackgroundWindow(datetime(2026, 6, 2, tzinfo=UTC), datetime(2026, 6, 5, tzinfo=UTC))
+    item = BackgroundSyncItem(
+        BackgroundSyncScope(coordinator._status_identity(state), ReadingDirection.IMPORT, window),
+        (SyncObligation(BackgroundSyncReason.GAP_REFILL, GAP_REFILL_GENERATION),),
+    )
+
+    await coordinator._async_complete_gap_refill(
+        state,
+        item,
+        _direction_result(ReadingDirection.IMPORT, reading, point=point),
+    )
+
+    assert state.checkpoint.gap_attempts == ()
+
+
+async def test_a_supply_point_with_no_holes_does_no_extra_provider_work(
+    hass: HomeAssistant,
+) -> None:
+    """One of this feature's conditions: an intact history costs nothing to keep intact."""
+    coordinator = _coordinator(hass)
+    point = _point()
+    contiguous = tuple(
+        LedgerRecord(
+            replace(
+                _reading(),
+                start_at=datetime(2026, 6, 1, tzinfo=UTC) + timedelta(minutes=30 * index),
+                end_at=datetime(2026, 6, 1, 0, 30, tzinfo=UTC) + timedelta(minutes=30 * index),
+            )
+        )
+        for index in range(4)
+    )
+    ledger, _backend = _install_state(coordinator, point, router=AsyncMock(), records=contiguous)
+    ledger.known_partitions = frozenset({"2026-06"})
+    state = coordinator._supply_points[(point.account_number, point.id)]
+
+    await coordinator._async_enqueue_gap_refill(state)
+
+    assert coordinator._background_queue.snapshot() == ()

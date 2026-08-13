@@ -22,6 +22,7 @@ from custom_components.octopus_energy_japan.background_sync import (
     DailyDirectionCompletion,
     DirectionBackfill,
     DirectionWindowCompletion,
+    GapAttempt,
     PlannedGeneration,
     SyncCheckpoint,
     SyncObligation,
@@ -853,3 +854,13 @@ def test_a_gap_refill_is_queued_below_the_work_that_keeps_today_correct() -> Non
         < BackgroundSyncPriority.GAP_REFILL
         < BackgroundSyncPriority.HISTORY_BACKFILL
     )
+
+
+def test_a_gap_attempt_rejects_a_negative_count() -> None:
+    with pytest.raises(ValueError, match="streak cannot be negative"):
+        GapAttempt(ReadingDirection.IMPORT, NOW, NOW + timedelta(hours=1), -1, NOW)
+
+
+def test_a_gap_attempt_rejects_a_window_that_does_not_advance() -> None:
+    with pytest.raises(ValueError, match="must end after it starts"):
+        GapAttempt(ReadingDirection.IMPORT, NOW, NOW, 0, NOW)
