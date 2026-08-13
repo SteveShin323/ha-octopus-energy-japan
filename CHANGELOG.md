@@ -10,6 +10,12 @@ individual customers.
 
 ## [Unreleased]
 
+## [1.2.0b1] - 2026-08-13
+
+A pre-release, so the customer who reported
+[#93](https://github.com/SteveShin323/ha-octopus-energy-japan/issues/93) can check it against
+a real time-of-use account. Nobody here is on one.
+
 ### Added
 
 - **Cost for plans priced by time of day.** EVオクトパス, オール電化オクトパス and its
