@@ -170,6 +170,18 @@ def _entry(hass: HomeAssistant, *, loaded: bool = True) -> MockConfigEntry:
     coordinator.last_update_success = True
     coordinator.last_exception = None
     coordinator.update_interval = timedelta(minutes=30)
+    coordinator.abandoned_gap_windows = Mock(
+        return_value=[
+            {
+                "supply_point": "point-hmac",
+                "direction": "import",
+                "start_at": "2026-04-08T00:00:00+00:00",
+                "end_at": "2026-04-15T00:00:00+00:00",
+                "empty_attempts": 3,
+                "last_attempt_at": "2026-08-13T00:00:00+00:00",
+            }
+        ]
+    )
     coordinator.async_history_gaps = AsyncMock(
         return_value=(
             HistoryGapSummary(
@@ -512,3 +524,16 @@ async def test_diagnostics_do_not_carry_the_device_serial_numbers(
 
     for serial in serials:
         assert serial not in report
+
+
+async def test_diagnostics_explain_a_history_that_stays_short(hass: HomeAssistant) -> None:
+    """A stretch nobody can fill needs a reason, not just an absence."""
+    entry = _entry(hass)
+
+    report = await async_get_config_entry_diagnostics(hass, entry)
+
+    (abandoned,) = report["abandoned_gap_windows"]
+    assert abandoned["empty_attempts"] == 3
+    assert abandoned["direction"] == "import"
+    # Identities only, never the provider's own.
+    assert ACCOUNT_NUMBER not in str(report["abandoned_gap_windows"])

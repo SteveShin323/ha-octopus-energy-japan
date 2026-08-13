@@ -5,9 +5,9 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from enum import IntEnum, StrEnum
-from typing import Any, Protocol, Self
+from typing import Any, Final, Protocol, Self
 
 from .api import ReadingDirection
 from .sync import MAX_QUERY_WINDOW, POLL_OVERLAP, TOKYO
@@ -22,6 +22,10 @@ class BackgroundSyncReason(StrEnum):
     DAILY_RECONCILIATION = "daily_reconciliation"
     INITIAL_CURRENT_MONTH = "initial_current_month"
     INITIAL_PREVIOUS_MONTH = "initial_previous_month"
+    # Refilling a stretch that holds no reading. Only ever in the in-memory queue: which
+    # stretches are missing is read off the ledger, so nothing has to remember them. What is
+    # remembered is which requests came back with nothing — see `GapAttempt`.
+    GAP_REFILL = "gap_refill"
     # Only ever in the in-memory queue. Its progress is a cursor on the checkpoint rather than a
     # list of planned windows, so this value is never serialized — see `DirectionBackfill`.
     HISTORY_BACKFILL = "history_backfill"
@@ -33,6 +37,9 @@ class BackgroundSyncPriority(IntEnum):
     DAILY_RECONCILIATION = 10
     INITIAL_CURRENT_MONTH = 20
     INITIAL_PREVIOUS_MONTH = 30
+    # Above the walk and below everything that keeps today correct. A hole has waited already;
+    # it can wait for this refresh.
+    GAP_REFILL = 35
     # Last. A walk that can run for hours must never delay the work that keeps today correct.
     HISTORY_BACKFILL = 40
 
@@ -41,10 +48,21 @@ _PRIORITY = {
     BackgroundSyncReason.DAILY_RECONCILIATION: BackgroundSyncPriority.DAILY_RECONCILIATION,
     BackgroundSyncReason.INITIAL_CURRENT_MONTH: BackgroundSyncPriority.INITIAL_CURRENT_MONTH,
     BackgroundSyncReason.INITIAL_PREVIOUS_MONTH: BackgroundSyncPriority.INITIAL_PREVIOUS_MONTH,
+    BackgroundSyncReason.GAP_REFILL: BackgroundSyncPriority.GAP_REFILL,
     BackgroundSyncReason.HISTORY_BACKFILL: BackgroundSyncPriority.HISTORY_BACKFILL,
 }
 # One generation id per direction, because a backfill has no planned windows to name.
 BACKFILL_GENERATION = "backfill"
+GAP_REFILL_GENERATION = "gap-refill"
+
+# How many times a window may come back with nothing before the provider is taken at
+# its word. One empty answer is not evidence: the same read returned nothing on
+# 2026-08-13 and everything a minute later.
+GAP_EMPTY_LIMIT: Final = 3
+
+# How long a window taken at its word is left alone. Not forever: the provider may fill
+# its own history later, and an installation that never asks again would never see it.
+GAP_RETRY_AFTER: Final = timedelta(days=30)
 
 
 class BackfillState(StrEnum):
@@ -352,6 +370,40 @@ class DailyDirectionCompletion:
         object.__setattr__(self, "completed_through", _utc(self.completed_through))
 
 
+@dataclass(frozen=True, slots=True, order=True)
+class GapAttempt:
+    """How a request for one missing stretch went, and when.
+
+    Keyed by the window that was requested rather than by the stretch that was missing. A
+    stretch has no stable identity: refilling half of one leaves two smaller ones and every
+    boundary moves. A requested window is chosen here, so it stays put.
+
+    The count is what stops the queue turning forever. A stretch the provider has no data for
+    can never be filled, so without it every pass would ask again for the same nothing.
+    """
+
+    direction: ReadingDirection
+    start_at: datetime
+    end_at: datetime
+    empty_streak: int
+    last_attempt_at: datetime
+
+    def __post_init__(self) -> None:
+        if self.empty_streak < 0:
+            raise ValueError("A gap attempt streak cannot be negative")
+        object.__setattr__(self, "start_at", _utc(self.start_at))
+        object.__setattr__(self, "end_at", _utc(self.end_at))
+        object.__setattr__(self, "last_attempt_at", _utc(self.last_attempt_at))
+        if self.end_at <= self.start_at:
+            raise ValueError("A gap attempt window must end after it starts")
+
+    def is_abandoned(self, now: datetime) -> bool:
+        """Report whether this window is being taken at the provider's word for now."""
+        if self.empty_streak < GAP_EMPTY_LIMIT:
+            return False
+        return _utc(now) - self.last_attempt_at < GAP_RETRY_AFTER
+
+
 @dataclass(frozen=True, slots=True)
 class SyncCheckpoint:
     """Versioned private checkpoint state for one supply point."""
@@ -366,6 +418,10 @@ class SyncCheckpoint:
     # helper and never referenced from `generations`, so a checkpoint written here still loads
     # on a build that predates it and one written there still loads here.
     backfill: tuple[DirectionBackfill, ...] = ()
+    # One record per window a gap refill has asked for and been given nothing. Read with a
+    # tolerant helper and never referenced from `generations`, so a checkpoint written here still
+    # loads on a build that predates it and one written there still loads here.
+    gap_attempts: tuple[GapAttempt, ...] = ()
     schema_version: int = CHECKPOINT_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -685,6 +741,70 @@ class SyncCheckpoint:
             return self
         return self._with_backfill(replace(existing, state=state, error_class=error_class))
 
+    def skips_gap_window(
+        self,
+        direction: ReadingDirection,
+        window: BackgroundWindow,
+        now: datetime,
+    ) -> bool:
+        """Report whether this window is being taken at the provider's word for now."""
+        return any(
+            attempt.direction is direction
+            and attempt.start_at == window.start_at
+            and attempt.end_at == window.end_at
+            and attempt.is_abandoned(now)
+            for attempt in self.gap_attempts
+        )
+
+    def record_gap_attempt(
+        self,
+        direction: ReadingDirection,
+        window: BackgroundWindow,
+        *,
+        filled: bool,
+        at: datetime,
+    ) -> Self:
+        """Record how one refill request went.
+
+        A window that produced readings drops its record: the stretch it covered is no longer
+        missing, and if part of it reappears later it deserves a fresh count rather than one
+        inherited from before it was ever filled.
+        """
+        moment = _utc(at)
+        others = tuple(
+            attempt
+            for attempt in self.gap_attempts
+            if not (
+                attempt.direction is direction
+                and attempt.start_at == window.start_at
+                and attempt.end_at == window.end_at
+            )
+        )
+        if filled:
+            return replace(self, gap_attempts=others)
+        previous = next(
+            (
+                attempt
+                for attempt in self.gap_attempts
+                if attempt.direction is direction
+                and attempt.start_at == window.start_at
+                and attempt.end_at == window.end_at
+            ),
+            None,
+        )
+        streak = 1
+        if previous is not None:
+            # A window left alone for the retry interval starts again rather than resuming at
+            # the limit, so one more empty answer does not immediately re-abandon it.
+            expired = moment - previous.last_attempt_at >= GAP_RETRY_AFTER
+            streak = 1 if expired else previous.empty_streak + 1
+        recorded = GapAttempt(direction, window.start_at, window.end_at, streak, moment)
+        return replace(self, gap_attempts=tuple(sorted((*others, recorded))))
+
+    def abandoned_gap_windows(self, now: datetime) -> tuple[GapAttempt, ...]:
+        """Return the windows the provider is being taken at its word about."""
+        return tuple(attempt for attempt in self.gap_attempts if attempt.is_abandoned(now))
+
     def _with_backfill(self, value: DirectionBackfill) -> Self:
         others = tuple(item for item in self.backfill if item.direction is not value.direction)
         return replace(self, backfill=tuple(sorted((*others, value))))
@@ -771,6 +891,16 @@ class SyncCheckpoint:
                 }
                 for value in self.daily_completed
             ],
+            "gap_attempts": [
+                {
+                    "direction": value.direction.value,
+                    "start_at": _iso(value.start_at),
+                    "end_at": _iso(value.end_at),
+                    "empty_streak": value.empty_streak,
+                    "last_attempt_at": _iso(value.last_attempt_at),
+                }
+                for value in self.gap_attempts
+            ],
             "backfill": [
                 {
                     "direction": value.direction.value,
@@ -833,6 +963,16 @@ class SyncCheckpoint:
             )
             for value in _optional_mapping_list(payload, "backfill")
         )
+        gap_attempts = tuple(
+            GapAttempt(
+                _direction(value),
+                _datetime(_required_string(value, "start_at")),
+                _datetime(_required_string(value, "end_at")),
+                _count(value.get("empty_streak")),
+                _datetime(_required_string(value, "last_attempt_at")),
+            )
+            for value in _optional_mapping_list(payload, "gap_attempts")
+        )
         return cls(
             month_pair_generation=month_pair,
             generations=generations,
@@ -841,6 +981,7 @@ class SyncCheckpoint:
             background_coverage=_normalize_coverage(coverage),
             daily_completed=tuple(sorted(set(daily))),
             backfill=tuple(sorted(set(backfill))),
+            gap_attempts=tuple(sorted(set(gap_attempts))),
         )
 
 
