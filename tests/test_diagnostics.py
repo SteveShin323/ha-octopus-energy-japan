@@ -42,6 +42,7 @@ from custom_components.octopus_energy_japan.commercial_coordinator import OejpCo
 from custom_components.octopus_energy_japan.const import DOMAIN
 from custom_components.octopus_energy_japan.coordinator import (
     DirectionSyncStatus,
+    HistoryGapSummary,
     OejpCoordinatorData,
     ProviderObservation,
 )
@@ -169,6 +170,19 @@ def _entry(hass: HomeAssistant, *, loaded: bool = True) -> MockConfigEntry:
     coordinator.last_update_success = True
     coordinator.last_exception = None
     coordinator.update_interval = timedelta(minutes=30)
+    coordinator.async_history_gaps = AsyncMock(
+        return_value=(
+            HistoryGapSummary(
+                account="account-hmac",
+                supply_point="point-hmac",
+                direction=ReadingDirection.IMPORT,
+                gaps=2,
+                missing_hours=36.5,
+                earliest_gap_at=datetime(2026, 4, 8, tzinfo=UTC),
+                latest_gap_end_at=datetime(2026, 6, 10, tzinfo=UTC),
+            ),
+        )
+    )
 
     commercial = Mock()
     commercial.last_update_success = True

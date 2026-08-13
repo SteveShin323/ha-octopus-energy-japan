@@ -10,7 +10,46 @@ individual customers.
 
 ## [Unreleased]
 
-## [1.2.0b2] - 2026-08-13
+## [1.2.0b3] - 2026-08-13
+
+A pre-release, so the customer who reported
+[#93](https://github.com/SteveShin323/ha-octopus-energy-japan/issues/93) can check it against a
+real time-of-use account. Nobody here is on one. It carries everything in 1.1.1.
+
+### Added
+
+- **Cost for plans priced by time of day.** EVオクトパス, オール電化オクトパス and its サンシャイン
+  variant, ソーラーオクトパス, and 動力オクトパス now produce a cost statistic, in all nine grid
+  areas.
+
+  Prices still come only from your own agreement. The hours each band covers are built in,
+  because Octopus Energy Japan publishes them in its tariff documents but answers
+  `KT-CT-1111 Unauthorized` for every API field that would return them — measured on two
+  accounts, one of them on the EV plan itself.
+  [docs/TOU_SCHEMES.md](docs/TOU_SCHEMES.md) records every hour and the document it came from.
+
+  A time-of-use plan whose schedule is not in that table publishes no cost and says so, as does
+  one whose agreement priced only some of its bands, and one whose bands name two grid areas.
+  None of them guesses.
+
+- **The tariff shape in diagnostics now names the time-of-use scheme**, the grid operator code,
+  and the band slots the provider returned, so a wrong cost can be traced without a customer's
+  prices.
+
+
+- **Diagnostics now report holes in the collected history.** Per direction: how many stretches
+  hold no reading, how many hours they add up to, and the span they cover. A hole was previously
+  invisible — the Energy Dashboard just showed less — and two on one real installation went
+  unnoticed for days.
+
+  The newest week is left out of the count. Octopus Energy Japan publishes a half hour between 4
+  hours and 4.6 days after it happens, measured over 245 readings, so a more recent absence has
+  not gone missing.
+
+  Refilling a hole is not implemented yet:
+  [#98](https://github.com/SteveShin323/ha-octopus-energy-japan/issues/98) tracks that.
+
+## [1.1.1] - 2026-08-13
 
 ### Fixed
 
@@ -28,34 +67,18 @@ individual customers.
   returned something, because there the provider did answer.
 
   Nothing is lost permanently: re-running **Import full history** restores whatever the
-  provider still holds.
+  provider still holds. A hole that predates this fix is not refilled on its own —
+  [#98](https://github.com/SteveShin323/ha-octopus-energy-japan/issues/98) tracks that.
 
-## [1.2.0b1] - 2026-08-13
+- **A withdrawn reading left its cost and energy rows behind.** Statistics are written by hour,
+  so an hour that stops being collected was never overwritten — it kept a running total from
+  before it was withdrawn, and every later hour resumed lower than it. That is what drew the
+  −62.1 kWh day above.
 
-A pre-release, so the customer who reported
-[#93](https://github.com/SteveShin323/ha-octopus-energy-japan/issues/93) can check it against
-a real time-of-use account. Nobody here is on one.
-
-### Added
-
-- **Cost for plans priced by time of day.** EVオクトパス, オール電化オクトパス and its
-  サンシャイン variant, ソーラーオクトパス, and 動力オクトパス now produce a cost statistic, in all
-  nine grid areas. Reported in
-  [#93](https://github.com/SteveShin323/ha-octopus-energy-japan/issues/93) by a customer on the
-  EV plan.
-
-  Prices still come only from your own agreement. The hours each band covers are built in,
-  because Octopus Energy Japan publishes them in its tariff documents but answers
-  `KT-CT-1111 Unauthorized` for every API field that would return them — measured on two
-  accounts, one of them on the EV plan itself. [docs/TOU_SCHEMES.md](docs/TOU_SCHEMES.md)
-  records every hour and the document it came from.
-
-  A time-of-use plan whose schedule is not in that table publishes no cost and says so, as
-  does one whose agreement priced only some of its bands. Neither guesses.
-
-- **The tariff shape in diagnostics now names the time-of-use scheme**, the grid operator
-  code, and the band slots the provider returned, so a wrong cost can be traced without a
-  customer's prices.
+  The projector was already told to rebuild the series when a reading is deleted, but that
+  instruction was held in memory and a restart dropped it — and upgrading the integration is a
+  restart. A pass that republishes a series from its earliest hour now rebuilds it outright,
+  which is the only state in which it is authoritative for every row.
 
 ## [1.1.0] - 2026-08-11
 
