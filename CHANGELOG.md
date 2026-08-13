@@ -10,6 +10,27 @@ individual customers.
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-08-13
+
+### Fixed
+
+- **A provider hiccup could delete collected history.** A refresh window spanning several
+  months is split by month before merging, and any month the response did not reach came
+  through as empty. That was read as the provider withdrawing the whole month, and the stored
+  readings were deleted.
+
+  On one real account this erased 35 days in a single afternoon, over two passes, while the
+  provider still returned every one of those readings when asked again. It also left the
+  cumulative total going backwards, which the Energy Dashboard drew as a single day of
+  −62.1 kWh.
+
+  A month that comes back empty is now left alone. Deletion still applies inside a month that
+  returned something, because there the provider did answer.
+
+  Nothing is lost permanently: re-running **Import full history** restores whatever the
+  provider still holds. A hole that predates this fix is not refilled on its own —
+  [#98](https://github.com/SteveShin323/ha-octopus-energy-japan/issues/98) tracks that.
+
 ## [1.1.0] - 2026-08-11
 
 Found on an installation with two logins — one for the current address, one from before a

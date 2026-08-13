@@ -1283,3 +1283,150 @@ async def test_a_renamed_device_renames_its_statistics(hass: HomeAssistant) -> N
 
     names = {args[1]["name"] for args in published}
     assert names == {"Old flat Import energy"}
+
+
+@pytest.mark.recorder_harness
+async def test_an_hour_withdrawn_from_the_middle_leaves_no_stale_row(
+    recorder_mock: Recorder,
+    hass: HomeAssistant,
+) -> None:
+    """A reading the provider withdraws must take its published row with it.
+
+    Rows are written by statistic id and hour, so an hour that stops being projected is not
+    overwritten by anything — it is simply left behind, carrying a cumulative from before the
+    withdrawal. The next hour then resumes lower, and the Energy Dashboard draws the drop as a
+    negative day. That is what a real installation showed on 2026-08-13.
+    """
+    first = datetime(2026, 8, 3, 0, tzinfo=UTC)
+    middle = datetime(2026, 8, 3, 1, tzinfo=UTC)
+    last = datetime(2026, 8, 3, 2, tzinfo=UTC)
+    ledger = _Ledger(
+        (
+            _record_at(first, "1.0"),
+            _record_at(middle, "2.0"),
+            _record_at(last, "4.0"),
+        )
+    )
+    projector = HomeAssistantStatisticsProjector(hass, SECRET)
+
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+    await async_recorder_block_till_done(hass)
+
+    metadata = await hass.async_add_executor_job(
+        partial(get_metadata, hass, statistic_source="octopus_energy_japan")
+    )
+    statistic_id = next(iter(metadata))
+
+    async def _sums() -> list[float]:
+        rows = await hass.async_add_executor_job(
+            statistics_during_period,
+            hass,
+            first,
+            NOW,
+            {statistic_id},
+            "hour",
+            None,
+            {"state", "sum"},
+        )
+        return [row["sum"] for row in rows[statistic_id]]
+
+    assert await _sums() == [1.0, 3.0, 7.0]
+
+    # The provider withdraws the middle hour: it is gone from the ledger, and the projection
+    # no longer contains it.
+    ledger.records = (_record_at(first, "1.0"), _record_at(last, "4.0"))
+    await projector.async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=middle,
+        reset_directions=frozenset({ReadingDirection.IMPORT}),
+    )
+    await async_recorder_block_till_done(hass)
+
+    # Two rows, and the cumulative never goes backwards. A third row here would be the
+    # withdrawn hour left behind at 3.0, ahead of a 5.0 that follows it.
+    assert await _sums() == [1.0, 5.0]
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Known defect: the instruction to clear a series is not durable across a "
+    "restart, so a withdrawn hour keeps its published row. Tracked in issue #99.",
+)
+@pytest.mark.recorder_harness
+async def test_a_withdrawal_lost_to_a_restart_leaves_the_row_behind(
+    recorder_mock: Recorder,
+    hass: HomeAssistant,
+) -> None:
+    """The instruction to clear a series lives in memory, and a restart drops it.
+
+    `reset_directions` is set when the ledger deletes a reading and is carried in the
+    coordinator's in-memory pending map. If Home Assistant restarts between the deletion and
+    the projection — which is exactly what an integration upgrade does — the next pass
+    projects the whole series again but never clears it. Rows for hours that no longer exist
+    stay behind, holding a cumulative from before the withdrawal.
+
+    This is the shape a real installation was found in on 2026-08-13: rows continuing past the
+    withdrawal, then the next real hour resuming lower, drawn as a negative day.
+    """
+    first = datetime(2026, 8, 3, 0, tzinfo=UTC)
+    middle = datetime(2026, 8, 3, 1, tzinfo=UTC)
+    last = datetime(2026, 8, 3, 2, tzinfo=UTC)
+    ledger = _Ledger(
+        (
+            _record_at(first, "1.0"),
+            _record_at(middle, "2.0"),
+            _record_at(last, "4.0"),
+        )
+    )
+    await HomeAssistantStatisticsProjector(hass, SECRET).async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+    await async_recorder_block_till_done(hass)
+
+    metadata = await hass.async_add_executor_job(
+        partial(get_metadata, hass, statistic_source="octopus_energy_japan")
+    )
+    statistic_id = next(iter(metadata))
+
+    async def _sums() -> list[float]:
+        rows = await hass.async_add_executor_job(
+            statistics_during_period,
+            hass,
+            first,
+            NOW,
+            {statistic_id},
+            "hour",
+            None,
+            {"state", "sum"},
+        )
+        return [row["sum"] for row in rows[statistic_id]]
+
+    assert await _sums() == [1.0, 3.0, 7.0]
+
+    # The middle hour is withdrawn, and a restart loses the reset before it is acted on. A
+    # fresh projector is what a restart produces: no remembered fingerprints, no pending
+    # reset, so the pass republishes from the beginning without clearing.
+    ledger.records = (_record_at(first, "1.0"), _record_at(last, "4.0"))
+    await HomeAssistantStatisticsProjector(hass, SECRET).async_project_supply_point(
+        ledger,  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+    await async_recorder_block_till_done(hass)
+
+    assert await _sums() == [1.0, 5.0]

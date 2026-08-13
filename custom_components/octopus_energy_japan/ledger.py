@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -39,6 +40,9 @@ class LedgerPartitionCorruptError(LedgerError):
     def __init__(self, partition_id: str, reason: str) -> None:
         self.partition_id = partition_id
         super().__init__(f"Ledger partition {partition_id} is corrupt ({reason})")
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class LedgerMergeStatus(StrEnum):
@@ -117,6 +121,9 @@ class CorrectionResult:
 
     changes: tuple[LedgerChange, ...] = ()
     skipped_corrupt_partitions: tuple[str, ...] = ()
+    # Partitions the snapshot covered but returned nothing for. Their stored records are kept
+    # rather than treated as withdrawn — see `_async_reconcile` for why absence is not evidence.
+    skipped_empty_partitions: tuple[str, ...] = ()
 
     @property
     def inserted_count(self) -> int:
@@ -189,12 +196,15 @@ class CorrectionResult:
         """Combine partition-local results deterministically."""
         changes: list[LedgerChange] = []
         corrupt: set[str] = set()
+        empty: set[str] = set()
         for result in results:
             changes.extend(result.changes)
             corrupt.update(result.skipped_corrupt_partitions)
+            empty.update(result.skipped_empty_partitions)
         return cls(
             tuple(sorted(changes, key=_change_sort_key)),
             tuple(sorted(corrupt)),
+            tuple(sorted(empty)),
         )
 
 
@@ -560,6 +570,26 @@ class PersistentIntervalLedger:
                         loaded_for_request.append(partition_id)
                     if partition_id in self._corrupt_partitions:
                         results.append(CorrectionResult(skipped_corrupt_partitions=(partition_id,)))
+                        continue
+                    if not readings_by_partition[partition_id]:
+                        # The batch reached this partition's months with nothing in them. That
+                        # is not the provider withdrawing a month: a window spanning several
+                        # partitions is split here, so a partition ends up empty whenever the
+                        # response stopped short of it — a page that ended early, a transient
+                        # `KT-CT-7899`, a partial read. Reconciling an empty snapshot would
+                        # read every one of those as a withdrawal and delete the months.
+                        #
+                        # On 2026-08-13 that erased 35 days of a real account's history in one
+                        # afternoon, twice, while the provider still served every reading when
+                        # asked again. Absence is not evidence, so nothing is deleted for it.
+                        if self._ledger.partition_records(partition_id):
+                            _LOGGER.debug(
+                                "Ledger partition %s returned no readings in this snapshot; "
+                                "keeping %d stored records rather than treating them as withdrawn",
+                                partition_id,
+                                len(self._ledger.partition_records(partition_id)),
+                            )
+                        results.append(CorrectionResult(skipped_empty_partitions=(partition_id,)))
                         continue
 
                     candidate = IntervalLedger()
