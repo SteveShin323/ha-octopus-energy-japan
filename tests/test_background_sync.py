@@ -8,6 +8,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from custom_components.octopus_energy_japan.api import ReadingDirection
 from custom_components.octopus_energy_japan.background_sync import (
+    GAP_EMPTY_LIMIT,
+    GAP_RETRY_AFTER,
     BackfillState,
     BackgroundSyncItem,
     BackgroundSyncPlanner,
@@ -746,3 +748,108 @@ def test_a_malformed_record_is_refused_rather_than_coerced(overrides: dict[str, 
     """A wrong cursor or run length would silently re-walk or stop a walk early."""
     with pytest.raises(ValueError):
         SyncCheckpoint.from_dict(_backfill_payload(**overrides))
+
+
+GAP_WINDOW = BackgroundWindow(
+    datetime(2026, 7, 1, tzinfo=UTC),
+    datetime(2026, 7, 5, tzinfo=UTC),
+)
+
+
+def _attempted(times: int, *, at: datetime = NOW) -> SyncCheckpoint:
+    """Return a checkpoint that has asked for one window and been given nothing `times` over."""
+    checkpoint = SyncCheckpoint.empty(NOW)
+    for index in range(times):
+        checkpoint = checkpoint.record_gap_attempt(
+            ReadingDirection.IMPORT,
+            GAP_WINDOW,
+            filled=False,
+            at=at + timedelta(minutes=index),
+        )
+    return checkpoint
+
+
+def test_a_window_is_asked_for_again_until_the_limit() -> None:
+    """One empty answer is not evidence. The same read returned nothing on 2026-08-13 and
+    everything a minute later."""
+    for times in range(GAP_EMPTY_LIMIT):
+        checkpoint = _attempted(times)
+        assert not checkpoint.skips_gap_window(ReadingDirection.IMPORT, GAP_WINDOW, NOW)
+
+
+def test_a_window_that_came_back_empty_three_times_is_left_alone() -> None:
+    checkpoint = _attempted(GAP_EMPTY_LIMIT)
+
+    assert checkpoint.skips_gap_window(ReadingDirection.IMPORT, GAP_WINDOW, NOW)
+    assert len(checkpoint.abandoned_gap_windows(NOW)) == 1
+
+
+def test_an_abandoned_window_is_asked_for_once_more_after_the_retry_interval() -> None:
+    """The provider may fill its own history later, and an installation that never asks again
+    would never see it."""
+    checkpoint = _attempted(GAP_EMPTY_LIMIT)
+    # The attempts are minutes apart, so the interval runs from the last one.
+    later = NOW + GAP_RETRY_AFTER + timedelta(hours=1)
+
+    assert not checkpoint.skips_gap_window(ReadingDirection.IMPORT, GAP_WINDOW, later)
+    assert checkpoint.abandoned_gap_windows(later) == ()
+
+
+def test_the_count_starts_again_after_the_retry_interval() -> None:
+    """Otherwise one empty answer a month later would immediately re-abandon it."""
+    checkpoint = _attempted(GAP_EMPTY_LIMIT)
+    later = NOW + GAP_RETRY_AFTER + timedelta(hours=1)
+    checkpoint = checkpoint.record_gap_attempt(
+        ReadingDirection.IMPORT,
+        GAP_WINDOW,
+        filled=False,
+        at=later,
+    )
+
+    assert not checkpoint.skips_gap_window(ReadingDirection.IMPORT, GAP_WINDOW, later)
+
+
+def test_a_window_that_produced_readings_forgets_its_count() -> None:
+    """The stretch it covered is no longer missing, and if part of it goes again it deserves a
+    fresh count rather than one inherited from before it was ever filled."""
+    checkpoint = _attempted(GAP_EMPTY_LIMIT).record_gap_attempt(
+        ReadingDirection.IMPORT,
+        GAP_WINDOW,
+        filled=True,
+        at=NOW,
+    )
+
+    assert checkpoint.gap_attempts == ()
+    assert not checkpoint.skips_gap_window(ReadingDirection.IMPORT, GAP_WINDOW, NOW)
+
+
+def test_each_direction_is_counted_on_its_own() -> None:
+    checkpoint = _attempted(GAP_EMPTY_LIMIT)
+
+    assert checkpoint.skips_gap_window(ReadingDirection.IMPORT, GAP_WINDOW, NOW)
+    assert not checkpoint.skips_gap_window(ReadingDirection.EXPORT, GAP_WINDOW, NOW)
+
+
+def test_gap_attempts_survive_a_round_trip() -> None:
+    checkpoint = _attempted(2)
+
+    restored = SyncCheckpoint.from_dict(checkpoint.as_dict())
+
+    assert restored == checkpoint
+
+
+def test_a_checkpoint_written_before_gap_attempts_existed_still_loads() -> None:
+    """The field is read tolerantly, so a build that predates it round-trips both ways."""
+    payload = dict(SyncCheckpoint.empty(NOW).as_dict())
+    del payload["gap_attempts"]
+
+    assert SyncCheckpoint.from_dict(payload).gap_attempts == ()
+
+
+def test_a_gap_refill_is_queued_below_the_work_that_keeps_today_correct() -> None:
+    """A hole has waited already; it can wait for this refresh."""
+    assert (
+        BackgroundSyncPriority.DAILY_RECONCILIATION
+        < BackgroundSyncPriority.GAP_REFILL
+        < BackgroundSyncPriority.HISTORY_BACKFILL
+    )

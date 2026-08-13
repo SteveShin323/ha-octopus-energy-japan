@@ -292,6 +292,9 @@ async def async_get_config_entry_diagnostics(
         }
         for gap in await coordinator.async_history_gaps()
     ]
+    # Windows the provider has been taken at its word about. A permanently short history needs an
+    # explanation, and this is it.
+    report["abandoned_gap_windows"] = coordinator.abandoned_gap_windows()
     archive = runtime.tariff_archive
     report["tariff_history"] = {
         "schema_version": TARIFF_HISTORY_SCHEMA_VERSION,

@@ -44,6 +44,8 @@ from custom_components.octopus_energy_japan.api import (
 )
 from custom_components.octopus_energy_japan.background_sync import (
     BACKFILL_GENERATION,
+    GAP_EMPTY_LIMIT,
+    GAP_REFILL_GENERATION,
     BackfillState,
     BackgroundSyncItem,
     BackgroundSyncReason,
@@ -99,6 +101,7 @@ from custom_components.octopus_energy_japan.sync import (
     BACKFILL_EMPTY_WINDOWS,
     BACKFILL_MAX_HISTORY,
     BACKFILL_MIN_INTERVAL,
+    MAX_QUERY_WINDOW,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -200,6 +203,8 @@ def _install_state(
 ) -> tuple[AsyncMock, AsyncMock]:
     ledger = AsyncMock()
     ledger.corrupt_partitions = frozenset()
+    # A fresh ledger has no partitions, and the gap scan reads this before anything else.
+    ledger.known_partitions = frozenset()
     ledger.async_records.return_value = records
     ledger.async_reconcile.return_value = CorrectionResult()
     backend = AsyncMock()
@@ -2987,3 +2992,156 @@ async def test_a_corrupt_partition_does_not_take_the_rest_of_the_report_with_it(
     ledger.async_records.side_effect = LedgerError("unreadable")
 
     assert await coordinator.async_history_gaps() == ()
+
+
+def _gap_records() -> tuple[LedgerRecord, ...]:
+    """Two readings a fortnight apart, so everything between them is missing."""
+    first = replace(
+        _reading(),
+        start_at=datetime(2026, 6, 1, tzinfo=UTC),
+        end_at=datetime(2026, 6, 1, 0, 30, tzinfo=UTC),
+    )
+    later = replace(
+        _reading(),
+        start_at=datetime(2026, 6, 15, tzinfo=UTC),
+        end_at=datetime(2026, 6, 15, 0, 30, tzinfo=UTC),
+    )
+    return (LedgerRecord(first), LedgerRecord(later))
+
+
+async def test_a_hole_is_queued_for_refill(hass: HomeAssistant) -> None:
+    """Which stretches are missing is read off the ledger, so nothing has to remember them."""
+    coordinator = _coordinator(hass)
+    point = _point()
+    ledger, _backend = _install_state(
+        coordinator, point, router=AsyncMock(), records=_gap_records()
+    )
+    ledger.known_partitions = frozenset({"2026-06"})
+    state = coordinator._supply_points[(point.account_number, point.id)]
+
+    await coordinator._async_enqueue_gap_refill(state)
+
+    queued = coordinator._background_queue.snapshot()
+    assert queued, "a hole should produce at least one window"
+    reasons = {obligation.reason for item in queued for obligation in item.obligations}
+    assert reasons == {BackgroundSyncReason.GAP_REFILL}
+    # A fortnight is wider than one request, so it is split rather than asked for at once.
+    assert len(queued) > 1
+    for item in queued:
+        assert item.scope.window.end_at - item.scope.window.start_at <= MAX_QUERY_WINDOW
+
+
+async def test_the_history_is_scanned_once_a_day(hass: HomeAssistant) -> None:
+    """Finding holes reads every stored month; twice an hour would parse the ledger for nothing."""
+    coordinator = _coordinator(hass)
+    point = _point()
+    ledger, _backend = _install_state(
+        coordinator, point, router=AsyncMock(), records=_gap_records()
+    )
+    ledger.known_partitions = frozenset({"2026-06"})
+    state = coordinator._supply_points[(point.account_number, point.id)]
+
+    await coordinator._async_enqueue_gap_refill(state)
+    reads = ledger.async_records.await_count
+    await coordinator._async_enqueue_gap_refill(state)
+
+    assert ledger.async_records.await_count == reads
+
+
+async def test_a_window_taken_at_the_providers_word_is_not_queued(hass: HomeAssistant) -> None:
+    """Otherwise a stretch the provider has no data for would be asked for forever."""
+    coordinator = _coordinator(hass)
+    point = _point()
+    ledger, _backend = _install_state(
+        coordinator, point, router=AsyncMock(), records=_gap_records()
+    )
+    ledger.known_partitions = frozenset({"2026-06"})
+    state = coordinator._supply_points[(point.account_number, point.id)]
+
+    await coordinator._async_enqueue_gap_refill(state)
+    windows = [item.scope.window for item in coordinator._background_queue.snapshot()]
+    checkpoint = state.checkpoint
+    for _ in range(GAP_EMPTY_LIMIT):
+        checkpoint = checkpoint.record_gap_attempt(
+            ReadingDirection.IMPORT,
+            windows[0],
+            filled=False,
+            at=NOW,
+        )
+    state.checkpoint = checkpoint
+    coordinator._background_queue.remove_obligations(
+        BackgroundSyncReason.GAP_REFILL,
+        frozenset({GAP_REFILL_GENERATION}),
+    )
+    coordinator._gaps_scanned_on.clear()
+
+    await coordinator._async_enqueue_gap_refill(state)
+
+    remaining = [item.scope.window for item in coordinator._background_queue.snapshot()]
+    assert windows[0] not in remaining
+    assert len(remaining) == len(windows) - 1
+
+
+async def test_a_refill_that_produced_nothing_raises_its_count(hass: HomeAssistant) -> None:
+    coordinator = _coordinator(hass)
+    point = _point()
+    _ledger, _backend = _install_state(coordinator, point, router=AsyncMock())
+    state = coordinator._supply_points[(point.account_number, point.id)]
+    window = BackgroundWindow(datetime(2026, 6, 2, tzinfo=UTC), datetime(2026, 6, 5, tzinfo=UTC))
+    item = BackgroundSyncItem(
+        BackgroundSyncScope(coordinator._status_identity(state), ReadingDirection.IMPORT, window),
+        (SyncObligation(BackgroundSyncReason.GAP_REFILL, GAP_REFILL_GENERATION),),
+    )
+
+    await coordinator._async_complete_gap_refill(
+        state,
+        item,
+        _direction_result(ReadingDirection.IMPORT, point=point),
+    )
+
+    (attempt,) = state.checkpoint.gap_attempts
+    assert attempt.empty_streak == 1
+    assert attempt.start_at == window.start_at
+
+
+async def test_an_unreadable_partition_retries_the_scan_rather_than_skipping_the_day(
+    hass: HomeAssistant,
+) -> None:
+    """A corrupt partition is reported on its own; the day's scan is not spent on it."""
+    coordinator = _coordinator(hass)
+    point = _point()
+    ledger, _backend = _install_state(coordinator, point, router=AsyncMock())
+    ledger.known_partitions = frozenset({"2026-06"})
+    ledger.async_records.side_effect = LedgerError("unreadable")
+    state = coordinator._supply_points[(point.account_number, point.id)]
+
+    await coordinator._async_enqueue_gap_refill(state)
+
+    assert coordinator._background_queue.snapshot() == ()
+    assert (point.account_number, point.id) not in coordinator._gaps_scanned_on
+
+
+async def test_a_failed_refill_is_not_recorded_as_a_failed_window(hass: HomeAssistant) -> None:
+    """The obligation is not a registered generation, and the stretch is still missing.
+
+    A failure is not the provider saying there is nothing there, so the next daily scan asks
+    again rather than the window being counted against the limit.
+    """
+    coordinator = _coordinator(hass)
+    point = _point()
+    _ledger, _backend = _install_state(coordinator, point, router=AsyncMock())
+    state = coordinator._supply_points[(point.account_number, point.id)]
+    window = BackgroundWindow(datetime(2026, 6, 2, tzinfo=UTC), datetime(2026, 6, 5, tzinfo=UTC))
+    item = BackgroundSyncItem(
+        BackgroundSyncScope(coordinator._status_identity(state), ReadingDirection.IMPORT, window),
+        (SyncObligation(BackgroundSyncReason.GAP_REFILL, GAP_REFILL_GENERATION),),
+    )
+
+    await coordinator._async_resolve_permanent_failure(
+        state,
+        item,
+        DirectionErrorClass.UNAVAILABLE,
+    )
+
+    assert state.checkpoint.failed_windows == ()
+    assert state.checkpoint.gap_attempts == ()
