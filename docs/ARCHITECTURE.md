@@ -193,8 +193,17 @@ on the poll, because finding them means reading every stored month.
 
 The measurement stops short of the newest week. The provider published a half hour between 4
 hours and 4.6 days after it happened across 245 readings on a normally collecting account, so a
-more recent absence has not gone missing — it has not arrived. Refilling a hole is not yet
-implemented and is tracked separately.
+more recent absence has not gone missing — it has not arrived.
+
+**A hole is then asked for again, and the asking stops.** The stretches are read off the ledger
+once per Japanese day, split into windows the provider accepts, and queued below the work that
+keeps today correct. What is remembered is not which stretches are missing — the ledger already
+says that — but which windows have been asked for and answered with nothing. After three empty
+answers the provider is taken at its word for a month, because a stretch it has no data for can
+never be filled and the queue would otherwise turn forever. One empty answer is not evidence: the
+same read returned nothing and then everything a minute later on 2026-08-13. A window that is
+being taken at the provider's word is reported in diagnostics, so a permanently short history has
+an explanation rather than a mystery.
 
 **The two per-kWh adjustments are archived, because the API forgets them.** `fuelCostAdjustment`
 and `renewableEnergyLevy` arrive with the period they apply to, and the provider serves only the

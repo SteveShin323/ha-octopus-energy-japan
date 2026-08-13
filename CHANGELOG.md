@@ -10,7 +10,7 @@ individual customers.
 
 ## [Unreleased]
 
-## [1.2.0b3] - 2026-08-13
+## [1.2.0b4] - 2026-08-13
 
 A pre-release, so the customer who reported
 [#93](https://github.com/SteveShin323/ha-octopus-energy-japan/issues/93) can check it against a
@@ -36,7 +36,20 @@ real time-of-use account. Nobody here is on one. It carries everything in 1.1.1.
   and the band slots the provider returned, so a wrong cost can be traced without a customer's
   prices.
 
+- **Holes in the collected history are now refilled.** The stretches that hold no reading are
+  read off the ledger once a day and asked for again, below the work that keeps today correct.
 
+  The asking stops. After three windows that come back with nothing the provider is taken at its
+  word for a month, because a stretch it has no data for can never be filled and the queue would
+  otherwise turn forever. One empty answer is not enough — the same read returned nothing and
+  then everything a minute later during the incident that led to
+  [1.1.1](https://github.com/SteveShin323/ha-octopus-energy-japan/releases/tag/v1.1.1).
+
+  Recovering a hole no longer needs a storage file deleted by hand.
+  Closes [#98](https://github.com/SteveShin323/ha-octopus-energy-japan/issues/98).
+
+
+### Added
 - **Diagnostics now report holes in the collected history.** Per direction: how many stretches
   hold no reading, how many hours they add up to, and the span they cover. A hole was previously
   invisible — the Energy Dashboard just showed less — and two on one real installation went

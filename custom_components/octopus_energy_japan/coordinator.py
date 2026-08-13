@@ -7,7 +7,7 @@ import logging
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from typing import Any, Final
 
@@ -52,6 +52,7 @@ from .api import (
 )
 from .background_sync import (
     BACKFILL_GENERATION,
+    GAP_REFILL_GENERATION,
     BackfillState,
     BackgroundSyncItem,
     BackgroundSyncPlanner,
@@ -255,6 +256,33 @@ def _is_backfill(item: BackgroundSyncItem) -> bool:
         obligation.reason is BackgroundSyncReason.HISTORY_BACKFILL
         for obligation in item.obligations
     )
+
+
+def _is_gap_refill(item: BackgroundSyncItem) -> bool:
+    """Report whether every obligation on an item is a hole refill.
+
+    All, not any: a window an ordinary obligation also wants must still take the ordinary path,
+    which publishes statistics and registers a checkpoint completion.
+    """
+    return all(
+        obligation.reason is BackgroundSyncReason.GAP_REFILL for obligation in item.obligations
+    )
+
+
+def _gap_windows(gap: IntervalGap) -> tuple[BackgroundWindow, ...]:
+    """Split one missing stretch into windows the provider will accept.
+
+    Chunked from the start of the stretch, so the same stretch always produces the same windows.
+    That is what lets an attempt be remembered against a window rather than against the stretch,
+    whose boundaries move as it fills.
+    """
+    windows: list[BackgroundWindow] = []
+    cursor = gap.start_at
+    while cursor < gap.end_at:
+        end_at = min(cursor + MAX_QUERY_WINDOW, gap.end_at)
+        windows.append(BackgroundWindow(cursor, end_at))
+        cursor = end_at
+    return tuple(windows)
 
 
 def _triage(error: BaseException) -> _TriageRule:
@@ -559,6 +587,9 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
         self._startup_complete = False
         self._statistics_projector = statistics_projector
         self._statistics_pending: dict[SupplyPointKey, _StatisticsPending] = {}
+        # The Japanese day each supply point's history was last scanned for holes. In memory
+        # only: a restart scans once more, which repairs an interrupted scan.
+        self._gaps_scanned_on: dict[SupplyPointKey, date] = {}
         self._statistics_failures: set[SupplyPointKey] = set()
         # Supply points whose stored checkpoint could not be read and was replaced.
         # Surfaced in diagnostics so re-reading old windows has a visible cause.
@@ -1297,6 +1328,7 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                         generation,
                     )
             self._enqueue_backfill(state)
+            await self._async_enqueue_gap_refill(state)
             self._apply_checkpoint_coverage(state)
         if daily_plan is not None:
             self._schedule = SyncScheduleState(
@@ -1398,6 +1430,92 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
         observation = self._provider_observations.get(self._direction_key(state, direction))
         return observation is not None and observation.provider is ReadingProviderName.LEGACY
 
+    async def _async_enqueue_gap_refill(self, state: _SupplyPointRuntime) -> None:
+        """Queue a request for every stretch of this supply point's history that holds nothing.
+
+        Which stretches are missing is read off the ledger, so nothing has to remember them. What
+        is remembered is which windows have already been asked for and answered with nothing —
+        without that the queue would ask forever for a stretch the provider does not have.
+
+        Scanned once per Japanese day. Finding the stretches means reading every stored month, and
+        a hole that has waited weeks can wait until tomorrow; doing it every refresh would parse
+        the whole ledger twice an hour. The marker is in memory, so a restart scans once more,
+        which is how it repairs itself if a scan was interrupted.
+        """
+        key = (state.supply_point.account_number, state.supply_point.id)
+        now = self._utc_now()
+        today = now.astimezone(TOKYO).date()
+        if self._gaps_scanned_on.get(key) == today:
+            return
+        partitions = state.ledger.known_partitions
+        if not partitions:
+            self._gaps_scanned_on[key] = today
+            return
+        start_at, _ = partition_bounds(min(partitions))
+        _, end_at = partition_bounds(max(partitions))
+        try:
+            records = await state.ledger.async_records(start_at, end_at)
+        except LedgerError:
+            # A corrupt partition is reported on its own. Leaving the marker unset retries the
+            # scan on the next refresh rather than skipping the day.
+            return
+        self._gaps_scanned_on[key] = today
+        queued = 0
+        for gap in interval_gaps(records, until=now - HISTORY_GAP_GRACE):
+            for window in _gap_windows(gap):
+                if state.checkpoint.skips_gap_window(gap.direction, window, now):
+                    continue
+                self._background_queue.enqueue(
+                    BackgroundSyncScope(self._status_identity(state), gap.direction, window),
+                    SyncObligation(BackgroundSyncReason.GAP_REFILL, GAP_REFILL_GENERATION),
+                )
+                queued += 1
+        if queued:
+            _LOGGER.debug(
+                "Queued %d window(s) to refill holes in one supply point's history",
+                queued,
+            )
+
+    async def _async_complete_gap_refill(
+        self,
+        state: _SupplyPointRuntime,
+        item: BackgroundSyncItem,
+        direction_result: DirectionReadingResult,
+    ) -> None:
+        """Store one refilled window and remember whether it produced anything.
+
+        A window that produced readings drops its record, because the stretch it covered is no
+        longer missing. One that produced nothing has its count raised, and after three the
+        provider is taken at its word for a month.
+
+        Statistics are marked from the earliest change rather than reset: this only ever inserts,
+        and inserting an hour moves every cumulative after it, which is exactly what publishing
+        from that hour onwards does.
+        """
+        if direction_result.provider is ReadingProviderName.LEGACY:
+            # The legacy path answers with the most recent 31 days however wide the window, so
+            # its silence about an older one is not the provider saying there is nothing there.
+            return
+        async with self._mutation_lock:
+            correction = await self._async_reconcile_result(
+                state,
+                direction_result,
+                item.scope.window.start_at,
+                item.scope.window.end_at,
+            )
+            await state.backend.async_flush()
+            checkpoint = state.checkpoint.record_gap_attempt(
+                item.scope.direction,
+                item.scope.window,
+                filled=bool(direction_result.readings),
+                at=self._utc_now(),
+            )
+            await state.checkpoint_backend.async_save(checkpoint.as_dict())
+            state.checkpoint = checkpoint
+            if correction.changed:
+                self._mark_statistics_dirty(correction)
+                await self._async_publish_pending_statistics(self._utc_now())
+
     def _enqueue_backfill(self, state: _SupplyPointRuntime) -> None:
         """Queue the one window each running direction is currently owed."""
         for record in state.checkpoint.backfill:
@@ -1465,6 +1583,11 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                     item.scope.window.start_at,
                     item.scope.window.end_at,
                 )
+                if _is_gap_refill(item):
+                    await self._async_complete_gap_refill(state, item, direction_result)
+                    self._retry.resolve(item.scope)
+                    self._background_active_scope = None
+                    continue
                 if _is_backfill(item):
                     await self._async_advance_backfill(state, item, direction_result)
                     self._retry.resolve(item.scope)
@@ -1654,6 +1777,18 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
         error_class: DirectionErrorClass,
     ) -> None:
         """Persist a generation-scoped failure and publish without retry spin."""
+        if _is_gap_refill(item):
+            # Not recorded as a failed window: the obligation is not a registered generation, and
+            # the stretch is still missing, so the next daily scan asks again. A failure is not
+            # the provider saying there is nothing there.
+            self._record_direction_failure(
+                state,
+                item.scope.direction,
+                error_class,
+                queryable=False,
+            )
+            await self._async_publish_state()
+            return
         if _is_backfill(item):
             # `mark_failed` validates against a registered generation window, and a backfill
             # has none. The cursor stays where it is, so pressing again resumes.
@@ -1706,6 +1841,27 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             ),
             None,
         )
+
+    def abandoned_gap_windows(self) -> list[dict[str, Any]]:
+        """Report the windows the provider is being taken at its word about.
+
+        A history that stays short needs an explanation. Without this the only visible fact is
+        that a stretch is missing, and nothing says the provider has already been asked three
+        times and answered with nothing.
+        """
+        now = self._utc_now()
+        return [
+            {
+                "supply_point": self._status_identity(state),
+                "direction": attempt.direction.value,
+                "start_at": attempt.start_at.isoformat(),
+                "end_at": attempt.end_at.isoformat(),
+                "empty_attempts": attempt.empty_streak,
+                "last_attempt_at": attempt.last_attempt_at.isoformat(),
+            }
+            for state in self._supply_points.values()
+            for attempt in state.checkpoint.abandoned_gap_windows(now)
+        ]
 
     async def async_history_gaps(self) -> tuple[HistoryGapSummary, ...]:
         """Report the holes in each supply point's collected history.
