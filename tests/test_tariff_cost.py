@@ -17,6 +17,7 @@ from custom_components.octopus_energy_japan.api import ReadingDirection
 from custom_components.octopus_energy_japan.api.tariff import (
     SupplyPointTariff,
     TariffAdder,
+    TariffBand,
     TariffStep,
 )
 from custom_components.octopus_energy_japan.billing_period import BillingPeriodCalendar
@@ -369,3 +370,204 @@ def test_pricing_stops_when_no_step_covers_the_position() -> None:
     # `marginal_price` falls back to the last step, so the 5 kWh is priced at 10 rather
     # than silently dropped; what matters is that it terminates with a defined answer.
     assert costs[0].components.energy == Decimal(50)
+
+
+# --- Pricing by the hour instead of by cumulative consumption -----------------------------
+
+EV_SCHEME = "tgoe_ev_tou_jan_25_scheme"
+EV_BANDS = (
+    TariffBand(slot="DAY", band="CONSUMPTION_03_DAY", price_inc_tax=Decimal("12.6")),
+    TariffBand(slot="NIGHT", band="CONSUMPTION_03_NIGHT", price_inc_tax=Decimal("14.6")),
+    TariffBand(slot="STANDARD", band="CONSUMPTION_03_STANDARD", price_inc_tax=Decimal("25.77")),
+)
+
+
+def _ev_tariff(
+    *,
+    bands: tuple[TariffBand, ...] = EV_BANDS,
+    scheme: str | None = EV_SCHEME,
+    grid_operator_code: str | None = "03",
+    standing: Decimal | None = None,
+) -> SupplyPointTariff:
+    return SupplyPointTariff(
+        account_number="A-1",
+        supply_point_id="SP-1",
+        product_code="JPN_EV_OCTOPUS_JAN_25",
+        product_name="EV",
+        steps=(),
+        standing_charge_per_day=standing,
+        fuel_cost_adjustment=None,
+        renewable_energy_levy=None,
+        bands=bands,
+        tou_scheme=scheme,
+        grid_operator_code=grid_operator_code,
+    )
+
+
+@pytest.mark.parametrize(
+    ("utc_hour", "price"),
+    [
+        # 16:00 UTC is 01:00 in Japan, the first hour of the cheap overnight band.
+        (16, "14.6"),
+        (19, "14.6"),
+        # 20:00 UTC is 05:00, when the overnight band ends.
+        (20, "25.77"),
+        # 02:00 UTC is 11:00, the start of the midday band.
+        (2, "12.6"),
+        (3, "12.6"),
+        (4, "25.77"),
+    ],
+)
+def test_a_time_of_use_hour_is_priced_by_the_band_it_falls_in(utc_hour: int, price: str) -> None:
+    """The band is chosen from the Japanese clock, not the UTC one."""
+    tariff = _ev_tariff()
+
+    costs = project_hourly_cost(
+        [(_hour(3, utc_hour), Decimal(2))], tariff, periods=MONTHS, adders=_adders(tariff)
+    )
+
+    assert costs[0].components.energy == Decimal(2) * Decimal(price)
+
+
+def test_time_of_use_energy_does_not_advance_with_consumption() -> None:
+    """There is no step ladder to climb: the same hour costs the same however much came first.
+
+    A stepped tariff would price the second hour higher once the period's cumulative total
+    passed a boundary. Every time-of-use product the provider sells reports its rates without
+    step boundaries, so nothing here may depend on the running total.
+    """
+    tariff = _ev_tariff()
+
+    costs = project_hourly_cost(
+        [(_hour(3, 2), Decimal(500)), (_hour(4, 2), Decimal(1))],
+        tariff,
+        periods=MONTHS,
+        adders=_adders(tariff),
+    )
+
+    assert costs[0].components.energy == Decimal(500) * Decimal("12.6")
+    assert costs[1].components.energy == Decimal(1) * Decimal("12.6")
+
+
+def test_a_time_of_use_tariff_still_charges_the_standing_charge() -> None:
+    tariff = _ev_tariff(standing=Decimal("38.80"))
+
+    costs = project_hourly_cost(
+        [(_hour(3, 2), Decimal(1))], tariff, periods=MONTHS, adders=_adders(tariff)
+    )
+
+    assert costs[0].components.standing == Decimal("38.80") / Decimal(24)
+
+
+def test_a_time_of_use_tariff_with_no_hours_for_its_scheme_prices_nothing() -> None:
+    """A scheme with no transcribed hours cannot place a price in time.
+
+    `is_priceable` already refuses these, so this covers the projector being handed one
+    anyway rather than pricing every hour at whichever band happened to be first.
+    """
+    tariff = _ev_tariff(scheme="tgoe_something_new_scheme")
+
+    assert (
+        project_hourly_cost(
+            [(_hour(3, 2), Decimal(1))], tariff, periods=MONTHS, adders=_adders(tariff)
+        )
+        == ()
+    )
+
+
+def test_a_time_of_use_hour_with_no_band_priced_drops_the_supply_point() -> None:
+    """Charging the unpriced hours at nothing would understate every period they fall in."""
+    tariff = _ev_tariff(bands=EV_BANDS[:1])
+
+    assert (
+        project_hourly_cost(
+            [(_hour(3, 2), Decimal(1)), (_hour(3, 10), Decimal(1))],
+            tariff,
+            periods=MONTHS,
+            adders=_adders(tariff),
+        )
+        == ()
+    )
+
+
+def test_a_time_of_use_tariff_in_an_area_its_scheme_skips_prices_nothing() -> None:
+    """Area 10 sells no time-of-use tariff, so no hour can be placed in a band."""
+    tariff = _ev_tariff(grid_operator_code="10")
+
+    assert (
+        project_hourly_cost(
+            [(_hour(3, 2), Decimal(1))], tariff, periods=MONTHS, adders=_adders(tariff)
+        )
+        == ()
+    )
+
+
+def test_a_slot_repriced_on_its_own_does_not_lose_the_others() -> None:
+    """The provider can reprice one band and leave the rest untouched.
+
+    Selecting a generation across every band would then return a group that does not contain
+    the slot being asked about, and the supply point would lose its cost entirely instead of
+    being priced with the rate that was in force.
+    """
+    old = datetime(2026, 1, 1, tzinfo=UTC)
+    changed = datetime(2026, 8, 1, tzinfo=UTC)
+    bands = (
+        TariffBand(slot="DAY", band="CONSUMPTION_03_DAY", price_inc_tax=Decimal("12.6")),
+        TariffBand(slot="NIGHT", band="CONSUMPTION_03_NIGHT", price_inc_tax=Decimal("14.6")),
+        TariffBand(
+            slot="STANDARD",
+            band="CONSUMPTION_03_STANDARD",
+            price_inc_tax=Decimal("25.77"),
+            valid_from=old,
+            valid_to=changed,
+        ),
+        TariffBand(
+            slot="STANDARD",
+            band="CONSUMPTION_03_STANDARD",
+            price_inc_tax=Decimal("27.00"),
+            valid_from=changed,
+        ),
+    )
+    tariff = _ev_tariff(bands=bands)
+
+    costs = project_hourly_cost(
+        # 02:00 UTC is 11:00 in Japan, inside the untouched midday band; 10:00 UTC is 19:00,
+        # inside the band that was repriced.
+        [(_hour(3, 2), Decimal(1)), (_hour(3, 10), Decimal(1))],
+        tariff,
+        periods=MONTHS,
+        adders=_adders(tariff),
+    )
+
+    assert [cost.components.energy for cost in costs] == [Decimal("12.6"), Decimal("27.00")]
+
+
+def test_a_slot_priced_before_its_generation_began_carries_the_earliest_back() -> None:
+    """An hour older than every generation is priced with the earliest one there is."""
+    bands = (
+        TariffBand(slot="DAY", band="CONSUMPTION_03_DAY", price_inc_tax=Decimal("12.6")),
+        TariffBand(slot="NIGHT", band="CONSUMPTION_03_NIGHT", price_inc_tax=Decimal("14.6")),
+        TariffBand(
+            slot="STANDARD",
+            band="CONSUMPTION_03_STANDARD",
+            price_inc_tax=Decimal("25.77"),
+            valid_from=datetime(2026, 7, 1, tzinfo=UTC),
+            valid_to=datetime(2026, 8, 1, tzinfo=UTC),
+        ),
+        TariffBand(
+            slot="STANDARD",
+            band="CONSUMPTION_03_STANDARD",
+            price_inc_tax=Decimal("27.00"),
+            valid_from=datetime(2026, 8, 1, tzinfo=UTC),
+        ),
+    )
+    tariff = _ev_tariff(bands=bands)
+
+    costs = project_hourly_cost(
+        [(datetime(2026, 5, 2, 10, tzinfo=UTC), Decimal(1))],
+        tariff,
+        periods=MONTHS,
+        adders=_adders(tariff),
+    )
+
+    assert costs[0].components.energy == Decimal("25.77")

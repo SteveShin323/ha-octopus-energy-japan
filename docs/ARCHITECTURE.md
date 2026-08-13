@@ -168,12 +168,21 @@ diagnostics download reports the derived anchor, which evidence produced it, and
 provider's own `readingDateDayOfMonth` agrees — so an account this rule is wrong for can be
 recognised from a bug report rather than guessed at.
 
-**Nothing in the cost path assumes a plan shape.** A tariff whose charges vary by time of day,
-mix two grid operators, or are measured in something other than consumed kWh is refused with a
-recorded reason rather than approximated, and an hour is priced with the rate generation the
-provider says was in force then. A single-price plan is priced from its one charge; a stepped
-plan from its ladder. What the standing charge is measured in is reported rather than acted on,
-because one account reported `YEN_AMPERE_DAY` and the set of possible values is unknown.
+**Nothing in the cost path assumes a plan shape.** A tariff that mixes two grid operators, or is
+measured in something other than consumed kWh, is refused with a recorded reason rather than
+approximated, and an hour is priced with the rate generation the provider says was in force then.
+A single-price plan is priced from its one charge; a stepped plan from its ladder. What the
+standing charge is measured in is reported rather than acted on, because one account reported
+`YEN_AMPERE_DAY` and the set of possible values is unknown.
+
+**A plan priced by the hour is the one thing carried in code, and only its hours.** The provider
+names the schedule a tariff follows — `params.time_of_use_scheme` — but refuses every field that
+would say what hours it covers, on two separate accounts including one on the tariff in question.
+`api/tou.py` therefore carries the hours, transcribed from the provider's own tariff documents
+for five schemes across nine grid areas, and `docs/TOU_SCHEMES.md` records the source of each
+line. Prices still come only from the customer's agreement. A scheme not in the table, or one
+whose agreement priced only some of its bands, is refused like any other shape this calculation
+cannot express.
 
 **A hole in the collected history is measured rather than left to be noticed.** A reading the
 provider publishes late, or a request that came back short, leaves a stretch with nothing in it,

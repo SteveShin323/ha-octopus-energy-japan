@@ -84,7 +84,24 @@ is absent from it but documented by the provider and confirmed live. Those are
 recorded in `oauth_metadata.py`. The `Bearer` header scheme was confirmed against
 the live GraphQL API with a legacy token.
 
-Two parts of this decision are **not** confirmed by that document:
+### Both gaps were later closed by measurement, 2026-08-12
+
+The provider's own OAuth playground was driven end to end against the live authorization
+server. It ran Authorization Code with **PKCE S256**, sent **no client secret**, and returned
+a working access and refresh token pair. That settles both entries below as metadata gaps
+rather than refusals: a public client with PKCE is what the server actually accepts.
+
+It also settled the redirect URI. Substituting any other value into the authorization
+request — even with valid PKCE parameters — is rejected with `invalid_request` and
+`Mismatching redirect URI.`, so the URI has to be registered by the provider in advance and
+cannot be chosen by the integration. That is the constraint the section below acts on, now
+measured rather than inferred.
+
+None of this changes the decision recorded above: the provider has since confirmed it will not
+issue a client to a third party in Japan, which is why [ADR 0008](0008-password-authentication.md)
+governs what ships. This paragraph exists so the next person does not re-run the measurement.
+
+Two parts of this decision are **not** confirmed by the discovery document:
 
 - `token_endpoint_auth_methods_supported` lists only `client_secret_post` and
   `client_secret_basic`, not `none`, so public-client token exchange is

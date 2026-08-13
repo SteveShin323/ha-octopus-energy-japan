@@ -36,7 +36,7 @@ should mean.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
@@ -44,6 +44,7 @@ from typing import Any, Final
 
 from .auth import AuthenticatedGraphQLClient
 from .errors import OejpInvalidResponseError
+from .tou import scheme_for, split_band
 
 # An account user reads this through `ElectricitySupplyPoint.agreements`, not through
 # `marketSupplyAgreements`: the latter's `product.rates` is refused with `KT-CT-1111` and
@@ -67,9 +68,11 @@ query SupplyPointTariff($accountNumber: String!) {
               ... on ElectricitySteppedProduct {
                 code
                 displayName
+                params
                 standingChargeUnitType
                 standingChargePricePerDay
                 consumptionCharges {
+                  band
                   stepStart
                   stepEnd
                   pricePerUnit
@@ -99,9 +102,11 @@ query SupplyPointTariff($accountNumber: String!) {
               ... on ElectricitySingleStepProduct {
                 code
                 displayName
+                params
                 standingChargeUnitType
                 standingChargePricePerDay
                 consumptionCharges {
+                  band
                   pricePerUnit
                   pricePerUnitIncTax
                   unitType
@@ -134,6 +139,19 @@ query SupplyPointTariff($accountNumber: String!) {
   }
 }
 """
+# Names the time-of-use schedule a product follows, for the case where the agreement's own
+# `params` arrives empty. This surface needs no entitlement to the product: it was read for the
+# EV product from an account on a stepped tariff, and `productCode` is optional — omitting it
+# returns the whole catalogue for the area.
+TARIFF_SUMMARY_QUERY: Final = """
+query TariffSummary($gridOperatorCode: String!, $productCode: String) {
+  tariffSummary(gridOperatorCode: $gridOperatorCode, productCode: $productCode) {
+    code
+    productParams
+  }
+}
+"""
+
 # `agreements` is a plain list on this type, not a connection, so it takes no `first`.
 # The conformance scan in `tests/test_api_conformance.py` recognises connections by their
 # `edges` child and therefore leaves it alone.
@@ -165,9 +183,19 @@ class TariffUnpriceable(StrEnum):
     # A charge measured in something other than consumed kWh, such as a capacity or demand
     # charge. Pricing the rest of the tariff without it would understate every hour.
     UNSUPPORTED_UNIT = "unsupported_unit"
-    # A rate that varies by time of day. This formula prices by cumulative consumption alone,
-    # so treating those rates as steps would misprice every hour.
-    TIME_OF_USE = "time_of_use"
+    # A tariff whose price varies by time of day, under a scheme `tou.py` does not carry the
+    # hours for. The provider names the scheme but never publishes its hours to a customer, so
+    # an unknown one cannot be priced at all.
+    TIME_OF_USE_SCHEME_UNKNOWN = "time_of_use_scheme_unknown"
+    # A known scheme, but the agreement did not price every band the scheme defines for this
+    # area. The hours with no price would have to be charged at nothing, which would understate
+    # every bill they fall in.
+    TIME_OF_USE_BANDS_INCOMPLETE = "time_of_use_bands_incomplete"
+    # Two bands price the same slot over the same period. That happens if an agreement returns
+    # both contract capacity tiers — the `HIGH_` and `LOW_` variants share a schedule — and
+    # there is nothing in the response to say which of the two the customer is on. Charging
+    # either would be a coin toss on every kilowatt-hour.
+    TIME_OF_USE_BANDS_AMBIGUOUS = "time_of_use_bands_ambiguous"
     # Charges from more than one grid operator or region, which cannot be one step ladder.
     MIXED_OPERATOR = "mixed_operator"
     # A consumption product that returned no usable charge.
@@ -198,6 +226,23 @@ class TariffStep:
         if cumulative_kwh < self.start_kwh:
             return False
         return self.end_kwh is None or cumulative_kwh < self.end_kwh
+
+
+@dataclass(frozen=True, slots=True)
+class TariffBand:
+    """One time-of-use band's price, and the slot of the scheme it belongs to.
+
+    `slot` is the band with its grid operator code and capacity-tier marker removed, which is
+    what `tou.py` keys its schedules on. `band` is kept verbatim for diagnostics: a mismatch
+    between what the provider sent and what was matched is otherwise invisible.
+    """
+
+    slot: str
+    band: str
+    price_inc_tax: Decimal
+    price_ex_tax: Decimal | None = None
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,16 +284,36 @@ class SupplyPointTariff:
     standing_charge_unit: str | None = None
     product_type: str | None = None
     unpriceable_reason: TariffUnpriceable | None = None
+    # A time-of-use tariff prices by the hour instead of by cumulative kWh, so it carries
+    # bands where a stepped one carries steps. The two never appear together: every
+    # time-of-use product the provider sells reports `contractCapacityPattern` with no step
+    # boundaries at all, measured across all nine grid areas on 2026-08-13.
+    bands: tuple[TariffBand, ...] = ()
+    # The provider's own name for the schedule those bands follow, from `params`, and the grid
+    # area it applies in. Both are needed to look the hours up.
+    tou_scheme: str | None = None
+    grid_operator_code: str | None = None
+
+    @property
+    def is_time_of_use(self) -> bool:
+        return bool(self.bands)
 
     @property
     def is_priceable(self) -> bool:
         """Report whether a cost can be computed at all.
 
-        Steps are the irreducible part: without them there is no energy price. The
-        standing charge and the two adders are each optional, and their absence lowers the
-        result rather than invalidating it, which the projector records.
+        The energy price is the irreducible part: steps for a tariff that charges by
+        cumulative consumption, bands for one that charges by the hour. The standing charge
+        and the two adders are each optional, and their absence lowers the result rather than
+        invalidating it, which the projector records.
+
+        A recorded refusal overrides all of it. A time-of-use tariff whose scheme could not be
+        named keeps its bands — they are what a second attempt at naming the scheme needs —
+        but the prices in them cannot be placed in time, so it is not priceable.
         """
-        return bool(self.steps)
+        if self.unpriceable_reason is not None:
+            return False
+        return bool(self.steps or self.bands)
 
     def steps_at(self, moment: datetime) -> tuple[TariffStep, ...]:
         """Return the step ladder the provider says was in force at ``moment``.
@@ -264,24 +329,23 @@ class SupplyPointTariff:
         and carrying the last known price forward is a smaller error than reaching past a gap for
         a later one. This is the same rule the stored fuel-cost adjustments follow.
         """
-        windows: dict[tuple[datetime | None, datetime | None], list[TariffStep]] = {}
-        for step in self.steps:
-            windows.setdefault((step.valid_from, step.valid_to), []).append(step)
-        if len(windows) <= 1:
-            return self.steps
+        return _generation_at(self.steps, moment)
 
-        ordered = sorted(windows.items(), key=lambda item: item[0][0] or _DISTANT_PAST)
-        started: list[TariffStep] | None = None
-        for (valid_from, valid_to), steps in ordered:
-            if valid_from is not None and valid_from > moment:
-                break
-            started = steps
-            if valid_to is None or moment < valid_to:
-                return tuple(steps)
-        # Either the moment falls in a gap between two generations, in which case the last one
-        # that had begun carries forward, or it precedes every generation and the earliest is
-        # the nearest thing to it.
-        return tuple(started if started is not None else ordered[0][1])
+    def price_for_slot(self, slot: str, moment: datetime) -> Decimal | None:
+        """Return what one time-of-use slot cost per kWh at ``moment``.
+
+        Bands carry validity windows as steps do, but they are versioned one slot at a time:
+        the provider can reprice the standard band and leave the cheap ones alone. Selecting a
+        generation across all of them would then return a group that does not contain the slot
+        being asked about — and a supply point would lose its cost entirely rather than be
+        priced with a stale rate. The generation is chosen among this slot's own bands instead,
+        which is where a version can actually differ.
+        """
+        candidates = tuple(band for band in self.bands if band.slot == slot)
+        if not candidates:
+            return None
+        chosen = _generation_at(candidates, moment)
+        return chosen[0].price_inc_tax if chosen else None
 
     def marginal_price(self, cumulative_kwh: Decimal, moment: datetime) -> Decimal | None:
         """Return the price of the next kWh at this period-cumulative total."""
@@ -300,6 +364,35 @@ class SupplyPointTariff:
         return total
 
 
+def _generation_at[RateT: (TariffStep, TariffBand)](
+    rates: tuple[RateT, ...],
+    moment: datetime,
+) -> tuple[RateT, ...]:
+    """Return the generation of rates whose validity window covers ``moment``.
+
+    A moment no generation covers is priced with the last generation that had begun by then,
+    which is the one whose prices were most recently in force. Before any of them had begun the
+    earliest is used. Refusing to price those hours would leave holes in the cost series, and
+    carrying the last known price forward is a smaller error than reaching past a gap for a
+    later one. This is the same rule the stored fuel-cost adjustments follow.
+    """
+    windows: dict[tuple[datetime | None, datetime | None], list[RateT]] = {}
+    for rate in rates:
+        windows.setdefault((rate.valid_from, rate.valid_to), []).append(rate)
+    if len(windows) <= 1:
+        return rates
+
+    ordered = sorted(windows.items(), key=lambda item: item[0][0] or _DISTANT_PAST)
+    started: list[RateT] | None = None
+    for (valid_from, valid_to), generation in ordered:
+        if valid_from is not None and valid_from > moment:
+            break
+        started = generation
+        if valid_to is None or moment < valid_to:
+            return tuple(generation)
+    return tuple(started if started is not None else ordered[0][1])
+
+
 async def async_fetch_supply_point_tariffs(
     client: AuthenticatedGraphQLClient,
     account_number: str,
@@ -311,7 +404,82 @@ async def async_fetch_supply_point_tariffs(
     )
     if result.data is None:
         return ()
-    return parse_supply_point_tariffs(result.data, account_number)
+    tariffs = parse_supply_point_tariffs(result.data, account_number)
+    return await _async_name_missing_schemes(client, tariffs)
+
+
+async def _async_name_missing_schemes(
+    client: AuthenticatedGraphQLClient,
+    tariffs: tuple[SupplyPointTariff, ...],
+) -> tuple[SupplyPointTariff, ...]:
+    """Fill in scheme identifiers the agreement's `params` did not carry.
+
+    `tariffSummary` answers for any product code in a grid area without the account being on
+    it — it was read for the EV product from an account on a stepped tariff — so it can name
+    the schedule when `params` comes back empty. Only tariffs refused for want of a name are
+    retried, and a failure leaves the refusal in place rather than raising: a cost that cannot
+    be computed is not a reason to fail the whole account refresh.
+    """
+    pending: set[tuple[str, str]] = set()
+    for tariff in tariffs:
+        if tariff.unpriceable_reason is not TariffUnpriceable.TIME_OF_USE_SCHEME_UNKNOWN:
+            continue
+        if tariff.tou_scheme is not None:
+            # Named, but named something with no transcribed hours. Asking again would return
+            # the same name.
+            continue
+        if tariff.grid_operator_code is not None and tariff.product_code is not None:
+            pending.add((tariff.grid_operator_code, tariff.product_code))
+    if not pending:
+        return tariffs
+
+    named: dict[tuple[str, str], str] = {}
+    for grid_operator_code, product_code in sorted(pending):
+        identifier = await _async_scheme_identifier(client, grid_operator_code, product_code)
+        if identifier is not None:
+            named[(grid_operator_code, product_code)] = identifier
+    if not named:
+        return tariffs
+
+    resolved: list[SupplyPointTariff] = []
+    for tariff in tariffs:
+        identifier = None
+        if (
+            tariff.unpriceable_reason is TariffUnpriceable.TIME_OF_USE_SCHEME_UNKNOWN
+            and tariff.grid_operator_code is not None
+            and tariff.product_code is not None
+        ):
+            identifier = named.get((tariff.grid_operator_code, tariff.product_code))
+        resolved.append(resolve_time_of_use(tariff, identifier) if identifier else tariff)
+    return tuple(resolved)
+
+
+async def _async_scheme_identifier(
+    client: AuthenticatedGraphQLClient,
+    grid_operator_code: str,
+    product_code: str,
+) -> str | None:
+    """Return the time-of-use scheme `tariffSummary` reports for one product."""
+    result = await client.execute_optional(
+        TARIFF_SUMMARY_QUERY,
+        {"gridOperatorCode": grid_operator_code, "productCode": product_code},
+    )
+    if result.data is None:
+        return None
+    summaries = result.data.get("tariffSummary")
+    if not isinstance(summaries, list):
+        return None
+    for summary in summaries:
+        if not isinstance(summary, Mapping):
+            continue
+        if _optional_string(summary.get("code")) != product_code:
+            continue
+        params = summary.get("productParams")
+        if isinstance(params, Mapping):
+            identifier = _optional_string(params.get("time_of_use_scheme"))
+            if identifier is not None:
+                return identifier
+    return None
 
 
 def parse_supply_point_tariffs(
@@ -435,14 +603,15 @@ def _parse_product(
             reason=reason,
         )
 
-    if any(_optional_string(charge.get("timeOfUse")) is not None for charge in charges):
-        return unpriceable(TariffUnpriceable.TIME_OF_USE)
-    # `band` is deliberately not checked: it differs per step by design. One real account
-    # returned `CONSUMPTION_STEPPED_03_01` through `_03` for its three steps.
+    # `band` is not used to detect a stepped tariff: it differs per step there by design. One
+    # real account returned `CONSUMPTION_STEPPED_03_01` through `_03` for its three steps.
     for key in ("gridOperatorCode", "regionOfOperation"):
         scopes = {_optional_string(charge.get(key)) for charge in charges} - {None}
         if len(scopes) > 1:
             return unpriceable(TariffUnpriceable.MIXED_OPERATOR)
+
+    if any(_optional_string(charge.get("timeOfUse")) is not None for charge in charges):
+        return _parse_time_of_use(account_number, supply_point_id, product, product_type, charges)
 
     steps: list[TariffStep] = []
     for charge in charges:
@@ -484,6 +653,137 @@ def _parse_product(
     )
 
 
+def _parse_time_of_use(
+    account_number: str,
+    supply_point_id: str,
+    product: Mapping[str, Any],
+    product_type: str | None,
+    charges: list[Mapping[str, Any]],
+) -> SupplyPointTariff:
+    """Build a tariff priced by the hour rather than by cumulative consumption.
+
+    The scheme identifier comes from `params`, which is the provider's own name for the
+    schedule. It is left unresolved rather than refused when `params` does not carry it:
+    `async_fetch_supply_point_tariffs` can still read it from `tariffSummary`, which answers
+    for any product code without needing the account to be on it.
+    """
+    bands: list[TariffBand] = []
+    areas: set[str] = set()
+    grid_operator_code: str | None = None
+    for charge in charges:
+        unit = charge.get("unitType")
+        if isinstance(unit, str) and unit != CONSUMPTION_UNIT:
+            return _tariff(
+                account_number,
+                supply_point_id,
+                product,
+                product_type,
+                steps=(),
+                reason=TariffUnpriceable.UNSUPPORTED_UNIT,
+            )
+        price = _optional_decimal(charge.get("pricePerUnitIncTax"))
+        band = _optional_string(charge.get("band"))
+        split = split_band(band)
+        if price is None or band is None or split is None:
+            continue
+        area, slot = split
+        areas.add(area)
+        grid_operator_code = _optional_string(charge.get("gridOperatorCode")) or area
+        bands.append(
+            TariffBand(
+                slot=slot,
+                band=band,
+                price_inc_tax=price,
+                price_ex_tax=_optional_decimal(charge.get("pricePerUnit")),
+                valid_from=_optional_datetime(charge.get("validFrom")),
+                valid_to=_optional_datetime(charge.get("validTo")),
+            )
+        )
+
+    if len(areas) > 1:
+        # The bands name two grid areas. The `gridOperatorCode` check upstream cannot see this,
+        # because it only compares the charges that carry that field. It matters because one
+        # scheme — オール電化オクトパス — has different hours in every area, so picking either
+        # area's schedule would misprice the other's hours.
+        return _tariff(
+            account_number,
+            supply_point_id,
+            product,
+            product_type,
+            steps=(),
+            reason=TariffUnpriceable.MIXED_OPERATOR,
+        )
+
+    tariff = _tariff(
+        account_number,
+        supply_point_id,
+        product,
+        product_type,
+        steps=(),
+        reason=None,
+        bands=tuple(bands),
+        tou_scheme=_time_of_use_scheme(product),
+        grid_operator_code=grid_operator_code,
+    )
+    return resolve_time_of_use(tariff)
+
+
+def _time_of_use_scheme(product: Mapping[str, Any]) -> str | None:
+    """Read the scheme identifier out of the product's `params` blob."""
+    params = product.get("params")
+    if not isinstance(params, Mapping):
+        return None
+    return _optional_string(params.get("time_of_use_scheme"))
+
+
+def resolve_time_of_use(
+    tariff: SupplyPointTariff,
+    scheme_identifier: str | None = None,
+) -> SupplyPointTariff:
+    """Check a time-of-use tariff against the transcribed schedule for its scheme.
+
+    Called once while parsing, and again if the scheme identifier had to be fetched
+    separately. Passing an identifier overrides the one already on the tariff.
+
+    Refuses in four cases, each of which would otherwise produce a confident wrong cost:
+
+    - the scheme is unnamed, or named something `tou.py` has no hours for;
+    - the tariff names a grid area the scheme is not sold in;
+    - the agreement did not price every slot the scheme defines for that area, which would
+      leave whole hours charged at nothing; or
+    - two bands price the same slot over the same period, so which one applies is a guess.
+    """
+    if not tariff.bands:
+        return tariff
+    identifier = scheme_identifier or tariff.tou_scheme
+    scheme = scheme_for(identifier)
+    area = (
+        scheme.area(tariff.grid_operator_code)
+        if scheme is not None and tariff.grid_operator_code is not None
+        else None
+    )
+    if area is None:
+        return replace(
+            tariff,
+            tou_scheme=identifier,
+            unpriceable_reason=TariffUnpriceable.TIME_OF_USE_SCHEME_UNKNOWN,
+        )
+    if not area.slot_names <= {band.slot for band in tariff.bands}:
+        return replace(
+            tariff,
+            tou_scheme=identifier,
+            unpriceable_reason=TariffUnpriceable.TIME_OF_USE_BANDS_INCOMPLETE,
+        )
+    versions = [(band.slot, band.valid_from, band.valid_to) for band in tariff.bands]
+    if len(set(versions)) != len(versions):
+        return replace(
+            tariff,
+            tou_scheme=identifier,
+            unpriceable_reason=TariffUnpriceable.TIME_OF_USE_BANDS_AMBIGUOUS,
+        )
+    return replace(tariff, tou_scheme=identifier, unpriceable_reason=None)
+
+
 def _tariff(
     account_number: str,
     supply_point_id: str,
@@ -492,6 +792,9 @@ def _tariff(
     *,
     steps: tuple[TariffStep, ...],
     reason: TariffUnpriceable | None,
+    bands: tuple[TariffBand, ...] = (),
+    tou_scheme: str | None = None,
+    grid_operator_code: str | None = None,
 ) -> SupplyPointTariff:
     return SupplyPointTariff(
         account_number=account_number,
@@ -505,6 +808,9 @@ def _tariff(
         standing_charge_unit=_optional_string(product.get("standingChargeUnitType")),
         product_type=product_type,
         unpriceable_reason=reason,
+        bands=bands,
+        tou_scheme=tou_scheme,
+        grid_operator_code=grid_operator_code,
     )
 
 

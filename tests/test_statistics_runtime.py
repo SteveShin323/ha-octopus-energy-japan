@@ -615,6 +615,68 @@ async def test_a_cost_series_is_published_when_a_tariff_is_known(hass: HomeAssis
     assert rows[0]["sum"] == pytest.approx(float(expected))
 
 
+def _time_of_use_tariff() -> object:
+    """The EV tariff, as the account in issue #93 reported it."""
+    from custom_components.octopus_energy_japan.api.tariff import (
+        SupplyPointTariff,
+        TariffBand,
+    )
+
+    return SupplyPointTariff(
+        account_number="A-1",
+        supply_point_id="SP-1",
+        product_code="JPN_EV_OCTOPUS_JAN_25",
+        product_name="EV",
+        steps=(),
+        standing_charge_per_day=None,
+        fuel_cost_adjustment=None,
+        renewable_energy_levy=None,
+        bands=(
+            TariffBand(slot="DAY", band="CONSUMPTION_03_DAY", price_inc_tax=Decimal("12.6")),
+            TariffBand(slot="NIGHT", band="CONSUMPTION_03_NIGHT", price_inc_tax=Decimal("14.6")),
+            TariffBand(
+                slot="STANDARD",
+                band="CONSUMPTION_03_STANDARD",
+                price_inc_tax=Decimal("25.77"),
+            ),
+        ),
+        tou_scheme="tgoe_ev_tou_jan_25_scheme",
+        grid_operator_code="03",
+    )
+
+
+async def test_a_cost_series_is_published_for_a_tariff_priced_by_the_hour(
+    hass: HomeAssistant,
+) -> None:
+    """A time-of-use tariff reaches the same statistic a stepped one does.
+
+    The reading is at 00:00 UTC, which is 09:00 in Japan and so the standard band. Pricing it
+    at the midday band would be an error of half the rate.
+    """
+    hass.config.components.add(RECORDER)
+    published: list[tuple[object, ...]] = []
+    projector = HomeAssistantStatisticsProjector(
+        hass,
+        SECRET,
+        publisher=lambda *args: published.append(args),
+        cleaner=Mock(),
+        tariff_lookup=lambda _account, _point: _time_of_use_tariff(),
+    )
+
+    await projector.async_project_supply_point(
+        _Ledger((_record(),)),  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+
+    kinds = [args[1]["statistic_id"] for args in published]
+    cost_id = next(statistic_id for statistic_id in kinds if statistic_id.endswith("_tariff_cost"))
+    rows = next(args[2] for args in published if args[1]["statistic_id"] == cost_id)
+    assert rows[0]["state"] == pytest.approx(float(Decimal("0.5") * Decimal("25.77")))
+
+
 async def test_no_cost_series_without_a_tariff(hass: HomeAssistant) -> None:
     hass.config.components.add(RECORDER)
     published: list[tuple[object, ...]] = []

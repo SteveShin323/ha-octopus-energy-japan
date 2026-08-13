@@ -10,7 +10,31 @@ individual customers.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-08-13
+
+Verified against a real EV-tariff account by the customer who reported
+[#93](https://github.com/SteveShin323/ha-octopus-energy-japan/issues/93): a finished month's
+cost statistic landed within 100 yen of the actual invoice.
+
 ### Added
+
+- **Cost for plans priced by time of day.** EVオクトパス, オール電化オクトパス and its サンシャイン
+  variant, ソーラーオクトパス, and 動力オクトパス now produce a cost statistic, in all nine grid
+  areas.
+
+  Prices still come only from your own agreement. The hours each band covers are built in,
+  because Octopus Energy Japan publishes them in its tariff documents but answers
+  `KT-CT-1111 Unauthorized` for every API field that would return them — measured on two
+  accounts, one of them on the EV plan itself.
+  [docs/TOU_SCHEMES.md](docs/TOU_SCHEMES.md) records every hour and the document it came from.
+
+  A time-of-use plan whose schedule is not in that table publishes no cost and says so, as does
+  one whose agreement priced only some of its bands, and one whose bands name two grid areas.
+  None of them guesses.
+
+- **The tariff shape in diagnostics now names the time-of-use scheme**, the grid operator code,
+  and the band slots the provider returned, so a wrong cost can be traced without a customer's
+  prices.
 
 - **Holes in the collected history are now refilled.** The stretches that hold no reading are
   read off the ledger once a day and asked for again, below the work that keeps today correct.
@@ -22,10 +46,6 @@ individual customers.
   [1.1.1](https://github.com/SteveShin323/ha-octopus-energy-japan/releases/tag/v1.1.1).
 
   Recovering a hole no longer needs a storage file deleted by hand.
-  Closes [#98](https://github.com/SteveShin323/ha-octopus-energy-japan/issues/98).
-
-
-### Added
 
 - **Diagnostics now report holes in the collected history.** Per direction: how many stretches
   hold no reading, how many hours they add up to, and the span they cover. A hole was previously
@@ -36,8 +56,7 @@ individual customers.
   hours and 4.6 days after it happens, measured over 245 readings, so a more recent absence has
   not gone missing.
 
-  Refilling a hole is not implemented yet:
-  [#98](https://github.com/SteveShin323/ha-octopus-energy-japan/issues/98) tracks that.
+  Closes [#98](https://github.com/SteveShin323/ha-octopus-energy-japan/issues/98).
 
 ## [1.1.1] - 2026-08-13
 

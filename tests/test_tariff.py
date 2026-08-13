@@ -28,6 +28,7 @@ from custom_components.octopus_energy_japan.api.tariff import (
 
 NOW = datetime(2026, 8, 3, 3, tzinfo=UTC)
 ACCOUNT = "A-1"
+EV_SCHEME = "tgoe_ev_tou_jan_25_scheme"
 
 
 def _product(**overrides: Any) -> dict[str, Any]:
@@ -312,27 +313,28 @@ def test_a_stepped_charge_without_its_boundary_is_dropped_not_guessed() -> None:
     assert tariff.unpriceable_reason is TariffUnpriceable.NO_CONSUMPTION_CHARGES
 
 
-def test_a_time_of_use_rate_makes_the_tariff_unusable() -> None:
-    """This formula prices by cumulative consumption alone.
+def test_a_time_of_use_scheme_with_no_transcribed_hours_is_refused() -> None:
+    """The hours cannot be asked for, so a scheme that is not carried cannot be priced.
 
-    Both rate types carry `timeOfUse`. Treating rates that differ by time of day as steps
-    would misprice every hour while looking like a working cost.
+    Treating bands that differ by time of day as steps would misprice every hour while
+    looking like a working cost.
     """
     product = _product(
+        params={"time_of_use_scheme": "tgoe_something_new_scheme"},
         consumptionCharges=[
             {
-                "stepStart": 0,
-                "stepEnd": None,
+                "band": "CONSUMPTION_03_NIGHT",
                 "pricePerUnitIncTax": "20.62",
                 "unitType": "KWH_CONSUMPTION",
                 "timeOfUse": "NIGHT",
             }
-        ]
+        ],
     )
 
     (tariff,) = parse_supply_point_tariffs(_payload(_agreement(product=product)), ACCOUNT)
 
-    assert tariff.unpriceable_reason is TariffUnpriceable.TIME_OF_USE
+    assert tariff.unpriceable_reason is TariffUnpriceable.TIME_OF_USE_SCHEME_UNKNOWN
+    assert not tariff.is_priceable
 
 
 @pytest.mark.parametrize("key", ["gridOperatorCode", "regionOfOperation"])
@@ -577,6 +579,184 @@ async def test_the_fetch_helper_parses_a_successful_read() -> None:
     (tariff,) = await async_fetch_supply_point_tariffs(client, ACCOUNT)
 
     assert tariff.product_code == "JPN_KK_OCTOPUS_MAY_26"
+
+
+def _ev_product(**overrides: Any) -> dict[str, Any]:
+    """The EV tariff, shaped as the account in issue #93 reported it.
+
+    Three bands, no step boundaries, every band stamped with the same validity window. The
+    prices are the published Tokyo ones, which the definition document and `tariffSummary`
+    both give.
+    """
+    product = {
+        "__typename": "ElectricitySingleStepProduct",
+        "code": "JPN_EV_OCTOPUS_JAN_25",
+        "displayName": "EVオクトパス",
+        "params": {"product_type": "time_of_use_product", "time_of_use_scheme": EV_SCHEME},
+        "standingChargeUnitType": "YEN_AMPERE_DAY",
+        "standingChargePricePerDay": "38.80",
+        "consumptionCharges": [
+            {
+                "band": "CONSUMPTION_03_DAY",
+                "timeOfUse": "EV_DAY_TIME",
+                "pricePerUnitIncTax": "12.6",
+                "unitType": "KWH_CONSUMPTION",
+                "gridOperatorCode": "03",
+                "validFrom": "2024-11-30T15:00:00+00:00",
+                "validTo": None,
+            },
+            {
+                "band": "CONSUMPTION_03_NIGHT",
+                "timeOfUse": "EV_NIGHT_TIME",
+                "pricePerUnitIncTax": "14.6",
+                "unitType": "KWH_CONSUMPTION",
+                "gridOperatorCode": "03",
+                "validFrom": "2024-11-30T15:00:00+00:00",
+                "validTo": None,
+            },
+            {
+                "band": "CONSUMPTION_03_STANDARD",
+                "timeOfUse": "STANDARD",
+                "pricePerUnitIncTax": "25.77",
+                "unitType": "KWH_CONSUMPTION",
+                "gridOperatorCode": "03",
+                "validFrom": "2024-11-30T15:00:00+00:00",
+                "validTo": None,
+            },
+        ],
+        "fuelCostAdjustment": {
+            "pricePerUnitIncTax": "4.32",
+            "unitType": "KWH_CONSUMPTION",
+            "validFrom": "2026-07-31T15:00:00+00:00",
+            "validTo": "2026-08-31T15:00:00+00:00",
+        },
+        "renewableEnergyLevy": {
+            "pricePerUnitIncTax": "4.18",
+            "unitType": "KWH_CONSUMPTION",
+            "validFrom": None,
+            "validTo": None,
+        },
+    }
+    product.update(overrides)
+    return product
+
+
+def test_a_time_of_use_agreement_is_read_as_bands() -> None:
+    """The three bands price the tariff; there are no steps to accumulate against."""
+    (tariff,) = parse_supply_point_tariffs(
+        _payload(_agreement(product=_ev_product())),
+        ACCOUNT,
+    )
+
+    assert tariff.is_priceable
+    assert tariff.is_time_of_use
+    assert tariff.steps == ()
+    assert tariff.tou_scheme == EV_SCHEME
+    assert tariff.grid_operator_code == "03"
+    assert {band.slot: band.price_inc_tax for band in tariff.bands} == {
+        "DAY": Decimal("12.6"),
+        "NIGHT": Decimal("14.6"),
+        "STANDARD": Decimal("25.77"),
+    }
+
+
+def test_a_time_of_use_agreement_keeps_its_standing_charge_and_adders() -> None:
+    """Pricing by the hour changes the energy line only; the rest of the bill is unchanged."""
+    (tariff,) = parse_supply_point_tariffs(
+        _payload(_agreement(product=_ev_product())),
+        ACCOUNT,
+    )
+
+    assert tariff.standing_charge_per_day == Decimal("38.80")
+    assert tariff.fuel_cost_adjustment is not None
+    assert tariff.renewable_energy_levy is not None
+
+
+def test_a_time_of_use_agreement_missing_a_band_is_refused() -> None:
+    """An hour with no price would be charged at nothing, which understates the period."""
+    charges = _ev_product()["consumptionCharges"]
+    product = _ev_product(consumptionCharges=charges[:2])
+
+    (tariff,) = parse_supply_point_tariffs(_payload(_agreement(product=product)), ACCOUNT)
+
+    assert tariff.unpriceable_reason is TariffUnpriceable.TIME_OF_USE_BANDS_INCOMPLETE
+    assert not tariff.is_priceable
+
+
+def test_a_time_of_use_agreement_in_an_unlisted_area_is_refused() -> None:
+    """Area 10 sells no time-of-use tariff, so a band claiming it cannot be placed in time."""
+    charges = [
+        {**charge, "band": charge["band"].replace("_03_", "_10_"), "gridOperatorCode": "10"}
+        for charge in _ev_product()["consumptionCharges"]
+    ]
+
+    (tariff,) = parse_supply_point_tariffs(
+        _payload(_agreement(product=_ev_product(consumptionCharges=charges))),
+        ACCOUNT,
+    )
+
+    assert tariff.unpriceable_reason is TariffUnpriceable.TIME_OF_USE_SCHEME_UNKNOWN
+
+
+async def test_an_unnamed_scheme_is_looked_up_in_the_product_catalogue() -> None:
+    """`params` arriving empty must not cost the customer their cost statistic.
+
+    `tariffSummary` names the scheme for any product code in a grid area without the account
+    being entitled to that product, which is how the EV scheme was first read from an account
+    on a stepped tariff.
+    """
+    from unittest.mock import AsyncMock
+
+    from custom_components.octopus_energy_japan.api import GraphQLResult
+    from custom_components.octopus_energy_japan.api.tariff import (
+        async_fetch_supply_point_tariffs,
+    )
+
+    agreement = _agreement(product=_ev_product(params={}))
+    responses = [
+        GraphQLResult(data=_payload(agreement), errors=()),
+        GraphQLResult(
+            data={
+                "tariffSummary": [
+                    {
+                        "code": "JPN_EV_OCTOPUS_JAN_25",
+                        "productParams": {"time_of_use_scheme": EV_SCHEME},
+                    }
+                ]
+            },
+            errors=(),
+        ),
+    ]
+    client = AsyncMock()
+    client.execute_optional = AsyncMock(side_effect=responses)
+
+    (tariff,) = await async_fetch_supply_point_tariffs(client, ACCOUNT)
+
+    assert tariff.tou_scheme == EV_SCHEME
+    assert tariff.is_priceable
+
+
+async def test_a_scheme_the_catalogue_cannot_name_stays_refused() -> None:
+    """A refused or empty catalogue read leaves the tariff unpriced rather than raising."""
+    from unittest.mock import AsyncMock
+
+    from custom_components.octopus_energy_japan.api import GraphQLResult
+    from custom_components.octopus_energy_japan.api.tariff import (
+        async_fetch_supply_point_tariffs,
+    )
+
+    client = AsyncMock()
+    client.execute_optional = AsyncMock(
+        side_effect=[
+            GraphQLResult(data=_payload(_agreement(product=_ev_product(params={}))), errors=()),
+            GraphQLResult(data=None, errors=()),
+        ]
+    )
+
+    (tariff,) = await async_fetch_supply_point_tariffs(client, ACCOUNT)
+
+    assert tariff.unpriceable_reason is TariffUnpriceable.TIME_OF_USE_SCHEME_UNKNOWN
+    assert not tariff.is_priceable
 
 
 def test_a_supply_point_with_no_identifier_is_skipped() -> None:
@@ -895,3 +1075,148 @@ def test_a_point_that_never_priced_consumption_stays_silent() -> None:
     )
 
     assert tariffs == ()
+
+
+def test_a_time_of_use_charge_in_an_unpriceable_unit_is_refused() -> None:
+    """A capacity charge among the bands cannot be priced per kWh consumed."""
+    charges = _ev_product()["consumptionCharges"]
+    charges[0] = {**charges[0], "unitType": "KVA_CAPACITY"}
+
+    (tariff,) = parse_supply_point_tariffs(
+        _payload(_agreement(product=_ev_product(consumptionCharges=charges))),
+        ACCOUNT,
+    )
+
+    assert tariff.unpriceable_reason is TariffUnpriceable.UNSUPPORTED_UNIT
+
+
+def test_a_time_of_use_charge_with_no_readable_band_is_skipped() -> None:
+    """A charge that names no band cannot be placed in the day, so it is left out.
+
+    The bands that remain are then short of the scheme's slots, which is what refuses the
+    tariff — rather than a partial schedule pricing some hours and silently missing others.
+    """
+    charges = _ev_product()["consumptionCharges"]
+    charges[0] = {**charges[0], "band": None}
+
+    (tariff,) = parse_supply_point_tariffs(
+        _payload(_agreement(product=_ev_product(consumptionCharges=charges))),
+        ACCOUNT,
+    )
+
+    assert {band.slot for band in tariff.bands} == {"NIGHT", "STANDARD"}
+    assert tariff.unpriceable_reason is TariffUnpriceable.TIME_OF_USE_BANDS_INCOMPLETE
+
+
+def test_a_product_with_no_params_leaves_the_scheme_unnamed() -> None:
+    """`params` is optional on the product, and its absence is not a parse error."""
+    (tariff,) = parse_supply_point_tariffs(
+        _payload(_agreement(product=_ev_product(params=None))),
+        ACCOUNT,
+    )
+
+    assert tariff.tou_scheme is None
+    assert tariff.unpriceable_reason is TariffUnpriceable.TIME_OF_USE_SCHEME_UNKNOWN
+
+
+def test_resolving_a_tariff_with_no_bands_changes_nothing() -> None:
+    """A stepped tariff has no schedule to check, and must not acquire a refusal."""
+    from custom_components.octopus_energy_japan.api.tariff import resolve_time_of_use
+
+    (stepped,) = parse_supply_point_tariffs(_payload(_agreement()), ACCOUNT)
+
+    assert resolve_time_of_use(stepped, EV_SCHEME) is stepped
+
+
+@pytest.mark.parametrize(
+    "catalogue",
+    [
+        {"tariffSummary": None},
+        {"tariffSummary": ["not a product"]},
+        {"tariffSummary": [{"code": "SOMETHING_ELSE", "productParams": {}}]},
+        {"tariffSummary": [{"code": "JPN_EV_OCTOPUS_JAN_25", "productParams": None}]},
+        {"tariffSummary": [{"code": "JPN_EV_OCTOPUS_JAN_25", "productParams": {}}]},
+    ],
+)
+async def test_a_catalogue_that_answers_with_nothing_useful_leaves_the_tariff_refused(
+    catalogue: dict[str, Any],
+) -> None:
+    """The lookup is a second chance, not a source of guesses."""
+    from unittest.mock import AsyncMock
+
+    from custom_components.octopus_energy_japan.api import GraphQLResult
+    from custom_components.octopus_energy_japan.api.tariff import (
+        async_fetch_supply_point_tariffs,
+    )
+
+    client = AsyncMock()
+    client.execute_optional = AsyncMock(
+        side_effect=[
+            GraphQLResult(data=_payload(_agreement(product=_ev_product(params={}))), errors=()),
+            GraphQLResult(data=catalogue, errors=()),
+        ]
+    )
+
+    (tariff,) = await async_fetch_supply_point_tariffs(client, ACCOUNT)
+
+    assert not tariff.is_priceable
+
+
+async def test_a_scheme_that_is_named_but_unknown_is_not_asked_about_again() -> None:
+    """The catalogue would return the same name, so the second call is not worth making."""
+    from unittest.mock import AsyncMock
+
+    from custom_components.octopus_energy_japan.api import GraphQLResult
+    from custom_components.octopus_energy_japan.api.tariff import (
+        async_fetch_supply_point_tariffs,
+    )
+
+    product = _ev_product(params={"time_of_use_scheme": "tgoe_something_new_scheme"})
+    client = AsyncMock()
+    client.execute_optional = AsyncMock(
+        return_value=GraphQLResult(data=_payload(_agreement(product=product)), errors=())
+    )
+
+    (tariff,) = await async_fetch_supply_point_tariffs(client, ACCOUNT)
+
+    assert client.execute_optional.await_count == 1
+    assert tariff.unpriceable_reason is TariffUnpriceable.TIME_OF_USE_SCHEME_UNKNOWN
+
+
+def test_time_of_use_bands_from_two_grid_areas_are_refused() -> None:
+    """One scheme has different hours in every area, so a mixed set cannot be scheduled.
+
+    The `gridOperatorCode` check upstream cannot catch this on its own: it compares only the
+    charges that carry that field, and the area is also stated inside every band name.
+    """
+    charges = [dict(charge) for charge in _ev_product()["consumptionCharges"]]
+    charges[0]["band"] = "CONSUMPTION_04_DAY"
+    for charge in charges:
+        charge.pop("gridOperatorCode", None)
+
+    (tariff,) = parse_supply_point_tariffs(
+        _payload(_agreement(product=_ev_product(consumptionCharges=charges))),
+        ACCOUNT,
+    )
+
+    assert tariff.unpriceable_reason is TariffUnpriceable.MIXED_OPERATOR
+    assert not tariff.is_priceable
+
+
+def test_two_bands_pricing_the_same_slot_over_the_same_period_are_refused() -> None:
+    """Both contract capacity tiers in one response leave no way to tell which applies."""
+    charges = _ev_product()["consumptionCharges"]
+    both_tiers = [
+        {**charges[0], "band": "CONSUMPTION_06_HIGH_DAY", "gridOperatorCode": "06"},
+        {**charges[0], "band": "CONSUMPTION_06_LOW_DAY", "gridOperatorCode": "06"},
+        {**charges[1], "band": "CONSUMPTION_06_HIGH_NIGHT", "gridOperatorCode": "06"},
+        {**charges[2], "band": "CONSUMPTION_06_HIGH_STANDARD", "gridOperatorCode": "06"},
+    ]
+
+    (tariff,) = parse_supply_point_tariffs(
+        _payload(_agreement(product=_ev_product(consumptionCharges=both_tiers))),
+        ACCOUNT,
+    )
+
+    assert tariff.unpriceable_reason is TariffUnpriceable.TIME_OF_USE_BANDS_AMBIGUOUS
+    assert not tariff.is_priceable
