@@ -1181,3 +1181,23 @@ async def test_a_scheme_that_is_named_but_unknown_is_not_asked_about_again() -> 
 
     assert client.execute_optional.await_count == 1
     assert tariff.unpriceable_reason is TariffUnpriceable.TIME_OF_USE_SCHEME_UNKNOWN
+
+
+def test_time_of_use_bands_from_two_grid_areas_are_refused() -> None:
+    """One scheme has different hours in every area, so a mixed set cannot be scheduled.
+
+    The `gridOperatorCode` check upstream cannot catch this on its own: it compares only the
+    charges that carry that field, and the area is also stated inside every band name.
+    """
+    charges = [dict(charge) for charge in _ev_product()["consumptionCharges"]]
+    charges[0]["band"] = "CONSUMPTION_04_DAY"
+    for charge in charges:
+        charge.pop("gridOperatorCode", None)
+
+    (tariff,) = parse_supply_point_tariffs(
+        _payload(_agreement(product=_ev_product(consumptionCharges=charges))),
+        ACCOUNT,
+    )
+
+    assert tariff.unpriceable_reason is TariffUnpriceable.MIXED_OPERATOR
+    assert not tariff.is_priceable

@@ -657,6 +657,7 @@ def _parse_time_of_use(
     for any product code without needing the account to be on it.
     """
     bands: list[TariffBand] = []
+    areas: set[str] = set()
     grid_operator_code: str | None = None
     for charge in charges:
         unit = charge.get("unitType")
@@ -675,6 +676,7 @@ def _parse_time_of_use(
         if price is None or band is None or split is None:
             continue
         area, slot = split
+        areas.add(area)
         grid_operator_code = _optional_string(charge.get("gridOperatorCode")) or area
         bands.append(
             TariffBand(
@@ -685,6 +687,20 @@ def _parse_time_of_use(
                 valid_from=_optional_datetime(charge.get("validFrom")),
                 valid_to=_optional_datetime(charge.get("validTo")),
             )
+        )
+
+    if len(areas) > 1:
+        # The bands name two grid areas. The `gridOperatorCode` check upstream cannot see this,
+        # because it only compares the charges that carry that field. It matters because one
+        # scheme — オール電化オクトパス — has different hours in every area, so picking either
+        # area's schedule would misprice the other's hours.
+        return _tariff(
+            account_number,
+            supply_point_id,
+            product,
+            product_type,
+            steps=(),
+            reason=TariffUnpriceable.MIXED_OPERATOR,
         )
 
     tariff = _tariff(
