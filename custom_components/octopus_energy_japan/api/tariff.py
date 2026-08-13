@@ -191,6 +191,11 @@ class TariffUnpriceable(StrEnum):
     # area. The hours with no price would have to be charged at nothing, which would understate
     # every bill they fall in.
     TIME_OF_USE_BANDS_INCOMPLETE = "time_of_use_bands_incomplete"
+    # Two bands price the same slot over the same period. That happens if an agreement returns
+    # both contract capacity tiers — the `HIGH_` and `LOW_` variants share a schedule — and
+    # there is nothing in the response to say which of the two the customer is on. Charging
+    # either would be a coin toss on every kilowatt-hour.
+    TIME_OF_USE_BANDS_AMBIGUOUS = "time_of_use_bands_ambiguous"
     # Charges from more than one grid operator or region, which cannot be one step ladder.
     MIXED_OPERATOR = "mixed_operator"
     # A consumption product that returned no usable charge.
@@ -326,15 +331,21 @@ class SupplyPointTariff:
         """
         return _generation_at(self.steps, moment)
 
-    def bands_at(self, moment: datetime) -> tuple[TariffBand, ...]:
-        """Return the time-of-use bands the provider says were in force at ``moment``.
+    def price_for_slot(self, slot: str, moment: datetime) -> Decimal | None:
+        """Return what one time-of-use slot cost per kWh at ``moment``.
 
-        Bands are published in generations exactly as steps are — one real agreement returns
-        every band stamped with the same `validFrom` — so they are selected the same way, and
-        for the same reason: merging two generations would leave the price of a slot decided
-        by sort order rather than by the date.
+        Bands carry validity windows as steps do, but they are versioned one slot at a time:
+        the provider can reprice the standard band and leave the cheap ones alone. Selecting a
+        generation across all of them would then return a group that does not contain the slot
+        being asked about — and a supply point would lose its cost entirely rather than be
+        priced with a stale rate. The generation is chosen among this slot's own bands instead,
+        which is where a version can actually differ.
         """
-        return _generation_at(self.bands, moment)
+        candidates = tuple(band for band in self.bands if band.slot == slot)
+        if not candidates:
+            return None
+        chosen = _generation_at(candidates, moment)
+        return chosen[0].price_inc_tax if chosen else None
 
     def marginal_price(self, cumulative_kwh: Decimal, moment: datetime) -> Decimal | None:
         """Return the price of the next kWh at this period-cumulative total."""
@@ -734,12 +745,13 @@ def resolve_time_of_use(
     Called once while parsing, and again if the scheme identifier had to be fetched
     separately. Passing an identifier overrides the one already on the tariff.
 
-    Refuses in three cases, each of which would otherwise produce a confident wrong cost:
+    Refuses in four cases, each of which would otherwise produce a confident wrong cost:
 
     - the scheme is unnamed, or named something `tou.py` has no hours for;
-    - the tariff names a grid area the scheme is not sold in; or
+    - the tariff names a grid area the scheme is not sold in;
     - the agreement did not price every slot the scheme defines for that area, which would
-      leave whole hours charged at nothing.
+      leave whole hours charged at nothing; or
+    - two bands price the same slot over the same period, so which one applies is a guess.
     """
     if not tariff.bands:
         return tariff
@@ -761,6 +773,13 @@ def resolve_time_of_use(
             tariff,
             tou_scheme=identifier,
             unpriceable_reason=TariffUnpriceable.TIME_OF_USE_BANDS_INCOMPLETE,
+        )
+    versions = [(band.slot, band.valid_from, band.valid_to) for band in tariff.bands]
+    if len(set(versions)) != len(versions):
+        return replace(
+            tariff,
+            tou_scheme=identifier,
+            unpriceable_reason=TariffUnpriceable.TIME_OF_USE_BANDS_AMBIGUOUS,
         )
     return replace(tariff, tou_scheme=identifier, unpriceable_reason=None)
 

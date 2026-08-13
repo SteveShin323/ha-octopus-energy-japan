@@ -32,6 +32,7 @@ excluded tax would understate the bill by ten percent.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -48,6 +49,8 @@ from .tariff_history import AdderSchedule
 # accrues only that share, and the rest arrives with the remaining readings, so a
 # part-synchronised day is never billed as a whole one.
 HOURS_PER_DAY: Final = Decimal(24)
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +119,16 @@ def project_hourly_cost(
                 # The hour resolved to a slot the agreement did not price. Charging it at
                 # nothing would understate the period, so the whole supply point is dropped
                 # rather than part-priced.
+                #
+                # Parsing already refuses a tariff whose bands do not cover its scheme, so
+                # this should be unreachable. If it is reached the caller cannot tell the
+                # result from a batch with no hours in it, which is what the log is for.
+                _LOGGER.warning(
+                    "No time-of-use price for %s at %s; no cost will be published for "
+                    "this supply point. Please report this with your diagnostics",
+                    tariff.tou_scheme,
+                    moment.isoformat(),
+                )
                 return ()
             energy = kwh * price
         else:
@@ -149,10 +162,7 @@ def _band_price(tariff: SupplyPointTariff, moment: datetime) -> Decimal | None:
     slot = slot_at(scheme, tariff.grid_operator_code, moment)
     if slot is None:
         return None
-    for band in tariff.bands_at(moment):
-        if band.slot == slot:
-            return band.price_inc_tax
-    return None
+    return tariff.price_for_slot(slot, moment)
 
 
 def _price_across_steps(

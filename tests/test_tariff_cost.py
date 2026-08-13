@@ -500,3 +500,74 @@ def test_a_time_of_use_tariff_in_an_area_its_scheme_skips_prices_nothing() -> No
         )
         == ()
     )
+
+
+def test_a_slot_repriced_on_its_own_does_not_lose_the_others() -> None:
+    """The provider can reprice one band and leave the rest untouched.
+
+    Selecting a generation across every band would then return a group that does not contain
+    the slot being asked about, and the supply point would lose its cost entirely instead of
+    being priced with the rate that was in force.
+    """
+    old = datetime(2026, 1, 1, tzinfo=UTC)
+    changed = datetime(2026, 8, 1, tzinfo=UTC)
+    bands = (
+        TariffBand(slot="DAY", band="CONSUMPTION_03_DAY", price_inc_tax=Decimal("12.6")),
+        TariffBand(slot="NIGHT", band="CONSUMPTION_03_NIGHT", price_inc_tax=Decimal("14.6")),
+        TariffBand(
+            slot="STANDARD",
+            band="CONSUMPTION_03_STANDARD",
+            price_inc_tax=Decimal("25.77"),
+            valid_from=old,
+            valid_to=changed,
+        ),
+        TariffBand(
+            slot="STANDARD",
+            band="CONSUMPTION_03_STANDARD",
+            price_inc_tax=Decimal("27.00"),
+            valid_from=changed,
+        ),
+    )
+    tariff = _ev_tariff(bands=bands)
+
+    costs = project_hourly_cost(
+        # 02:00 UTC is 11:00 in Japan, inside the untouched midday band; 10:00 UTC is 19:00,
+        # inside the band that was repriced.
+        [(_hour(3, 2), Decimal(1)), (_hour(3, 10), Decimal(1))],
+        tariff,
+        periods=MONTHS,
+        adders=_adders(tariff),
+    )
+
+    assert [cost.components.energy for cost in costs] == [Decimal("12.6"), Decimal("27.00")]
+
+
+def test_a_slot_priced_before_its_generation_began_carries_the_earliest_back() -> None:
+    """An hour older than every generation is priced with the earliest one there is."""
+    bands = (
+        TariffBand(slot="DAY", band="CONSUMPTION_03_DAY", price_inc_tax=Decimal("12.6")),
+        TariffBand(slot="NIGHT", band="CONSUMPTION_03_NIGHT", price_inc_tax=Decimal("14.6")),
+        TariffBand(
+            slot="STANDARD",
+            band="CONSUMPTION_03_STANDARD",
+            price_inc_tax=Decimal("25.77"),
+            valid_from=datetime(2026, 7, 1, tzinfo=UTC),
+            valid_to=datetime(2026, 8, 1, tzinfo=UTC),
+        ),
+        TariffBand(
+            slot="STANDARD",
+            band="CONSUMPTION_03_STANDARD",
+            price_inc_tax=Decimal("27.00"),
+            valid_from=datetime(2026, 8, 1, tzinfo=UTC),
+        ),
+    )
+    tariff = _ev_tariff(bands=bands)
+
+    costs = project_hourly_cost(
+        [(datetime(2026, 5, 2, 10, tzinfo=UTC), Decimal(1))],
+        tariff,
+        periods=MONTHS,
+        adders=_adders(tariff),
+    )
+
+    assert costs[0].components.energy == Decimal("25.77")

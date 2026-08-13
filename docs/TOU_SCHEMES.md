@@ -151,10 +151,17 @@ Times are written as `(午前|午後)N時[M分]から(午前|午後)N時[M分]�
 
 ## When a scheme is not in this table
 
-The tariff is refused with `time_of_use_scheme_unknown` and no cost statistic is published.
-Consumption and energy statistics are unaffected. A tariff whose agreement priced only some of
-the slots its scheme defines is refused with `time_of_use_bands_incomplete`, because charging the
-unpriced hours at nothing would understate every period they fall in.
+The tariff is refused and no cost statistic is published. Consumption and energy statistics are
+unaffected. The reason reaches the repair message and the diagnostics download:
+
+| Reason | Meaning |
+|---|---|
+| `time_of_use_scheme_unknown` | The scheme has no hours here, or the agreement named none and `tariffSummary` could not either |
+| `time_of_use_bands_incomplete` | The agreement priced only some of the slots its scheme defines; charging the rest at nothing would understate every period |
+| `time_of_use_bands_ambiguous` | Two bands price the same slot over the same period, so which one applies would be a guess |
+
+Prices are versioned per slot, not per tariff: the provider can reprice one band and leave the
+others alone. An hour is priced with the generation of *that slot* which was in force then.
 
 Adding a scheme means transcribing its documents for all nine areas, adding it to
 `SCHEMES` in `api/tou.py`, and extending this file. The test

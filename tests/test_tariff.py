@@ -1201,3 +1201,22 @@ def test_time_of_use_bands_from_two_grid_areas_are_refused() -> None:
 
     assert tariff.unpriceable_reason is TariffUnpriceable.MIXED_OPERATOR
     assert not tariff.is_priceable
+
+
+def test_two_bands_pricing_the_same_slot_over_the_same_period_are_refused() -> None:
+    """Both contract capacity tiers in one response leave no way to tell which applies."""
+    charges = _ev_product()["consumptionCharges"]
+    both_tiers = [
+        {**charges[0], "band": "CONSUMPTION_06_HIGH_DAY", "gridOperatorCode": "06"},
+        {**charges[0], "band": "CONSUMPTION_06_LOW_DAY", "gridOperatorCode": "06"},
+        {**charges[1], "band": "CONSUMPTION_06_HIGH_NIGHT", "gridOperatorCode": "06"},
+        {**charges[2], "band": "CONSUMPTION_06_HIGH_STANDARD", "gridOperatorCode": "06"},
+    ]
+
+    (tariff,) = parse_supply_point_tariffs(
+        _payload(_agreement(product=_ev_product(consumptionCharges=both_tiers))),
+        ACCOUNT,
+    )
+
+    assert tariff.unpriceable_reason is TariffUnpriceable.TIME_OF_USE_BANDS_AMBIGUOUS
+    assert not tariff.is_priceable
