@@ -31,6 +31,16 @@ individual customers.
   provider still holds. A hole that predates this fix is not refilled on its own —
   [#98](https://github.com/SteveShin323/ha-octopus-energy-japan/issues/98) tracks that.
 
+- **A withdrawn reading left its cost and energy rows behind.** Statistics are written by hour,
+  so an hour that stops being collected was never overwritten — it kept a running total from
+  before it was withdrawn, and every later hour resumed lower than it. That is what drew the
+  −62.1 kWh day above.
+
+  The projector was already told to rebuild the series when a reading is deleted, but that
+  instruction was held in memory and a restart dropped it — and upgrading the integration is a
+  restart. A pass that republishes a series from its earliest hour now rebuilds it outright,
+  which is the only state in which it is authoritative for every row.
+
 ## [1.1.0] - 2026-08-11
 
 Found on an installation with two logins — one for the current address, one from before a
