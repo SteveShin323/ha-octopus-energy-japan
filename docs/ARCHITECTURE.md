@@ -175,6 +175,18 @@ provider says was in force then. A single-price plan is priced from its one char
 plan from its ladder. What the standing charge is measured in is reported rather than acted on,
 because one account reported `YEN_AMPERE_DAY` and the set of possible values is unknown.
 
+**A hole in the collected history is measured rather than left to be noticed.** A reading the
+provider publishes late, or a request that came back short, leaves a stretch with nothing in it,
+and nothing in the Energy Dashboard says so — it simply shows less. Two on one real installation
+went unnoticed for days. The diagnostics download reports, per direction, how many stretches are
+missing, how many hours they add up to, and the span they cover. It is computed on demand and not
+on the poll, because finding them means reading every stored month.
+
+The measurement stops short of the newest week. The provider published a half hour between 4
+hours and 4.6 days after it happened across 245 readings on a normally collecting account, so a
+more recent absence has not gone missing — it has not arrived. Refilling a hole is not yet
+implemented and is tracked separately.
+
 **The two per-kWh adjustments are archived, because the API forgets them.** `fuelCostAdjustment`
 and `renewableEnergyLevy` arrive with the period they apply to, and the provider serves only the
 one in force, so an hour from a replaced period can never be priced from the API again. Every

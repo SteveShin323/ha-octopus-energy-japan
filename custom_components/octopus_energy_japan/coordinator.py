@@ -69,11 +69,14 @@ from .const import DOMAIN
 from .identity import stable_account_identity, stable_supply_point_identity
 from .ledger import (
     CorrectionResult,
+    IntervalGap,
     LedgerError,
     LedgerMergeStatus,
     LedgerRecord,
     PersistentIntervalLedger,
     expand_authoritative_series,
+    interval_gaps,
+    partition_bounds,
 )
 from .ledger_store import HomeAssistantLedgerBackend
 from .runtime import selected_historical_resources
@@ -235,6 +238,12 @@ _TRIAGE_EXCEPTIONS: Final = tuple(rule.exception for rule in _TRIAGE_RULES)
 # costs 5 points against a 50,000 allowance while a walk spends about 340 in the same minute.
 _ALLOWANCE_MAX_AGE: Final = timedelta(minutes=1)
 
+# How recent an absence is left alone when looking for holes. The provider publishes a half hour
+# somewhere between 4 hours and 4.6 days after it happens, measured over 245 readings on an
+# account collecting normally, so anything younger than this has not gone missing — it has not
+# been published. Reporting it would make every installation look permanently damaged.
+HISTORY_GAP_GRACE: Final = timedelta(days=7)
+
 
 def _is_backfill(item: BackgroundSyncItem) -> bool:
     """Report whether every obligation on an item is the history walk.
@@ -339,6 +348,27 @@ class DirectionSyncStatus:
     backfill_state: BackfillState | None = None
     backfill_cursor: datetime | None = None
     backfill_empty_streak: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryGapSummary:
+    """How much of one direction's collected history is missing, and over what span.
+
+    A hole is otherwise invisible: the Energy Dashboard simply shows less. Two on one real
+    installation went unnoticed for days, and the one that was eventually spotted was only
+    spotted because it produced a negative figure.
+
+    Counts and timestamps only. The identities are the installation-local HMACs used everywhere
+    else in diagnostics.
+    """
+
+    account: str
+    supply_point: str
+    direction: ReadingDirection
+    gaps: int
+    missing_hours: float
+    earliest_gap_at: datetime | None
+    latest_gap_end_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1675,6 +1705,52 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
                 if self._status_identity(state) == identity
             ),
             None,
+        )
+
+    async def async_history_gaps(self) -> tuple[HistoryGapSummary, ...]:
+        """Report the holes in each supply point's collected history.
+
+        Computed on demand rather than every refresh: finding them means reading every stored
+        month, and a diagnostics download is something a user asks for once. Doing it on the
+        poll would parse the whole ledger twice an hour for a number nothing acts on yet.
+
+        A hole is not currently refilled — see issue #98. This exists so that one can be seen
+        at all, which is what a bug report about a short-looking dashboard needs.
+        """
+        summaries: list[HistoryGapSummary] = []
+        limit = self._utc_now() - HISTORY_GAP_GRACE
+        for state in self._supply_points.values():
+            partitions = state.ledger.known_partitions
+            if not partitions:
+                continue
+            start_at, _ = partition_bounds(min(partitions))
+            _, end_at = partition_bounds(max(partitions))
+            try:
+                records = await state.ledger.async_records(start_at, end_at)
+            except LedgerError:
+                # A corrupt partition is already reported on its own. Refusing the whole
+                # download over it would remove the rest of the evidence with it.
+                continue
+            by_direction: dict[ReadingDirection, list[IntervalGap]] = {}
+            for gap in interval_gaps(records, until=limit):
+                by_direction.setdefault(gap.direction, []).append(gap)
+            for direction, gaps in by_direction.items():
+                summaries.append(
+                    HistoryGapSummary(
+                        account=stable_account_identity(
+                            self._identity_secret,
+                            state.supply_point.account_number,
+                        ),
+                        supply_point=self._status_identity(state),
+                        direction=direction,
+                        gaps=len(gaps),
+                        missing_hours=round(sum(gap.duration_hours for gap in gaps), 2),
+                        earliest_gap_at=min(gap.start_at for gap in gaps),
+                        latest_gap_end_at=max(gap.end_at for gap in gaps),
+                    )
+                )
+        return tuple(
+            sorted(summaries, key=lambda value: (value.supply_point, value.direction.value))
         )
 
     def _status_identity(self, state: _SupplyPointRuntime) -> str:

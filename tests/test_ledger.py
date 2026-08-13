@@ -31,6 +31,7 @@ from custom_components.octopus_energy_japan.ledger import (
     PersistentIntervalLedger,
     deserialize_partition,
     expand_authoritative_series,
+    interval_gaps,
     migrate_partition_payload,
     partition_bounds,
     partition_id_for,
@@ -1094,3 +1095,96 @@ async def test_a_reading_the_provider_replaced_within_a_returned_month_is_still_
     assert result.skipped_empty_partitions == ()
     records = await persistent.async_records(START, window_end)
     assert [record.reading.start_at for record in records] == [first.start_at]
+
+
+def _at(hour: int, *, value: str = "1", direction: ReadingDirection = ReadingDirection.IMPORT):
+    return LedgerRecord(
+        _reading(start=START + timedelta(minutes=30 * hour), value=value, direction=direction)
+    )
+
+
+LATER = START + timedelta(days=30)
+
+
+def test_a_stretch_with_no_reading_between_two_that_have_one_is_a_gap() -> None:
+    gaps = interval_gaps((_at(0), _at(1), _at(4)), until=LATER)
+
+    assert len(gaps) == 1
+    assert gaps[0].direction is ReadingDirection.IMPORT
+    # `_at(1)` runs to 01:00 and `_at(4)` starts at 02:00, so the hour between is missing.
+    assert gaps[0].start_at == START + timedelta(minutes=60)
+    assert gaps[0].end_at == START + timedelta(minutes=120)
+    assert gaps[0].duration_hours == 1.0
+
+
+def test_contiguous_readings_have_no_gaps() -> None:
+    assert interval_gaps((_at(0), _at(1), _at(2)), until=LATER) == ()
+
+
+def test_a_single_reading_has_no_gaps() -> None:
+    assert interval_gaps((_at(0),), until=LATER) == ()
+
+
+def test_nothing_collected_has_no_gaps() -> None:
+    assert interval_gaps((), until=LATER) == ()
+
+
+def test_the_time_before_the_first_reading_is_not_a_gap() -> None:
+    """It is history that was never asked for, not something that went missing."""
+    gaps = interval_gaps((_at(10), _at(11)), until=LATER)
+
+    assert gaps == ()
+
+
+def test_the_time_after_the_last_reading_is_not_a_gap() -> None:
+    """Either it is not published yet or the contract has ended.
+
+    Treating it as a gap would send requests for it forever.
+    """
+    assert interval_gaps((_at(0), _at(1)), until=LATER) == ()
+
+
+def test_a_gap_is_trimmed_to_the_search_limit() -> None:
+    """The provider publishes days late, so a recent absence is not a loss.
+
+    Measured over 245 readings on a normally collecting account, the lag ran from 4 hours to
+    4.6 days. An interval younger than that has not gone missing.
+    """
+    gaps = interval_gaps((_at(0), _at(20)), until=START + timedelta(minutes=150))
+
+    assert len(gaps) == 1
+    assert gaps[0].start_at == START + timedelta(minutes=30)
+    assert gaps[0].end_at == START + timedelta(minutes=150)
+
+
+def test_a_gap_entirely_beyond_the_search_limit_is_not_reported() -> None:
+    assert interval_gaps((_at(0), _at(20)), until=START + timedelta(minutes=30)) == ()
+
+
+def test_each_direction_is_measured_on_its_own() -> None:
+    """A point that exports nothing has no gaps, not one enormous one."""
+    gaps = interval_gaps(
+        (
+            _at(0),
+            _at(4),
+            _at(0, direction=ReadingDirection.EXPORT),
+            _at(1, direction=ReadingDirection.EXPORT),
+        ),
+        until=LATER,
+    )
+
+    assert [gap.direction for gap in gaps] == [ReadingDirection.IMPORT]
+
+
+def test_overlapping_readings_do_not_invent_a_gap() -> None:
+    """A longer interval covering shorter ones leaves nothing missing behind it."""
+    long = LedgerRecord(
+        replace(
+            _reading(),
+            start_at=START,
+            end_at=START + timedelta(hours=2),
+            granularity=ReadingGranularity.THIRTY_MIN,
+        )
+    )
+
+    assert interval_gaps((long, _at(1), _at(2), _at(4)), until=LATER) == ()

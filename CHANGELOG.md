@@ -10,6 +10,20 @@ individual customers.
 
 ## [Unreleased]
 
+### Added
+
+- **Diagnostics now report holes in the collected history.** Per direction: how many stretches
+  hold no reading, how many hours they add up to, and the span they cover. A hole was previously
+  invisible — the Energy Dashboard just showed less — and two on one real installation went
+  unnoticed for days.
+
+  The newest week is left out of the count. Octopus Energy Japan publishes a half hour between 4
+  hours and 4.6 days after it happens, measured over 245 readings, so a more recent absence has
+  not gone missing.
+
+  Refilling a hole is not implemented yet:
+  [#98](https://github.com/SteveShin323/ha-octopus-energy-japan/issues/98) tracks that.
+
 ## [1.1.1] - 2026-08-13
 
 ### Fixed
