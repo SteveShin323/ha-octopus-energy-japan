@@ -615,6 +615,68 @@ async def test_a_cost_series_is_published_when_a_tariff_is_known(hass: HomeAssis
     assert rows[0]["sum"] == pytest.approx(float(expected))
 
 
+def _estimate_tariff() -> object:
+    """A tariff whose adders do not cover the hour `_record()` reports.
+
+    Both windows open after `_record()`'s hour, so `AdderSchedule.rate_at` has nothing
+    covering it and falls back to the nearest — the exact case `adders_extrapolated` exists
+    to count.
+    """
+    from custom_components.octopus_energy_japan.api.tariff import TariffAdder
+
+    tariff = _priceable_tariff()
+    return replace(
+        tariff,
+        fuel_cost_adjustment=TariffAdder(
+            price_inc_tax=Decimal("4.32"),
+            valid_from=datetime(2026, 9, 1, tzinfo=UTC),
+            valid_to=datetime(2026, 10, 1, tzinfo=UTC),
+        ),
+        renewable_energy_levy=TariffAdder(
+            price_inc_tax=Decimal("4.18"),
+            valid_from=datetime(2026, 9, 1, tzinfo=UTC),
+            valid_to=datetime(2026, 10, 1, tzinfo=UTC),
+        ),
+        is_estimate=True,
+    )
+
+
+async def test_extrapolated_adder_hours_is_none_before_a_cost_pass(hass: HomeAssistant) -> None:
+    """A count of zero and no pass yet must not read the same."""
+    projector = HomeAssistantStatisticsProjector(
+        hass,
+        SECRET,
+        publisher=Mock(),
+        cleaner=Mock(),
+    )
+
+    assert projector.extrapolated_adder_hours("A-1", "SP-1") is None
+
+
+async def test_extrapolated_adder_hours_counts_hours_priced_from_the_nearest_archive(
+    hass: HomeAssistant,
+) -> None:
+    """An hour the archive never saw live is counted, not silently priced as if measured."""
+    hass.config.components.add(RECORDER)
+    projector = HomeAssistantStatisticsProjector(
+        hass,
+        SECRET,
+        publisher=Mock(),
+        cleaner=Mock(),
+        tariff_lookup=lambda _account, _point: _estimate_tariff(),
+    )
+
+    await projector.async_project_supply_point(
+        _Ledger((_record(),)),  # type: ignore[arg-type]
+        "A-1",
+        "SP-1",
+        NOW,
+        dirty_from=None,
+    )
+
+    assert projector.extrapolated_adder_hours("A-1", "SP-1") == 1
+
+
 def _time_of_use_tariff() -> object:
     """The EV tariff, as the account in issue #93 reported it."""
     from custom_components.octopus_energy_japan.api.tariff import (

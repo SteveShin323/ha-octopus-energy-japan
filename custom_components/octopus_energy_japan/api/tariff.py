@@ -200,14 +200,20 @@ class TariffUnpriceable(StrEnum):
     MIXED_OPERATOR = "mixed_operator"
     # A consumption product that returned no usable charge.
     NO_CONSUMPTION_CHARGES = "no_consumption_charges"
-    # Consumption agreements exist on this supply point but none is in force: every one is
-    # revoked or has ended, and nothing has replaced it. A customer mid-switch, or one who has
-    # moved out with the entry still installed.
+    # Consumption agreements exist on this supply point, but every one of them is revoked. A
+    # revoked agreement is evidence the point is billed for what it consumes, not a tariff to
+    # price it from, so nothing is priced — unlike a single ended agreement, which is.
     #
     # Distinguished from having no consumption agreement at all, which is an export-only or
     # gas-only point and not a problem to report. Both leave the cost statistic absent, and
     # without the distinction the second silences the first.
     AGREEMENT_LAPSED = "agreement_lapsed"
+    # More than one non-revoked consumption agreement has ended, with none in force: a product
+    # switch, or a move between two addresses on the same supply point. This formula prices a
+    # whole supply point from one tariff's rates at a time, and picking either agreement would
+    # misprice the hours that belonged to the other — a confident wrong number, which is worse
+    # than none. Priced once this can express more than one tariff generation per supply point.
+    AGREEMENT_HISTORY_UNSUPPORTED = "agreement_history_unsupported"
 
 
 @dataclass(frozen=True, slots=True)
@@ -293,6 +299,11 @@ class SupplyPointTariff:
     # area it applies in. Both are needed to look the hours up.
     tou_scheme: str | None = None
     grid_operator_code: str | None = None
+    # True when this tariff comes from an agreement that has already ended — a customer who
+    # moved out, priced on the plan their last bill was computed from. The energy and standing
+    # charge are exact; the two adders may fall back to the nearest archived value for a period
+    # the archive was never running to observe live. See `docs/API_CONTRACTS.md`.
+    is_estimate: bool = False
 
     @property
     def is_time_of_use(self) -> bool:
@@ -501,12 +512,21 @@ def parse_supply_point_tariffs(
             if supply_point_id is None:
                 continue
             agreements = point.get("agreements")
-            product = _active_product(agreements)
-            if product is None:
-                if _had_consumption_agreement(agreements):
+            source = _select_tariff_source(agreements)
+            if source.product is None:
+                if source.spans_multiple_agreements:
+                    tariffs.append(_history_unsupported(account_number, supply_point_id))
+                elif _had_consumption_agreement(agreements):
                     tariffs.append(_lapsed(account_number, supply_point_id))
                 continue
-            tariffs.append(_parse_product(account_number, supply_point_id, product))
+            tariffs.append(
+                _parse_product(
+                    account_number,
+                    supply_point_id,
+                    source.product,
+                    is_estimate=source.is_estimate,
+                )
+            )
     return tuple(tariffs)
 
 
@@ -553,18 +573,53 @@ def _lapsed(account_number: str, supply_point_id: str) -> SupplyPointTariff:
     )
 
 
-def _active_product(agreements: object) -> Mapping[str, Any] | None:
-    """Return the product of the consumption agreement in force, preferring the latest start.
+def _history_unsupported(account_number: str, supply_point_id: str) -> SupplyPointTariff:
+    """Return a tariff that records why a history split across agreements is not priced."""
+    return SupplyPointTariff(
+        account_number=account_number,
+        supply_point_id=supply_point_id,
+        product_code=None,
+        product_name=None,
+        steps=(),
+        standing_charge_per_day=None,
+        fuel_cost_adjustment=None,
+        renewable_energy_levy=None,
+        unpriceable_reason=TariffUnpriceable.AGREEMENT_HISTORY_UNSUPPORTED,
+    )
 
-    A revoked agreement is skipped. Among the rest the one that started most recently and
-    has not ended wins, which is how a mid-period product switch resolves.
+
+@dataclass(frozen=True, slots=True)
+class _TariffSource:
+    """Which product to price a supply point from, and what that choice means."""
+
+    product: Mapping[str, Any] | None
+    # True when the winning product comes from an agreement that has already ended. See
+    # `SupplyPointTariff.is_estimate`.
+    is_estimate: bool = False
+    # True when more than one non-revoked consumption agreement has ended and none is in
+    # force — see `TariffUnpriceable.AGREEMENT_HISTORY_UNSUPPORTED`.
+    spans_multiple_agreements: bool = False
+
+
+def _select_tariff_source(agreements: object) -> _TariffSource:
+    """Return the product to price a supply point from, preferring the one in force.
+
+    Among agreements in force, the one that started most recently wins, which is how a
+    mid-period product switch resolves — unchanged from the rule this replaces.
+
+    When none is in force, the single ended consumption agreement is used instead: a customer
+    who moved out is still billed on the last tariff they had. Two or more ended agreements
+    with none in force means the collected history spans more than one tariff, which this
+    formula cannot yet express, so nothing is priced rather than guessing which hours
+    belonged to which.
 
     Only a product that prices consumption is a candidate. `Product` is a union whose members
     include `ElectricityFitProduct` — export generation credits, no consumption charges — so
     choosing purely by start date let a later-starting export agreement hide the consumption
     tariff of an account that has both.
     """
-    best: tuple[datetime, Mapping[str, Any]] | None = None
+    now = datetime.now(tz=UTC)
+    candidates: list[tuple[datetime, datetime | None, Mapping[str, Any]]] = []
     for agreement in _iter_mappings(agreements):
         if agreement.get("isRevoked") is True:
             continue
@@ -573,21 +628,30 @@ def _active_product(agreements: object) -> Mapping[str, Any] | None:
             continue
         if _optional_string(product.get("__typename")) not in _CONSUMPTION_PRODUCTS:
             continue
-        valid_to = _optional_datetime(agreement.get("validTo"))
-        if valid_to is not None and valid_to <= datetime.now(tz=UTC):
-            continue
         valid_from = _optional_datetime(agreement.get("validFrom")) or datetime.min.replace(
             tzinfo=UTC
         )
-        if best is None or valid_from > best[0]:
-            best = (valid_from, product)
-    return best[1] if best is not None else None
+        valid_to = _optional_datetime(agreement.get("validTo"))
+        candidates.append((valid_from, valid_to, product))
+    if not candidates:
+        return _TariffSource(product=None)
+
+    live = [candidate for candidate in candidates if candidate[1] is None or candidate[1] > now]
+    if live:
+        best = max(live, key=lambda candidate: candidate[0])
+        return _TariffSource(product=best[2])
+
+    if len(candidates) == 1:
+        return _TariffSource(product=candidates[0][2], is_estimate=True)
+    return _TariffSource(product=None, spans_multiple_agreements=True)
 
 
 def _parse_product(
     account_number: str,
     supply_point_id: str,
     product: Mapping[str, Any],
+    *,
+    is_estimate: bool = False,
 ) -> SupplyPointTariff:
     """Build one supply point's tariff, or a tariff that records why it cannot be priced."""
     product_type = _optional_string(product.get("__typename"))
@@ -601,6 +665,7 @@ def _parse_product(
             product_type,
             steps=(),
             reason=reason,
+            is_estimate=is_estimate,
         )
 
     # `band` is not used to detect a stepped tariff: it differs per step there by design. One
@@ -611,7 +676,14 @@ def _parse_product(
             return unpriceable(TariffUnpriceable.MIXED_OPERATOR)
 
     if any(_optional_string(charge.get("timeOfUse")) is not None for charge in charges):
-        return _parse_time_of_use(account_number, supply_point_id, product, product_type, charges)
+        return _parse_time_of_use(
+            account_number,
+            supply_point_id,
+            product,
+            product_type,
+            charges,
+            is_estimate=is_estimate,
+        )
 
     steps: list[TariffStep] = []
     for charge in charges:
@@ -650,6 +722,7 @@ def _parse_product(
         product_type,
         steps=tuple(steps),
         reason=None,
+        is_estimate=is_estimate,
     )
 
 
@@ -659,6 +732,8 @@ def _parse_time_of_use(
     product: Mapping[str, Any],
     product_type: str | None,
     charges: list[Mapping[str, Any]],
+    *,
+    is_estimate: bool = False,
 ) -> SupplyPointTariff:
     """Build a tariff priced by the hour rather than by cumulative consumption.
 
@@ -680,6 +755,7 @@ def _parse_time_of_use(
                 product_type,
                 steps=(),
                 reason=TariffUnpriceable.UNSUPPORTED_UNIT,
+                is_estimate=is_estimate,
             )
         price = _optional_decimal(charge.get("pricePerUnitIncTax"))
         band = _optional_string(charge.get("band"))
@@ -712,6 +788,7 @@ def _parse_time_of_use(
             product_type,
             steps=(),
             reason=TariffUnpriceable.MIXED_OPERATOR,
+            is_estimate=is_estimate,
         )
 
     tariff = _tariff(
@@ -724,6 +801,7 @@ def _parse_time_of_use(
         bands=tuple(bands),
         tou_scheme=_time_of_use_scheme(product),
         grid_operator_code=grid_operator_code,
+        is_estimate=is_estimate,
     )
     return resolve_time_of_use(tariff)
 
@@ -795,6 +873,7 @@ def _tariff(
     bands: tuple[TariffBand, ...] = (),
     tou_scheme: str | None = None,
     grid_operator_code: str | None = None,
+    is_estimate: bool = False,
 ) -> SupplyPointTariff:
     return SupplyPointTariff(
         account_number=account_number,
@@ -811,6 +890,7 @@ def _tariff(
         bands=bands,
         tou_scheme=tou_scheme,
         grid_operator_code=grid_operator_code,
+        is_estimate=is_estimate,
     )
 
 

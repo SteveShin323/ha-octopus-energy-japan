@@ -228,7 +228,7 @@ service area. [Known limitations](#known-limitations) explains what makes it dif
 
 ### Cost is an estimate
 
-Every price comes from your own agreement, so nothing is guessed. Three things still make
+Every price comes from your own agreement, so nothing is guessed. Four things still make
 the total differ from your bill:
 
 - Price steps restart on the day your meter is read. The provider publishes no time of day
@@ -238,6 +238,14 @@ the total differ from your bill:
   hour's own adjustment has been collected, the nearest one is used.
 - Whether the standing charge already accounts for your contracted amperage is not
   confirmed. Your diagnostics file records what the provider calls it.
+- If your agreement has already ended — a plan switch, or a move-out with the account still
+  open — the cost is priced from that agreement and is more of an estimate than a live
+  tariff's. Energy and the standing charge are exact; the fuel-cost adjustment and the
+  renewable levy can only be read from whatever the integration's own archive holds, so an
+  hour it was never running to observe live is priced with the nearest value it does have.
+  Your diagnostics file counts how many hours that affected — except a supply point whose
+  archive never once recorded one of the two adders before the agreement ended, which prices
+  that one at zero without counting it, because there is no archived value to fall back to.
 
 ### Plans priced by time of day
 

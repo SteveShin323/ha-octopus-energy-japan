@@ -158,6 +158,10 @@ def _tariffs(
             "has_standing_charge": tariff.standing_charge_per_day is not None,
             "has_fuel_cost_adjustment": tariff.fuel_cost_adjustment is not None,
             "has_renewable_energy_levy": tariff.renewable_energy_levy is not None,
+            # True when this is priced from an agreement that has already ended. The adders it
+            # uses may be extrapolated more than a live tariff's — see
+            # `extrapolated_adder_hours` below — which is why this is called out on its own.
+            "is_estimate": tariff.is_estimate,
         }
         for tariff in snapshot.tariffs
     ]
@@ -301,6 +305,10 @@ async def async_get_config_entry_diagnostics(
     # Windows the provider has been taken at its word about. A permanently short history needs an
     # explanation, and this is it.
     report["abandoned_gap_windows"] = coordinator.abandoned_gap_windows()
+    # How many of each supply point's priced hours needed an adder extrapolated from the
+    # nearest archived value rather than one that actually covered them. What makes an
+    # `is_estimate` tariff's cost an estimate rather than a bill, made visible instead of assumed.
+    report["extrapolated_adder_hours"] = coordinator.extrapolated_adder_hours()
     archive = runtime.tariff_archive
     report["tariff_history"] = {
         "schema_version": TARIFF_HISTORY_SCHEMA_VERSION,

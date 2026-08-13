@@ -3217,6 +3217,41 @@ async def test_the_windows_taken_at_the_providers_word_are_reported(hass: HomeAs
     assert SUPPLY_POINT_ID not in reported["supply_point"]
 
 
+async def test_extrapolated_adder_hours_is_reported_per_supply_point(hass: HomeAssistant) -> None:
+    """An estimate's approximated hours must be visible, not folded into a silent total."""
+    coordinator = _coordinator(hass)
+    point = _point()
+    _install_state(coordinator, point, router=AsyncMock())
+    coordinator._statistics_projector = Mock(extrapolated_adder_hours=Mock(return_value=3))
+
+    (reported,) = coordinator.extrapolated_adder_hours()
+
+    assert reported["extrapolated_adder_hours"] == 3
+    assert SUPPLY_POINT_ID not in reported["supply_point"]
+
+
+async def test_a_supply_point_with_no_extrapolated_hours_is_not_reported(
+    hass: HomeAssistant,
+) -> None:
+    """A tariff priced entirely from covering windows has nothing to explain."""
+    coordinator = _coordinator(hass)
+    point = _point()
+    _install_state(coordinator, point, router=AsyncMock())
+    coordinator._statistics_projector = Mock(extrapolated_adder_hours=Mock(return_value=0))
+
+    assert coordinator.extrapolated_adder_hours() == []
+
+
+async def test_extrapolated_adder_hours_is_empty_without_a_statistics_projector(
+    hass: HomeAssistant,
+) -> None:
+    """Nothing has been priced at all, which is not the same as nothing being approximated."""
+    coordinator = _coordinator(hass)
+    _install_state(coordinator, _point(), router=AsyncMock())
+
+    assert coordinator.extrapolated_adder_hours() == []
+
+
 async def test_the_legacy_path_is_not_taken_as_the_provider_having_nothing(
     hass: HomeAssistant,
 ) -> None:

@@ -23,7 +23,9 @@ from custom_components.octopus_energy_japan.api.tariff import (
 from custom_components.octopus_energy_japan.billing_period import BillingPeriodCalendar
 from custom_components.octopus_energy_japan.tariff_cost import project_hourly_cost
 from custom_components.octopus_energy_japan.tariff_history import (
+    AdderKind,
     AdderSchedule,
+    ArchivedAdder,
     live_schedule,
 )
 
@@ -571,3 +573,53 @@ def test_a_slot_priced_before_its_generation_began_carries_the_earliest_back() -
     )
 
     assert costs[0].components.energy == Decimal("25.77")
+
+
+def test_an_hour_the_archive_covers_is_not_extrapolated() -> None:
+    """An hour inside the archived window uses the rate that actually applied, not a guess."""
+    tariff = _tariff(standing=None)
+    schedule = AdderSchedule(
+        (
+            ArchivedAdder(
+                kind=AdderKind.FUEL_COST_ADJUSTMENT,
+                valid_from=datetime(2026, 8, 1, tzinfo=UTC),
+                valid_to=datetime(2026, 9, 1, tzinfo=UTC),
+                price_inc_tax=Decimal("4.32"),
+                first_observed_at=NOW,
+            ),
+        )
+    )
+
+    (cost,) = project_hourly_cost(
+        [(_hour(3, 0), Decimal(1))], tariff, periods=MONTHS, adders=schedule
+    )
+
+    assert cost.adders_extrapolated is False
+
+
+def test_an_hour_outside_the_archive_is_extrapolated() -> None:
+    """An hour the archive was never running to observe falls back to the nearest value.
+
+    This is what makes an ended agreement's cost an estimate: the fuel-cost adjustment for
+    two years ago is gone, and the nearest one on file stands in for it.
+    """
+    tariff = _tariff(standing=None)
+    schedule = AdderSchedule(
+        (
+            ArchivedAdder(
+                kind=AdderKind.FUEL_COST_ADJUSTMENT,
+                valid_from=datetime(2026, 8, 1, tzinfo=UTC),
+                valid_to=datetime(2026, 9, 1, tzinfo=UTC),
+                price_inc_tax=Decimal("4.32"),
+                first_observed_at=NOW,
+            ),
+        )
+    )
+
+    (cost,) = project_hourly_cost(
+        [(datetime(2024, 1, 1, tzinfo=UTC), Decimal(1))], tariff, periods=MONTHS, adders=schedule
+    )
+
+    assert cost.adders_extrapolated is True
+    # Still priced, at the nearest value there is — an approximation, not a refusal.
+    assert cost.components.adders == Decimal("4.32")

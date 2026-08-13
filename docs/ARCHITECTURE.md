@@ -341,9 +341,16 @@ supply point with no consumption agreement in force. Reauthentication is not amo
 because Home Assistant owns that prompt.
 
 The last one distinguishes two supply points that both stop publishing a cost. One never
-priced consumption — an export-only point — and is silent on purpose. The other had a plan
-that ended with nothing to replace it, which is what a plan switch or a move-out looks like
-from here, and it used to be just as silent.
+priced consumption — an export-only point — and is silent on purpose. The other has
+consumption agreements but every one of them is revoked — evidence the point is billed for
+what it consumes rather than priced by a tariff — and it used to be just as silent.
+
+A supply point whose one non-revoked agreement has simply ended, with nothing live to replace
+it, is neither of those: it is priced from that agreement instead, marked
+`SupplyPointTariff.is_estimate`, which is what a plan switch or a move-out with the account
+still open looks like from here. Two or more such ended agreements with none live are refused
+(`AGREEMENT_HISTORY_UNSUPPORTED`) rather than guessed between, because this formula prices one
+tariff's rates at a time and either choice would misprice the hours that belonged to the other.
 
 The last of those exists because an absent cost statistic looks the same whether the plan
 cannot be priced or the integration is broken. The `tariffs` section of the diagnostics

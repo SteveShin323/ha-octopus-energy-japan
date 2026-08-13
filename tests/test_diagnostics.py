@@ -368,6 +368,35 @@ async def test_diagnostics_report_the_tariff_shape_without_a_price(
         assert amount not in serialized
 
 
+async def test_diagnostics_report_when_a_tariff_is_an_estimate(hass: HomeAssistant) -> None:
+    """`is_estimate` is what distinguishes a closed account's approximated cost from a live one's."""
+    entry = _entry(hass)
+    commercial = entry.runtime_data.commercial_coordinator
+    data = commercial.data
+    estimate = replace(data.tariffs[0], is_estimate=True)
+    commercial.data = replace(data, tariffs=(estimate, data.tariffs[1]))
+
+    report = await async_get_config_entry_diagnostics(hass, entry)
+
+    priceable, unpriceable = report["tariffs"]
+    assert priceable["is_estimate"] is True
+    assert unpriceable["is_estimate"] is False
+
+
+async def test_diagnostics_report_extrapolated_adder_hours(hass: HomeAssistant) -> None:
+    """How many of an estimate's priced hours came from the nearest archived adder, not its own."""
+    entry = _entry(hass)
+    entry.runtime_data.coordinator.extrapolated_adder_hours = Mock(
+        return_value=[{"supply_point": "point-hmac", "extrapolated_adder_hours": 12}]
+    )
+
+    report = await async_get_config_entry_diagnostics(hass, entry)
+
+    (reported,) = report["extrapolated_adder_hours"]
+    assert reported["extrapolated_adder_hours"] == 12
+    assert ACCOUNT_NUMBER not in str(report["extrapolated_adder_hours"])
+
+
 async def test_diagnostics_report_the_billing_anchor_and_what_said_so(
     hass: HomeAssistant,
 ) -> None:

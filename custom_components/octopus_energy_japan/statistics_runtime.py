@@ -151,6 +151,9 @@ class StatisticsProjector(Protocol):
     ) -> None:
         """Project one supply point, pricing its steps over `billing_periods`."""
 
+    def extrapolated_adder_hours(self, account_id: str, supply_point_id: str) -> int | None:
+        """Return how many of the most recently priced hours needed an extrapolated adder."""
+
 
 class HomeAssistantStatisticsProjector:
     """Publish correction-safe hourly rows through the recorder public API."""
@@ -183,6 +186,12 @@ class HomeAssistantStatisticsProjector:
         # What each supply point's cost was last computed from, so a change to any of it
         # republishes the whole cost series instead of only the recent hours.
         self._fingerprints: dict[tuple[str, str], str] = {}
+        # How many hours the most recent cost pass priced with an extrapolated adder, per
+        # supply point. Overwritten each pass rather than accumulated: for a supply point with
+        # no new readings — an ended agreement, most often — the one full pass that follows
+        # computes the whole history at once and nothing changes it again, so this stays
+        # exact. For a live one it settles down as the archive fills, which is the point of it.
+        self._extrapolated_adder_hours: dict[tuple[str, str], int] = {}
 
     async def async_project_supply_point(
         self,
@@ -435,6 +444,14 @@ class HomeAssistantStatisticsProjector:
         self._fingerprints[scope] = fingerprint
         return True
 
+    def extrapolated_adder_hours(self, account_id: str, supply_point_id: str) -> int | None:
+        """Return how many of the most recently priced hours needed an extrapolated adder.
+
+        `None` means no cost has been computed for this supply point in this run yet, which is
+        different from a computed count of zero.
+        """
+        return self._extrapolated_adder_hours.get((account_id, supply_point_id))
+
     def _publish_tariff_cost(
         self,
         account_id: str,
@@ -460,6 +477,7 @@ class HomeAssistantStatisticsProjector:
             return ()
         tariff, schedule = priced
         totals: list[tuple[str, tuple[tuple[datetime, Decimal], ...]]] = []
+        extrapolated_hours = 0
         for energy in series:
             if energy.key.kind is not StatisticKind.ENERGY:
                 continue
@@ -475,6 +493,7 @@ class HomeAssistantStatisticsProjector:
             )
             if not costs:
                 continue
+            extrapolated_hours += sum(1 for cost in costs if cost.adders_extrapolated)
             cost_series = StatisticsSeriesProjection(
                 key=replace(energy.key, kind=StatisticKind.TARIFF_COST),
                 statistics=(),
@@ -507,6 +526,7 @@ class HomeAssistantStatisticsProjector:
                 _metadata(self._hass, identity, cost_series),
                 tuple(rows),
             )
+        self._extrapolated_adder_hours[(account_id, supply_point_id)] = extrapolated_hours
         return tuple(totals)
 
     def _clear_directions(

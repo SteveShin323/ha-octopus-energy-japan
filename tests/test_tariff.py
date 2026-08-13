@@ -998,48 +998,107 @@ def test_an_hour_after_every_generation_ended_keeps_the_last_one() -> None:
     assert tariff.marginal_price(Decimal(0), datetime(2026, 8, 1, tzinfo=UTC)) == Decimal("20.00")
 
 
-def test_a_lapsed_agreement_is_reported_rather_than_silently_priceless() -> None:
-    """Every consumption agreement has ended and nothing replaced it.
+def test_every_agreement_revoked_is_reported_rather_than_silently_priceless() -> None:
+    """Every consumption agreement is revoked, so there is no tariff left to price from.
 
-    A plan switch, or a move-out with the entry still installed. The cost statistic stops
-    either way; before this it stopped in silence, because the only other supply point that
-    publishes no cost for a structural reason is an export-only one, which is silent on
-    purpose.
+    The cost statistic stops; before this it stopped in silence, because the only other
+    supply point that publishes no cost for a structural reason is an export-only one, which
+    is silent on purpose.
     """
     tariffs = parse_supply_point_tariffs(
-        {
-            "account": {
-                "number": "A-1",
-                "properties": [
-                    {
-                        "electricitySupplyPoints": [
-                            {
-                                "id": "SP-1",
-                                "agreements": [
-                                    {
-                                        "validFrom": "2025-04-01T00:00:00+00:00",
-                                        "validTo": "2026-03-31T00:00:00+00:00",
-                                        "isRevoked": False,
-                                        "product": {
-                                            "__typename": "ElectricitySteppedProduct",
-                                            "code": "P",
-                                            "displayName": "P",
-                                            "consumptionCharges": [],
-                                        },
-                                    }
-                                ],
-                            }
-                        ]
-                    }
-                ],
-            }
-        },
-        "A-1",
+        _payload(_agreement(isRevoked=True, product=_product(code="OLD"))),
+        ACCOUNT,
     )
 
     assert len(tariffs) == 1
     assert tariffs[0].unpriceable_reason is TariffUnpriceable.AGREEMENT_LAPSED
     assert not tariffs[0].is_priceable
+    assert not tariffs[0].is_estimate
+
+
+def test_a_single_ended_agreement_is_priced_as_an_estimate() -> None:
+    """A customer who moved out is still billed on the last tariff they had.
+
+    Before this, the tariff of an ended agreement was never read at all — only whether one
+    was in force. It is the same product shape either way, so the same steps and adders come
+    out; only `is_estimate` says where they came from.
+    """
+    ended = _agreement(validTo="2026-06-01T00:00:00+00:00", product=_product(code="MOVED_OUT"))
+
+    (tariff,) = parse_supply_point_tariffs(_payload(ended), ACCOUNT)
+
+    assert tariff.is_priceable
+    assert tariff.is_estimate
+    assert tariff.product_code == "MOVED_OUT"
+    assert len(tariff.steps) == 3
+    assert tariff.standing_charge_per_day == Decimal("38.80")
+
+
+def test_a_single_ended_agreement_still_records_why_it_cannot_be_priced() -> None:
+    """Being an estimate does not exempt a shape this formula cannot express.
+
+    An ended agreement with no consumption charges is refused for that reason, not reported
+    as though nothing was there at all — the two would otherwise be indistinguishable in a
+    repair message.
+    """
+    ended = _agreement(
+        validTo="2026-03-31T00:00:00+00:00",
+        product=_product(consumptionCharges=[]),
+    )
+
+    (tariff,) = parse_supply_point_tariffs(_payload(ended), ACCOUNT)
+
+    assert tariff.unpriceable_reason is TariffUnpriceable.NO_CONSUMPTION_CHARGES
+    assert not tariff.is_priceable
+    assert tariff.is_estimate
+
+
+def test_two_ended_agreements_with_none_in_force_are_refused() -> None:
+    """A product switch or a second move leaves more than one tariff for one supply point.
+
+    This formula prices a whole supply point from one tariff's rates at a time. Pricing every
+    hour from whichever agreement happened to be picked would misprice the hours that
+    belonged to the other one — a confident wrong number, worse than none.
+    """
+    first = _agreement(
+        validFrom="2025-01-01T00:00:00+00:00",
+        validTo="2025-07-01T00:00:00+00:00",
+        product=_product(code="FIRST_HOME"),
+    )
+    second = _agreement(
+        id=2,
+        validFrom="2025-07-01T00:00:00+00:00",
+        validTo="2026-01-01T00:00:00+00:00",
+        product=_product(code="SECOND_HOME"),
+    )
+
+    (tariff,) = parse_supply_point_tariffs(_payload(first, second), ACCOUNT)
+
+    assert tariff.unpriceable_reason is TariffUnpriceable.AGREEMENT_HISTORY_UNSUPPORTED
+    assert not tariff.is_priceable
+    assert not tariff.is_estimate
+
+
+def test_a_live_agreement_is_preferred_over_an_ended_one_and_is_not_an_estimate() -> None:
+    """The existing preference for the agreement in force is unchanged by any of this."""
+    ended = _agreement(validTo="2026-01-01T00:00:00+00:00", product=_product(code="ENDED"))
+    live = _agreement(id=2, product=_product(code="CURRENT"))
+
+    (tariff,) = parse_supply_point_tariffs(_payload(ended, live), ACCOUNT)
+
+    assert tariff.product_code == "CURRENT"
+    assert not tariff.is_estimate
+
+
+def test_an_estimate_still_carries_the_scheme_of_a_time_of_use_ended_agreement() -> None:
+    """`is_estimate` threads through the time-of-use path the same way it does the stepped one."""
+    ended = _agreement(validTo="2026-06-01T00:00:00+00:00", product=_ev_product())
+
+    (tariff,) = parse_supply_point_tariffs(_payload(ended), ACCOUNT)
+
+    assert tariff.is_priceable
+    assert tariff.is_estimate
+    assert tariff.is_time_of_use
 
 
 def test_a_point_that_never_priced_consumption_stays_silent() -> None:
