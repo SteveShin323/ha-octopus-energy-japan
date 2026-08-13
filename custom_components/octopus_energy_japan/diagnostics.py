@@ -148,6 +148,12 @@ def _tariffs(
             ),
             "steps": len(tariff.steps),
             "rate_generations": len({(step.valid_from, step.valid_to) for step in tariff.steps}),
+            # A time-of-use tariff is priced by the hour instead, so the scheme it follows and
+            # the slots the provider named are what a wrong cost has to be traced through. The
+            # slots are the provider's own labels with the grid area stripped, not amounts.
+            "time_of_use_scheme": tariff.tou_scheme,
+            "grid_operator_code": tariff.grid_operator_code,
+            "time_of_use_slots": sorted({band.slot for band in tariff.bands}),
             "standing_charge_unit": tariff.standing_charge_unit,
             "has_standing_charge": tariff.standing_charge_per_day is not None,
             "has_fuel_cost_adjustment": tariff.fuel_cost_adjustment is not None,

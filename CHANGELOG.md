@@ -10,6 +10,27 @@ individual customers.
 
 ## [Unreleased]
 
+### Added
+
+- **Cost for plans priced by time of day.** EVオクトパス, オール電化オクトパス and its
+  サンシャイン variant, ソーラーオクトパス, and 動力オクトパス now produce a cost statistic, in all
+  nine grid areas. Reported in
+  [#93](https://github.com/SteveShin323/ha-octopus-energy-japan/issues/93) by a customer on the
+  EV plan.
+
+  Prices still come only from your own agreement. The hours each band covers are built in,
+  because Octopus Energy Japan publishes them in its tariff documents but answers
+  `KT-CT-1111 Unauthorized` for every API field that would return them — measured on two
+  accounts, one of them on the EV plan itself. [docs/TOU_SCHEMES.md](docs/TOU_SCHEMES.md)
+  records every hour and the document it came from.
+
+  A time-of-use plan whose schedule is not in that table publishes no cost and says so, as
+  does one whose agreement priced only some of its bands. Neither guesses.
+
+- **The tariff shape in diagnostics now names the time-of-use scheme**, the grid operator
+  code, and the band slots the provider returned, so a wrong cost can be traced without a
+  customer's prices.
+
 ## [1.1.0] - 2026-08-11
 
 Found on an installation with two logins — one for the current address, one from before a

@@ -14,8 +14,13 @@ why this is computed here rather than handed to Home Assistant as a unit price.
 
 Steps advance on the cumulative total for one **billing period**, which the caller supplies as
 a `BillingPeriodCalendar` — anchored on the meter-reading day the account reports, or the local
-calendar month when it reports none. Everything else in this integration works in UTC hours, so
-the conversion to local time happens inside that calendar and nowhere else.
+calendar month when it reports none.
+
+A time-of-use tariff replaces the first line rather than adding to it: the price depends on the
+hour, not on how much has been consumed so far. The provider sells no tariff that does both —
+every time-of-use product returns its rates without step boundaries — so the two are exclusive
+here as well. Which hours each band covers comes from `api/tou.py`, because the provider
+publishes them in its tariff documents and refuses every query that would return them.
 
 Which rates apply is the provider's statement too, not an assumption: an hour is priced with the
 rate generation whose validity window covers it.
@@ -35,6 +40,7 @@ from typing import Final
 
 from .api import ReadingDirection
 from .api.tariff import SupplyPointTariff, TariffStep
+from .api.tou import scheme_for, slot_at
 from .billing_period import BillingPeriodCalendar
 from .tariff_history import AdderSchedule
 
@@ -104,7 +110,16 @@ def project_hourly_cost(
         period = periods.period_start(moment)
         cumulative = cumulative_by_period.get(period, Decimal(0))
 
-        energy = _price_across_steps(tariff.steps_at(moment), cumulative, kwh)
+        if tariff.is_time_of_use:
+            price = _band_price(tariff, moment)
+            if price is None:
+                # The hour resolved to a slot the agreement did not price. Charging it at
+                # nothing would understate the period, so the whole supply point is dropped
+                # rather than part-priced.
+                return ()
+            energy = kwh * price
+        else:
+            energy = _price_across_steps(tariff.steps_at(moment), cumulative, kwh)
         cumulative_by_period[period] = cumulative + kwh
         addition = kwh * adders.rate_at(moment).total
 
@@ -119,6 +134,25 @@ def project_hourly_cost(
             )
         )
     return tuple(costs)
+
+
+def _band_price(tariff: SupplyPointTariff, moment: datetime) -> Decimal | None:
+    """Return the per-kWh price of the time-of-use band covering this hour.
+
+    Every boundary in every scheme falls on a whole hour and Japan keeps a fixed offset from
+    UTC, so a UTC hour lies wholly inside one band and never has to be split the way an hour
+    crossing a step boundary does.
+    """
+    scheme = scheme_for(tariff.tou_scheme)
+    if scheme is None or tariff.grid_operator_code is None:
+        return None
+    slot = slot_at(scheme, tariff.grid_operator_code, moment)
+    if slot is None:
+        return None
+    for band in tariff.bands_at(moment):
+        if band.slot == slot:
+            return band.price_inc_tax
+    return None
 
 
 def _price_across_steps(

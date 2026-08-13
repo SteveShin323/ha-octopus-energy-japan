@@ -229,7 +229,7 @@ def _entry(hass: HomeAssistant, *, loaded: bool = True) -> MockConfigEntry:
                 fuel_cost_adjustment=None,
                 renewable_energy_levy=None,
                 product_type="ElectricitySteppedProduct",
-                unpriceable_reason=TariffUnpriceable.TIME_OF_USE,
+                unpriceable_reason=TariffUnpriceable.TIME_OF_USE_SCHEME_UNKNOWN,
             ),
         ),
     )
@@ -332,7 +332,7 @@ async def test_diagnostics_report_the_tariff_shape_without_a_price(
     assert priceable["has_fuel_cost_adjustment"] is True
     assert priceable["has_renewable_energy_levy"] is False
     assert unpriceable["priceable"] is False
-    assert unpriceable["unpriceable_reason"] == "time_of_use"
+    assert unpriceable["unpriceable_reason"] == "time_of_use_scheme_unknown"
 
     # The supply point is named by its installation-local identity, never its provider id.
     serialized = json.dumps(report["tariffs"], default=str)

@@ -122,6 +122,39 @@ is that it is now established rather than assumed.
 
 That also settles why the contracted amperage is not needed to price anything.
 
+## Time-of-use bands say what, never when
+
+A tariff priced by time of day returns its bands and prices on the same
+`consumptionCharges` — `band: "CONSUMPTION_03_DAY"`, `timeOfUse: "EV_DAY_TIME"`, a price — and
+never the hours those bands cover.
+
+**The one field that would answer it is refused.** `Query.rateGroupTouScheme` returns
+`KT-CT-1111 Unauthorized` for every argument, including the real scheme identifier, on two
+accounts — one on a stepped tariff and one actually on the EV tariff. The documented argument
+errors (`KT-CT-12010`, `KT-CT-12049`) and the disabled-field error (`KT-CT-1113`) never appear,
+so the refusal happens before the arguments are resolved. `full-customer-access` does not open
+it. A full introspection of the 2290-type schema found it to be the only field returning
+`TimeOfUseSchemeType`, and the alternative route to the hours — `VariantProfile.schemes` — is
+reachable only through `availableProducts` or `agreementsForRollover`, both equally refused.
+
+**`tariffSummary` is open, and names the schedule.**
+`Query.tariffSummary(gridOperatorCode!, productCode)` needs no entitlement to the product; with
+`productCode` omitted it returns the whole catalogue for the area. Its `productParams` carries
+`time_of_use_scheme`, the provider's own identifier for the schedule. The same blob is on the
+agreement's product as `params`, which is read first; `tariffSummary` is the fallback when it
+arrives empty.
+
+**Time of use and steps never combine.** Every time-of-use product in every grid area reports
+its consumption rates with `stepStart` and `stepEnd` null. A tariff charges by the hour or by
+cumulative kWh, never both.
+
+**Bands are self-describing.** A band reads `CONSUMPTION_{grid operator}_[HIGH_|LOW_]{slot}`.
+The `HIGH_`/`LOW_` marker appears in areas 06, 07 and 08 and matches `contractCapacityPattern:
+TIERED_HIGH`/`TIERED_LOW`; it selects a price, not a schedule.
+
+The hours themselves are transcribed from the provider's published tariff documents into
+`api/tou.py`. [TOU_SCHEMES.md](TOU_SCHEMES.md) holds the transcription and its sources.
+
 ## Contracted capacity cannot be read
 
 Nothing an account user can reach reports the contracted capacity, on the one account
@@ -232,6 +265,9 @@ readings.
 | Shape | Handled by | Evidence |
 | --- | --- | --- |
 | 1 account / 1 property / 1 point, electricity | the whole integration | **a real account** |
+| Two logins, one config entry each | connection labels in device names | **two real accounts** |
+| An entry whose only agreement has ended | lifecycle, opt-in reporting | **a real account** |
+| A tariff priced by time of day | `api/tou.py`, band pricing | a real response, quoted in [issue #93](https://github.com/SteveShin323/ha-octopus-energy-japan/issues/93) |
 | Several accounts on one login | discovery, ordinal device names | hand-written |
 | Several properties on one account | discovery | hand-written |
 | Several supply points on one property | discovery, per-point ledgers and statistics | hand-written |

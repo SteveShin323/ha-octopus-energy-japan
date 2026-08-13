@@ -239,12 +239,25 @@ the total differ from your bill:
 - Whether the standing charge already accounts for your contracted amperage is not
   confirmed. Your diagnostics file records what the provider calls it.
 
+### Plans priced by time of day
+
+These are supported: EVオクトパス, オール電化オクトパス and its サンシャイン variant,
+ソーラーオクトパス, and 動力オクトパス, in all nine grid areas.
+
+Your prices still come from your own agreement. Only the hours each band covers are built in,
+because Octopus Energy Japan publishes them in its tariff documents but returns an
+authorisation error for every API field that would give them. [docs/TOU_SCHEMES.md](docs/TOU_SCHEMES.md)
+lists every hour and where it was read from.
+
+If Octopus Energy Japan introduces a time-of-use plan that is not in that list, the integration
+says so rather than guessing at its hours.
+
 ### Some plans cannot be priced at all
 
-A plan whose price changes by time of day, or that charges for something other than
-kilowatt-hours, cannot be expressed by this calculation. When that happens, no cost
-statistic is published and a repair message explains why. Your consumption, totals, and
-energy statistics are unaffected. A partial price would look correct and be wrong.
+A plan that charges for something other than kilowatt-hours, or one priced by time of day under
+a schedule the integration does not have, cannot be expressed by this calculation. When that
+happens, no cost statistic is published and a repair message explains why. Your consumption,
+totals, and energy statistics are unaffected. A partial price would look correct and be wrong.
 
 The per-interval cost figure the provider returns is not shown either. It merges the
 fuel-cost adjustment and the renewable levy into one number, and leaves out the daily

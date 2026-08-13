@@ -178,13 +178,15 @@ async def test_a_tariff_this_formula_cannot_price_is_reported(hass: HomeAssistan
 
     The user has no other way to learn that their plan shape, not a defect, is the reason.
     """
-    commercial = OejpCommercialData((), NOW, tariffs=(_tariff(TariffUnpriceable.TIME_OF_USE),))
+    commercial = OejpCommercialData(
+        (), NOW, tariffs=(_tariff(TariffUnpriceable.TIME_OF_USE_SCHEME_UNKNOWN),)
+    )
 
     _update(hass, _data(), commercial)
 
     issue = _issue(hass, OejpIssue.TARIFF_NOT_PRICEABLE)
     assert issue is not None
-    assert issue.translation_placeholders == {"reasons": "time_of_use"}
+    assert issue.translation_placeholders == {"reasons": "time_of_use_scheme_unknown"}
 
 
 async def test_a_priceable_tariff_raises_no_issue(hass: HomeAssistant) -> None:
