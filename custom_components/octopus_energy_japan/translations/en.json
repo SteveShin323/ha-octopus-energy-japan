@@ -216,7 +216,7 @@
     },
     "tariff_agreement_lapsed": {
       "title": "No plan is in force for a supply point",
-      "description": "Octopus Energy Japan reports no consumption agreement currently in force for {count} supply point(s): every one it has is revoked or has ended, and nothing has replaced it. Consumption and the Energy Dashboard energy statistics continue; the cost statistic stops, because there is no price to apply. This is what a plan switch or a move-out looks like from here. If neither applies, check the agreement on your Octopus Energy Japan account."
+      "description": "Octopus Energy Japan reports no consumption agreement currently in force for {count} supply point(s): every one it has is revoked, and nothing has replaced it. Consumption and the Energy Dashboard energy statistics continue; the cost statistic stops, because a revoked agreement is evidence the point is billed for what it consumes, not a tariff to price it from. This is what a move-out with the account itself closed looks like from here. If that does not apply, check the agreement on your Octopus Energy Japan account."
     },
     "tariff_history_unreadable": {
       "title": "Stored rate adjustments could not be read",

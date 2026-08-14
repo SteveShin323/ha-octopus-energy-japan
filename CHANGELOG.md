@@ -10,6 +10,36 @@ individual customers.
 
 ## [Unreleased]
 
+### Added
+
+- **A supply point whose consumption agreement has already ended can now be priced.** Its
+  energy and standing charge are exact, from the agreement's own rates. The fuel-cost
+  adjustment and the renewable levy can only be read from this integration's own archive, so
+  an hour the archive was never running to observe live is priced with the nearest value it
+  does hold instead — `SupplyPointTariff.is_estimate` marks the tariff, and diagnostics count
+  how many hours needed that fallback, per supply point. A supply point whose archive never
+  once recorded one of the two adders before the agreement ended has nothing to fall back to,
+  so that adder prices at zero and is not counted — there is no archived value it could have
+  used instead.
+
+  Only the safe case is covered: exactly one non-revoked consumption agreement has ended and
+  none is in force. A supply point with two or more ended agreements and none live is refused
+  (`agreement_history_unsupported`) rather than guessed between — this formula prices one
+  tariff's rates at a time, and either agreement's would misprice the hours that belonged to
+  the other.
+
+  README.md and docs/ja/README.md now say so, and [docs/API_CONTRACTS.md](docs/API_CONTRACTS.md)
+  records which of the two shapes is verified against a real account.
+
+### Changed
+
+- **The "no plan in force" repair issue now fires only when every consumption agreement is
+  revoked**, not whenever one has simply ended. A revoked agreement is evidence the point is
+  billed for what it consumes rather than priced by a tariff; a single ended agreement with
+  nothing live to replace it is priced as an estimate instead of reported as unpriceable.
+
+  Closes [#97](https://github.com/SteveShin323/ha-octopus-energy-japan/issues/97).
+
 ## [1.2.0] - 2026-08-13
 
 Verified against a real EV-tariff account by the customer who reported

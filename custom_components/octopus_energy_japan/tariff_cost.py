@@ -25,6 +25,12 @@ publishes them in its tariff documents and refuses every query that would return
 Which rates apply is the provider's statement too, not an assumption: an hour is priced with the
 rate generation whose validity window covers it.
 
+A supply point whose agreement has ended is priced from that agreement's own rates —
+`SupplyPointTariff.is_estimate` says so — but the two adders can still only be read from
+whatever the archive holds. An hour the archive never saw live falls back to the nearest
+value it does hold, which `HourlyCost.adders_extrapolated` records so the caller can count how
+much of a bill is approximated rather than measured.
+
 Every price the provider gives is available with and without tax. The tax-inclusive one is
 used throughout: it is what the customer pays, and a cost shown beside consumption that
 excluded tax would understate the bill by ten percent.
@@ -72,6 +78,11 @@ class HourlyCost:
 
     start: datetime
     components: CostComponents
+    # True when the fuel-cost adjustment or the renewable levy priced into this hour was not
+    # the rate that actually applied then — the archive held no record covering it, so the
+    # nearest one was used instead. Counted by the caller so a cost built from an
+    # approximation is not indistinguishable from one that is exact.
+    adders_extrapolated: bool = False
 
     @property
     def amount(self) -> Decimal:
@@ -134,16 +145,17 @@ def project_hourly_cost(
         else:
             energy = _price_across_steps(tariff.steps_at(moment), cumulative, kwh)
         cumulative_by_period[period] = cumulative + kwh
-        addition = kwh * adders.rate_at(moment).total
+        adder_rate = adders.rate_at(moment)
 
         costs.append(
             HourlyCost(
                 start=moment,
                 components=CostComponents(
                     energy=energy,
-                    adders=addition,
+                    adders=kwh * adder_rate.total,
                     standing=standing_per_hour,
                 ),
+                adders_extrapolated=adder_rate.extrapolated,
             )
         )
     return tuple(costs)

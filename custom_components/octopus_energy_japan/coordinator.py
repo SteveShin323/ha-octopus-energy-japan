@@ -1863,6 +1863,33 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             for attempt in state.checkpoint.abandoned_gap_windows(now)
         ]
 
+    def extrapolated_adder_hours(self) -> list[dict[str, Any]]:
+        """Report how many of each supply point's priced hours needed an extrapolated adder.
+
+        Only supply points with at least one such hour are listed. A tariff priced from an
+        agreement that has already ended is priced from rates the archive was never running to
+        observe live, so its two per-kWh adders may fall back to the nearest value the archive
+        does hold — which is what this counts, so that approximation is visible rather than
+        assumed. See `SupplyPointTariff.is_estimate`.
+        """
+        if self._statistics_projector is None:
+            return []
+        results: list[dict[str, Any]] = []
+        for state in self._supply_points.values():
+            count = self._statistics_projector.extrapolated_adder_hours(
+                state.supply_point.account_number,
+                state.supply_point.id,
+            )
+            if not count:
+                continue
+            results.append(
+                {
+                    "supply_point": self._status_identity(state),
+                    "extrapolated_adder_hours": count,
+                }
+            )
+        return results
+
     async def async_history_gaps(self) -> tuple[HistoryGapSummary, ...]:
         """Report the holes in each supply point's collected history.
 

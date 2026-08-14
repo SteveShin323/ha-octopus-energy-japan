@@ -277,6 +277,8 @@ readings.
 | A gas supply point beside electricity | not queried; `GasTieredProduct` is not a consumption product here | none |
 | Readings only through the legacy path | capability detection; the history walk refuses | hand-written |
 | Every consumption agreement ended | reported as a repair issue | hand-written |
+| A single non-revoked consumption agreement has ended, none live | priced as an estimate, `SupplyPointTariff.is_estimate` | **a real account** |
+| Two or more ended agreements, none live | refused (`AGREEMENT_HISTORY_UNSUPPORTED`); would price one tariff over hours that belong to another | hand-written |
 
 Treat "hand-written" as unverified against reality, not as covered. The way to settle any
 row is a real account with that shape, and until one exists the honest statement is the one
