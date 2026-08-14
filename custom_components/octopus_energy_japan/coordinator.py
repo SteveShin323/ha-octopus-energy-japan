@@ -1890,6 +1890,31 @@ class OejpDataUpdateCoordinator(DataUpdateCoordinator[OejpCoordinatorData]):
             )
         return results
 
+    def baseline_adder_hours(self) -> list[dict[str, Any]]:
+        """Report how many of each supply point's priced hours came from the shipped baseline.
+
+        Only supply points with at least one such hour are listed. Distinct from
+        `extrapolated_adder_hours`: a baseline-covered hour has a real published rate behind
+        it — see `adder_baseline.py` — it simply was not this account's own observation.
+        """
+        if self._statistics_projector is None:
+            return []
+        results: list[dict[str, Any]] = []
+        for state in self._supply_points.values():
+            count = self._statistics_projector.baseline_adder_hours(
+                state.supply_point.account_number,
+                state.supply_point.id,
+            )
+            if not count:
+                continue
+            results.append(
+                {
+                    "supply_point": self._status_identity(state),
+                    "baseline_adder_hours": count,
+                }
+            )
+        return results
+
     async def async_history_gaps(self) -> tuple[HistoryGapSummary, ...]:
         """Report the holes in each supply point's collected history.
 

@@ -677,6 +677,61 @@ async def test_extrapolated_adder_hours_counts_hours_priced_from_the_nearest_arc
     assert projector.extrapolated_adder_hours("A-1", "SP-1") == 1
 
 
+async def test_baseline_adder_hours_is_none_before_a_cost_pass(hass: HomeAssistant) -> None:
+    """A count of zero and no pass yet must not read the same."""
+    projector = HomeAssistantStatisticsProjector(
+        hass,
+        SECRET,
+        publisher=Mock(),
+        cleaner=Mock(),
+    )
+
+    assert projector.baseline_adder_hours("A-1", "SP-1") is None
+
+
+async def test_baseline_adder_hours_counts_hours_priced_from_the_shipped_baseline(
+    hass: HomeAssistant,
+) -> None:
+    """An hour priced from the shipped baseline is counted, not indistinguishable from a bill."""
+    from custom_components.octopus_energy_japan.tariff_history import (
+        AdderKind,
+        AdderSchedule,
+        ArchivedAdder,
+    )
+
+    generated_at = datetime(2026, 1, 1, tzinfo=UTC)
+    baseline_record = ArchivedAdder(
+        kind=AdderKind.FUEL_COST_ADJUSTMENT,
+        valid_from=datetime(2026, 8, 1, tzinfo=UTC),
+        valid_to=datetime(2026, 9, 1, tzinfo=UTC),
+        price_inc_tax=Decimal("2.44"),
+        first_observed_at=generated_at,
+    )
+    hass.config.components.add(RECORDER)
+    projector = HomeAssistantStatisticsProjector(
+        hass,
+        SECRET,
+        publisher=Mock(),
+        cleaner=Mock(),
+        tariff_lookup=lambda _account, _point: _priceable_tariff(),
+        adder_lookup=lambda _account, _point: AdderSchedule((baseline_record,)),
+    )
+
+    with patch(
+        "custom_components.octopus_energy_japan.statistics_runtime.baseline_generated_at",
+        return_value=generated_at,
+    ):
+        await projector.async_project_supply_point(
+            _Ledger((_record(),)),  # type: ignore[arg-type]
+            "A-1",
+            "SP-1",
+            NOW,
+            dirty_from=None,
+        )
+
+    assert projector.baseline_adder_hours("A-1", "SP-1") == 1
+
+
 def _time_of_use_tariff() -> object:
     """The EV tariff, as the account in issue #93 reported it."""
     from custom_components.octopus_energy_japan.api.tariff import (

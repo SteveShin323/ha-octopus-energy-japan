@@ -10,6 +10,27 @@ individual customers.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-08-14
+
+### Added
+
+- **A repository-maintained baseline for the fuel cost adjustment and the renewable energy
+  levy.** Both are public record, independent of any one account — the levy is a single
+  nationwide rate the government sets once a fiscal year, and the fuel cost adjustment is
+  published monthly, per grid area, on Octopus Energy Japan's own site. This integration now
+  ships one verified copy of that record instead of every installation extrapolating its own
+  guess for the period before its account was ever connected.
+
+  An hour this account's own archive has actually observed is never overridden — the baseline
+  only fills a window the archive has nothing for. Diagnostics gained a `baseline_adder_hours`
+  counter, alongside the existing `extrapolated_adder_hours`, so a priced hour's source stays
+  visible: this account's archive, the shipped baseline, or a genuine unfilled gap.
+
+  `scripts/refresh_adder_baseline.py` and a scheduled GitHub Actions workflow keep the table
+  current every month — always adding, never rewriting a window already recorded, and never
+  merging automatically. See [docs/ADDER_BASELINE.md](docs/ADDER_BASELINE.md) for the source,
+  the known gaps, and how a refresh is reviewed.
+
 ## [1.3.0] - 2026-08-13
 
 Verified against a real account whose only consumption agreement had already ended before

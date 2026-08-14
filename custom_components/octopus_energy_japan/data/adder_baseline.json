@@ -1,0 +1,2868 @@
+{
+  "schema_version": 1,
+  "source": "https://octopusenergy.co.jp/terms",
+  "fetched_at": "2026-08-14T01:44:59Z",
+  "renewable_energy_levy": [
+    {
+      "valid_from": "2024-04-30T15:00:00Z",
+      "valid_to": "2025-04-30T15:00:00Z",
+      "price_inc_tax": "3.49",
+      "source_url": "https://a.storyblok.com/f/122730/x/12f4562440/fy2024_.pdf"
+    },
+    {
+      "valid_from": "2025-04-30T15:00:00Z",
+      "valid_to": "2026-04-30T15:00:00Z",
+      "price_inc_tax": "3.98",
+      "source_url": "https://a.storyblok.com/f/122730/x/a90b3066cb/fy2025_.pdf"
+    },
+    {
+      "valid_from": "2026-04-30T15:00:00Z",
+      "valid_to": "2027-04-30T15:00:00Z",
+      "price_inc_tax": "4.18",
+      "source_url": "https://a.storyblok.com/f/122730/x/ae167b8a44/fy2026_.pdf"
+    }
+  ],
+  "fuel_cost_adjustment": {
+    "01": [
+      {
+        "valid_from": "2022-05-31T15:00:00Z",
+        "valid_to": "2022-06-30T15:00:00Z",
+        "price_inc_tax": "1.93",
+        "source_url": "https://a.storyblok.com/f/122730/x/2a303b4ee4/2022-06.pdf"
+      },
+      {
+        "valid_from": "2022-06-30T15:00:00Z",
+        "valid_to": "2022-07-31T15:00:00Z",
+        "price_inc_tax": "3.23",
+        "source_url": "https://a.storyblok.com/f/122730/x/e115317fc2/2022-07.pdf"
+      },
+      {
+        "valid_from": "2022-07-31T15:00:00Z",
+        "valid_to": "2022-08-31T15:00:00Z",
+        "price_inc_tax": "4.75",
+        "source_url": "https://a.storyblok.com/f/122730/x/0af4e1ab58/2022-08.pdf"
+      },
+      {
+        "valid_from": "2022-08-31T15:00:00Z",
+        "valid_to": "2022-09-30T15:00:00Z",
+        "price_inc_tax": "6.82",
+        "source_url": "https://a.storyblok.com/f/122730/x/144112c83d/2022-09.pdf"
+      },
+      {
+        "valid_from": "2022-09-30T15:00:00Z",
+        "valid_to": "2022-10-31T15:00:00Z",
+        "price_inc_tax": "8.39",
+        "source_url": "https://a.storyblok.com/f/122730/x/29eb8ac888/2022-10.pdf"
+      },
+      {
+        "valid_from": "2022-10-31T15:00:00Z",
+        "valid_to": "2022-11-30T15:00:00Z",
+        "price_inc_tax": "9.32",
+        "source_url": "https://a.storyblok.com/f/122730/x/79b562d16f/2022-11.pdf"
+      },
+      {
+        "valid_from": "2022-11-30T15:00:00Z",
+        "valid_to": "2022-12-31T15:00:00Z",
+        "price_inc_tax": "9.75",
+        "source_url": "https://a.storyblok.com/f/122730/x/d128dd7ef8/2022-12.pdf"
+      },
+      {
+        "valid_from": "2022-12-31T15:00:00Z",
+        "valid_to": "2023-01-31T15:00:00Z",
+        "price_inc_tax": "9.91",
+        "source_url": "https://a.storyblok.com/f/122730/x/b9ffa26b68/2023-01.pdf"
+      },
+      {
+        "valid_from": "2023-01-31T15:00:00Z",
+        "valid_to": "2023-02-28T15:00:00Z",
+        "price_inc_tax": "10.26",
+        "source_url": "https://a.storyblok.com/f/122730/x/448e627d60/2023-02.pdf"
+      },
+      {
+        "valid_from": "2023-02-28T15:00:00Z",
+        "valid_to": "2023-03-31T15:00:00Z",
+        "price_inc_tax": "9.69",
+        "source_url": "https://a.storyblok.com/f/122730/x/9121a7cc9c/2023-03.pdf"
+      },
+      {
+        "valid_from": "2023-03-31T15:00:00Z",
+        "valid_to": "2023-04-30T15:00:00Z",
+        "price_inc_tax": "8.57",
+        "source_url": "https://a.storyblok.com/f/122730/x/749cb84b6d/2023-04.pdf"
+      },
+      {
+        "valid_from": "2023-04-30T15:00:00Z",
+        "valid_to": "2023-05-31T15:00:00Z",
+        "price_inc_tax": "7.43",
+        "source_url": "https://a.storyblok.com/f/122730/x/cee07f2aed/2023-05.pdf"
+      },
+      {
+        "valid_from": "2023-05-31T15:00:00Z",
+        "valid_to": "2023-06-30T15:00:00Z",
+        "price_inc_tax": "6.70",
+        "source_url": "https://a.storyblok.com/f/122730/x/15e1a91f55/2023-06.pdf"
+      },
+      {
+        "valid_from": "2023-06-30T15:00:00Z",
+        "valid_to": "2023-07-31T15:00:00Z",
+        "price_inc_tax": "6.07",
+        "source_url": "https://a.storyblok.com/f/122730/x/cad8969478/2023-07.pdf"
+      },
+      {
+        "valid_from": "2023-07-31T15:00:00Z",
+        "valid_to": "2023-08-31T15:00:00Z",
+        "price_inc_tax": "5.42",
+        "source_url": "https://a.storyblok.com/f/122730/x/439f2eac1f/2023-08.pdf"
+      },
+      {
+        "valid_from": "2023-08-31T15:00:00Z",
+        "valid_to": "2023-09-30T15:00:00Z",
+        "price_inc_tax": "4.67",
+        "source_url": "https://a.storyblok.com/f/122730/x/ac8a2ff774/2023-09.pdf"
+      },
+      {
+        "valid_from": "2023-09-30T15:00:00Z",
+        "valid_to": "2023-10-31T15:00:00Z",
+        "price_inc_tax": "4.26",
+        "source_url": "https://a.storyblok.com/f/122730/x/9d213e4a34/2023-10.pdf"
+      },
+      {
+        "valid_from": "2023-10-31T15:00:00Z",
+        "valid_to": "2023-11-30T15:00:00Z",
+        "price_inc_tax": "3.96",
+        "source_url": "https://a.storyblok.com/f/122730/x/af24789961/2023-11.pdf"
+      },
+      {
+        "valid_from": "2023-11-30T15:00:00Z",
+        "valid_to": "2023-12-31T15:00:00Z",
+        "price_inc_tax": "3.92",
+        "source_url": "https://a.storyblok.com/f/122730/x/0beee28e3d/2023-12.pdf"
+      },
+      {
+        "valid_from": "2023-12-31T15:00:00Z",
+        "valid_to": "2024-01-31T15:00:00Z",
+        "price_inc_tax": "4.29",
+        "source_url": "https://a.storyblok.com/f/122730/x/b7930b886c/2024-01.pdf"
+      },
+      {
+        "valid_from": "2024-01-31T15:00:00Z",
+        "valid_to": "2024-02-29T15:00:00Z",
+        "price_inc_tax": "4.77",
+        "source_url": "https://a.storyblok.com/f/122730/x/3cd9d97e19/2024-02.pdf"
+      },
+      {
+        "valid_from": "2024-02-29T15:00:00Z",
+        "valid_to": "2024-03-31T15:00:00Z",
+        "price_inc_tax": "4.79",
+        "source_url": "https://a.storyblok.com/f/122730/x/df48ab0c14/2024-03.pdf"
+      },
+      {
+        "valid_from": "2024-03-31T15:00:00Z",
+        "valid_to": "2024-04-30T15:00:00Z",
+        "price_inc_tax": "4.31",
+        "source_url": "https://a.storyblok.com/f/122730/x/206f4d6688/2024-04.pdf"
+      },
+      {
+        "valid_from": "2024-04-30T15:00:00Z",
+        "valid_to": "2024-05-31T15:00:00Z",
+        "price_inc_tax": "3.92",
+        "source_url": "https://a.storyblok.com/f/122730/x/7e7772644e/2024-05.pdf"
+      },
+      {
+        "valid_from": "2024-05-31T15:00:00Z",
+        "valid_to": "2024-06-30T15:00:00Z",
+        "price_inc_tax": "3.68",
+        "source_url": "https://a.storyblok.com/f/122730/x/d9b10bd607/2024-06.pdf"
+      },
+      {
+        "valid_from": "2024-06-30T15:00:00Z",
+        "valid_to": "2024-07-31T15:00:00Z",
+        "price_inc_tax": "3.80",
+        "source_url": "https://a.storyblok.com/f/122730/x/3babf3d648/2024-07.pdf"
+      },
+      {
+        "valid_from": "2024-07-31T15:00:00Z",
+        "valid_to": "2024-08-31T15:00:00Z",
+        "price_inc_tax": "4.00",
+        "source_url": "https://a.storyblok.com/f/122730/x/b69265a701/2024-08.pdf"
+      },
+      {
+        "valid_from": "2024-08-31T15:00:00Z",
+        "valid_to": "2024-09-30T15:00:00Z",
+        "price_inc_tax": "4.29",
+        "source_url": "https://a.storyblok.com/f/122730/x/9fbebe3c2f/2024-09.pdf"
+      },
+      {
+        "valid_from": "2024-09-30T15:00:00Z",
+        "valid_to": "2024-10-31T15:00:00Z",
+        "price_inc_tax": "4.51",
+        "source_url": "https://a.storyblok.com/f/122730/x/495286a146/2024-10.pdf"
+      },
+      {
+        "valid_from": "2024-10-31T15:00:00Z",
+        "valid_to": "2024-11-30T15:00:00Z",
+        "price_inc_tax": "4.33",
+        "source_url": "https://a.storyblok.com/f/122730/x/dccc261587/2024-11.pdf"
+      },
+      {
+        "valid_from": "2024-11-30T15:00:00Z",
+        "valid_to": "2024-12-31T15:00:00Z",
+        "price_inc_tax": "3.86",
+        "source_url": "https://a.storyblok.com/f/122730/x/a312c556c8/2024-12.pdf"
+      },
+      {
+        "valid_from": "2024-12-31T15:00:00Z",
+        "valid_to": "2025-01-31T15:00:00Z",
+        "price_inc_tax": "3.33",
+        "source_url": "https://a.storyblok.com/f/122730/x/c467330a4f/2025-01.pdf"
+      },
+      {
+        "valid_from": "2025-01-31T15:00:00Z",
+        "valid_to": "2025-02-28T15:00:00Z",
+        "price_inc_tax": "3.09",
+        "source_url": "https://a.storyblok.com/f/122730/x/63043fc8b9/2025-02.pdf"
+      },
+      {
+        "valid_from": "2025-02-28T15:00:00Z",
+        "valid_to": "2025-03-31T15:00:00Z",
+        "price_inc_tax": "3.11",
+        "source_url": "https://a.storyblok.com/f/122730/x/b81360d4af/2025-03.pdf"
+      },
+      {
+        "valid_from": "2025-03-31T15:00:00Z",
+        "valid_to": "2025-04-30T15:00:00Z",
+        "price_inc_tax": "3.21",
+        "source_url": "https://a.storyblok.com/f/122730/x/f2d4d20771/2025-04.pdf"
+      },
+      {
+        "valid_from": "2025-04-30T15:00:00Z",
+        "valid_to": "2025-05-31T15:00:00Z",
+        "price_inc_tax": "3.19",
+        "source_url": "https://a.storyblok.com/f/122730/x/1f98d9f34a/2025-05.pdf"
+      },
+      {
+        "valid_from": "2025-05-31T15:00:00Z",
+        "valid_to": "2025-06-30T15:00:00Z",
+        "price_inc_tax": "3.09",
+        "source_url": "https://a.storyblok.com/f/122730/x/9d3f5aa62a/2025-06.pdf"
+      },
+      {
+        "valid_from": "2025-06-30T15:00:00Z",
+        "valid_to": "2025-07-31T15:00:00Z",
+        "price_inc_tax": "2.74",
+        "source_url": "https://a.storyblok.com/f/122730/x/e6370c5d9a/2025-07.pdf"
+      },
+      {
+        "valid_from": "2025-07-31T15:00:00Z",
+        "valid_to": "2025-08-31T15:00:00Z",
+        "price_inc_tax": "2.23",
+        "source_url": "https://a.storyblok.com/f/122730/x/90c66abb12/2025-08.pdf"
+      },
+      {
+        "valid_from": "2025-08-31T15:00:00Z",
+        "valid_to": "2025-09-30T15:00:00Z",
+        "price_inc_tax": "1.75",
+        "source_url": "https://a.storyblok.com/f/122730/x/7ec4950a48/2025-09.pdf"
+      },
+      {
+        "valid_from": "2025-09-30T15:00:00Z",
+        "valid_to": "2025-10-31T15:00:00Z",
+        "price_inc_tax": "1.40",
+        "source_url": "https://a.storyblok.com/f/122730/x/11a3d017a6/2025-10.pdf"
+      },
+      {
+        "valid_from": "2025-10-31T15:00:00Z",
+        "valid_to": "2025-11-30T15:00:00Z",
+        "price_inc_tax": "1.42",
+        "source_url": "https://a.storyblok.com/f/122730/x/a22c538499/2025-11.pdf"
+      },
+      {
+        "valid_from": "2025-11-30T15:00:00Z",
+        "valid_to": "2025-12-31T15:00:00Z",
+        "price_inc_tax": "1.58",
+        "source_url": "https://a.storyblok.com/f/122730/x/21fdec1b6f/2025-12.pdf"
+      },
+      {
+        "valid_from": "2025-12-31T15:00:00Z",
+        "valid_to": "2026-01-31T15:00:00Z",
+        "price_inc_tax": "1.79",
+        "source_url": "https://a.storyblok.com/f/122730/x/974a938672/2026-01.pdf"
+      },
+      {
+        "valid_from": "2026-01-31T15:00:00Z",
+        "valid_to": "2026-02-28T15:00:00Z",
+        "price_inc_tax": "1.85",
+        "source_url": "https://a.storyblok.com/f/122730/x/71ce79fc2d/2026-02.pdf"
+      },
+      {
+        "valid_from": "2026-02-28T15:00:00Z",
+        "valid_to": "2026-03-31T15:00:00Z",
+        "price_inc_tax": "1.91",
+        "source_url": "https://a.storyblok.com/f/122730/x/165ab8bdf7/2026-03.pdf"
+      },
+      {
+        "valid_from": "2026-03-31T15:00:00Z",
+        "valid_to": "2026-04-30T15:00:00Z",
+        "price_inc_tax": "1.81",
+        "source_url": "https://a.storyblok.com/f/122730/x/f29cdaf163/2026-04.pdf"
+      },
+      {
+        "valid_from": "2026-04-30T15:00:00Z",
+        "valid_to": "2026-05-31T15:00:00Z",
+        "price_inc_tax": "1.75",
+        "source_url": "https://a.storyblok.com/f/122730/x/4a6017231e/2026-05.pdf"
+      },
+      {
+        "valid_from": "2026-05-31T15:00:00Z",
+        "valid_to": "2026-06-30T15:00:00Z",
+        "price_inc_tax": "1.75",
+        "source_url": "https://a.storyblok.com/f/122730/x/b29470d82f/2026-06.pdf"
+      },
+      {
+        "valid_from": "2026-06-30T15:00:00Z",
+        "valid_to": "2026-07-31T15:00:00Z",
+        "price_inc_tax": "2.38",
+        "source_url": "https://a.storyblok.com/f/122730/x/6dec1a3882/2026-07.pdf"
+      },
+      {
+        "valid_from": "2026-07-31T15:00:00Z",
+        "valid_to": "2026-08-31T15:00:00Z",
+        "price_inc_tax": "3.88",
+        "source_url": "https://a.storyblok.com/f/122730/x/726ecca2ec/2026-08.pdf"
+      },
+      {
+        "valid_from": "2026-08-31T15:00:00Z",
+        "valid_to": "2026-09-30T15:00:00Z",
+        "price_inc_tax": "6.56",
+        "source_url": "https://a.storyblok.com/f/122730/x/7b4adc51cc/2026-09.pdf"
+      }
+    ],
+    "02": [
+      {
+        "valid_from": "2022-05-31T15:00:00Z",
+        "valid_to": "2022-06-30T15:00:00Z",
+        "price_inc_tax": "3.60",
+        "source_url": "https://a.storyblok.com/f/122730/x/2a303b4ee4/2022-06.pdf"
+      },
+      {
+        "valid_from": "2022-06-30T15:00:00Z",
+        "valid_to": "2022-07-31T15:00:00Z",
+        "price_inc_tax": "4.66",
+        "source_url": "https://a.storyblok.com/f/122730/x/e115317fc2/2022-07.pdf"
+      },
+      {
+        "valid_from": "2022-07-31T15:00:00Z",
+        "valid_to": "2022-08-31T15:00:00Z",
+        "price_inc_tax": "5.86",
+        "source_url": "https://a.storyblok.com/f/122730/x/0af4e1ab58/2022-08.pdf"
+      },
+      {
+        "valid_from": "2022-08-31T15:00:00Z",
+        "valid_to": "2022-09-30T15:00:00Z",
+        "price_inc_tax": "7.67",
+        "source_url": "https://a.storyblok.com/f/122730/x/144112c83d/2022-09.pdf"
+      },
+      {
+        "valid_from": "2022-09-30T15:00:00Z",
+        "valid_to": "2022-10-31T15:00:00Z",
+        "price_inc_tax": "9.46",
+        "source_url": "https://a.storyblok.com/f/122730/x/29eb8ac888/2022-10.pdf"
+      },
+      {
+        "valid_from": "2022-10-31T15:00:00Z",
+        "valid_to": "2022-11-30T15:00:00Z",
+        "price_inc_tax": "10.98",
+        "source_url": "https://a.storyblok.com/f/122730/x/79b562d16f/2022-11.pdf"
+      },
+      {
+        "valid_from": "2022-11-30T15:00:00Z",
+        "valid_to": "2022-12-31T15:00:00Z",
+        "price_inc_tax": "12.57",
+        "source_url": "https://a.storyblok.com/f/122730/x/d128dd7ef8/2022-12.pdf"
+      },
+      {
+        "valid_from": "2022-12-31T15:00:00Z",
+        "valid_to": "2023-01-31T15:00:00Z",
+        "price_inc_tax": "13.41",
+        "source_url": "https://a.storyblok.com/f/122730/x/b9ffa26b68/2023-01.pdf"
+      },
+      {
+        "valid_from": "2023-01-31T15:00:00Z",
+        "valid_to": "2023-02-28T15:00:00Z",
+        "price_inc_tax": "13.81",
+        "source_url": "https://a.storyblok.com/f/122730/x/448e627d60/2023-02.pdf"
+      },
+      {
+        "valid_from": "2023-02-28T15:00:00Z",
+        "valid_to": "2023-03-31T15:00:00Z",
+        "price_inc_tax": "12.99",
+        "source_url": "https://a.storyblok.com/f/122730/x/9121a7cc9c/2023-03.pdf"
+      },
+      {
+        "valid_from": "2023-03-31T15:00:00Z",
+        "valid_to": "2023-04-30T15:00:00Z",
+        "price_inc_tax": "11.80",
+        "source_url": "https://a.storyblok.com/f/122730/x/749cb84b6d/2023-04.pdf"
+      },
+      {
+        "valid_from": "2023-04-30T15:00:00Z",
+        "valid_to": "2023-05-31T15:00:00Z",
+        "price_inc_tax": "10.74",
+        "source_url": "https://a.storyblok.com/f/122730/x/cee07f2aed/2023-05.pdf"
+      },
+      {
+        "valid_from": "2023-05-31T15:00:00Z",
+        "valid_to": "2023-06-30T15:00:00Z",
+        "price_inc_tax": "9.64",
+        "source_url": "https://a.storyblok.com/f/122730/x/15e1a91f55/2023-06.pdf"
+      },
+      {
+        "valid_from": "2023-06-30T15:00:00Z",
+        "valid_to": "2023-07-31T15:00:00Z",
+        "price_inc_tax": "8.42",
+        "source_url": "https://a.storyblok.com/f/122730/x/cad8969478/2023-07.pdf"
+      },
+      {
+        "valid_from": "2023-07-31T15:00:00Z",
+        "valid_to": "2023-08-31T15:00:00Z",
+        "price_inc_tax": "7.07",
+        "source_url": "https://a.storyblok.com/f/122730/x/439f2eac1f/2023-08.pdf"
+      },
+      {
+        "valid_from": "2023-08-31T15:00:00Z",
+        "valid_to": "2023-09-30T15:00:00Z",
+        "price_inc_tax": "5.94",
+        "source_url": "https://a.storyblok.com/f/122730/x/ac8a2ff774/2023-09.pdf"
+      },
+      {
+        "valid_from": "2023-09-30T15:00:00Z",
+        "valid_to": "2023-10-31T15:00:00Z",
+        "price_inc_tax": "5.33",
+        "source_url": "https://a.storyblok.com/f/122730/x/9d213e4a34/2023-10.pdf"
+      },
+      {
+        "valid_from": "2023-10-31T15:00:00Z",
+        "valid_to": "2023-11-30T15:00:00Z",
+        "price_inc_tax": "4.99",
+        "source_url": "https://a.storyblok.com/f/122730/x/af24789961/2023-11.pdf"
+      },
+      {
+        "valid_from": "2023-11-30T15:00:00Z",
+        "valid_to": "2023-12-31T15:00:00Z",
+        "price_inc_tax": "4.80",
+        "source_url": "https://a.storyblok.com/f/122730/x/0beee28e3d/2023-12.pdf"
+      },
+      {
+        "valid_from": "2023-12-31T15:00:00Z",
+        "valid_to": "2024-01-31T15:00:00Z",
+        "price_inc_tax": "4.91",
+        "source_url": "https://a.storyblok.com/f/122730/x/b7930b886c/2024-01.pdf"
+      },
+      {
+        "valid_from": "2024-01-31T15:00:00Z",
+        "valid_to": "2024-02-29T15:00:00Z",
+        "price_inc_tax": "5.11",
+        "source_url": "https://a.storyblok.com/f/122730/x/3cd9d97e19/2024-02.pdf"
+      },
+      {
+        "valid_from": "2024-02-29T15:00:00Z",
+        "valid_to": "2024-03-31T15:00:00Z",
+        "price_inc_tax": "5.33",
+        "source_url": "https://a.storyblok.com/f/122730/x/df48ab0c14/2024-03.pdf"
+      },
+      {
+        "valid_from": "2024-03-31T15:00:00Z",
+        "valid_to": "2024-04-30T15:00:00Z",
+        "price_inc_tax": "5.24",
+        "source_url": "https://a.storyblok.com/f/122730/x/206f4d6688/2024-04.pdf"
+      },
+      {
+        "valid_from": "2024-04-30T15:00:00Z",
+        "valid_to": "2024-05-31T15:00:00Z",
+        "price_inc_tax": "5.19",
+        "source_url": "https://a.storyblok.com/f/122730/x/7e7772644e/2024-05.pdf"
+      },
+      {
+        "valid_from": "2024-05-31T15:00:00Z",
+        "valid_to": "2024-06-30T15:00:00Z",
+        "price_inc_tax": "4.97",
+        "source_url": "https://a.storyblok.com/f/122730/x/d9b10bd607/2024-06.pdf"
+      },
+      {
+        "valid_from": "2024-06-30T15:00:00Z",
+        "valid_to": "2024-07-31T15:00:00Z",
+        "price_inc_tax": "4.75",
+        "source_url": "https://a.storyblok.com/f/122730/x/3babf3d648/2024-07.pdf"
+      },
+      {
+        "valid_from": "2024-07-31T15:00:00Z",
+        "valid_to": "2024-08-31T15:00:00Z",
+        "price_inc_tax": "4.62",
+        "source_url": "https://a.storyblok.com/f/122730/x/b69265a701/2024-08.pdf"
+      },
+      {
+        "valid_from": "2024-08-31T15:00:00Z",
+        "valid_to": "2024-09-30T15:00:00Z",
+        "price_inc_tax": "4.64",
+        "source_url": "https://a.storyblok.com/f/122730/x/9fbebe3c2f/2024-09.pdf"
+      },
+      {
+        "valid_from": "2024-09-30T15:00:00Z",
+        "valid_to": "2024-10-31T15:00:00Z",
+        "price_inc_tax": "4.86",
+        "source_url": "https://a.storyblok.com/f/122730/x/495286a146/2024-10.pdf"
+      },
+      {
+        "valid_from": "2024-10-31T15:00:00Z",
+        "valid_to": "2024-11-30T15:00:00Z",
+        "price_inc_tax": "4.84",
+        "source_url": "https://a.storyblok.com/f/122730/x/dccc261587/2024-11.pdf"
+      },
+      {
+        "valid_from": "2024-11-30T15:00:00Z",
+        "valid_to": "2024-12-31T15:00:00Z",
+        "price_inc_tax": "4.55",
+        "source_url": "https://a.storyblok.com/f/122730/x/a312c556c8/2024-12.pdf"
+      },
+      {
+        "valid_from": "2024-12-31T15:00:00Z",
+        "valid_to": "2025-01-31T15:00:00Z",
+        "price_inc_tax": "4.24",
+        "source_url": "https://a.storyblok.com/f/122730/x/c467330a4f/2025-01.pdf"
+      },
+      {
+        "valid_from": "2025-01-31T15:00:00Z",
+        "valid_to": "2025-02-28T15:00:00Z",
+        "price_inc_tax": "4.20",
+        "source_url": "https://a.storyblok.com/f/122730/x/63043fc8b9/2025-02.pdf"
+      },
+      {
+        "valid_from": "2025-02-28T15:00:00Z",
+        "valid_to": "2025-03-31T15:00:00Z",
+        "price_inc_tax": "4.35",
+        "source_url": "https://a.storyblok.com/f/122730/x/b81360d4af/2025-03.pdf"
+      },
+      {
+        "valid_from": "2025-03-31T15:00:00Z",
+        "valid_to": "2025-04-30T15:00:00Z",
+        "price_inc_tax": "4.60",
+        "source_url": "https://a.storyblok.com/f/122730/x/f2d4d20771/2025-04.pdf"
+      },
+      {
+        "valid_from": "2025-04-30T15:00:00Z",
+        "valid_to": "2025-05-31T15:00:00Z",
+        "price_inc_tax": "4.49",
+        "source_url": "https://a.storyblok.com/f/122730/x/1f98d9f34a/2025-05.pdf"
+      },
+      {
+        "valid_from": "2025-05-31T15:00:00Z",
+        "valid_to": "2025-06-30T15:00:00Z",
+        "price_inc_tax": "4.27",
+        "source_url": "https://a.storyblok.com/f/122730/x/9d3f5aa62a/2025-06.pdf"
+      },
+      {
+        "valid_from": "2025-06-30T15:00:00Z",
+        "valid_to": "2025-07-31T15:00:00Z",
+        "price_inc_tax": "3.71",
+        "source_url": "https://a.storyblok.com/f/122730/x/e6370c5d9a/2025-07.pdf"
+      },
+      {
+        "valid_from": "2025-07-31T15:00:00Z",
+        "valid_to": "2025-08-31T15:00:00Z",
+        "price_inc_tax": "3.23",
+        "source_url": "https://a.storyblok.com/f/122730/x/90c66abb12/2025-08.pdf"
+      },
+      {
+        "valid_from": "2025-08-31T15:00:00Z",
+        "valid_to": "2025-09-30T15:00:00Z",
+        "price_inc_tax": "2.87",
+        "source_url": "https://a.storyblok.com/f/122730/x/7ec4950a48/2025-09.pdf"
+      },
+      {
+        "valid_from": "2025-09-30T15:00:00Z",
+        "valid_to": "2025-10-31T15:00:00Z",
+        "price_inc_tax": "2.65",
+        "source_url": "https://a.storyblok.com/f/122730/x/11a3d017a6/2025-10.pdf"
+      },
+      {
+        "valid_from": "2025-10-31T15:00:00Z",
+        "valid_to": "2025-11-30T15:00:00Z",
+        "price_inc_tax": "2.65",
+        "source_url": "https://a.storyblok.com/f/122730/x/a22c538499/2025-11.pdf"
+      },
+      {
+        "valid_from": "2025-11-30T15:00:00Z",
+        "valid_to": "2025-12-31T15:00:00Z",
+        "price_inc_tax": "2.67",
+        "source_url": "https://a.storyblok.com/f/122730/x/21fdec1b6f/2025-12.pdf"
+      },
+      {
+        "valid_from": "2025-12-31T15:00:00Z",
+        "valid_to": "2026-01-31T15:00:00Z",
+        "price_inc_tax": "2.72",
+        "source_url": "https://a.storyblok.com/f/122730/x/974a938672/2026-01.pdf"
+      },
+      {
+        "valid_from": "2026-01-31T15:00:00Z",
+        "valid_to": "2026-02-28T15:00:00Z",
+        "price_inc_tax": "2.72",
+        "source_url": "https://a.storyblok.com/f/122730/x/71ce79fc2d/2026-02.pdf"
+      },
+      {
+        "valid_from": "2026-02-28T15:00:00Z",
+        "valid_to": "2026-03-31T15:00:00Z",
+        "price_inc_tax": "2.85",
+        "source_url": "https://a.storyblok.com/f/122730/x/165ab8bdf7/2026-03.pdf"
+      },
+      {
+        "valid_from": "2026-03-31T15:00:00Z",
+        "valid_to": "2026-04-30T15:00:00Z",
+        "price_inc_tax": "2.98",
+        "source_url": "https://a.storyblok.com/f/122730/x/f29cdaf163/2026-04.pdf"
+      },
+      {
+        "valid_from": "2026-04-30T15:00:00Z",
+        "valid_to": "2026-05-31T15:00:00Z",
+        "price_inc_tax": "3.03",
+        "source_url": "https://a.storyblok.com/f/122730/x/4a6017231e/2026-05.pdf"
+      },
+      {
+        "valid_from": "2026-05-31T15:00:00Z",
+        "valid_to": "2026-06-30T15:00:00Z",
+        "price_inc_tax": "3.09",
+        "source_url": "https://a.storyblok.com/f/122730/x/b29470d82f/2026-06.pdf"
+      },
+      {
+        "valid_from": "2026-06-30T15:00:00Z",
+        "valid_to": "2026-07-31T15:00:00Z",
+        "price_inc_tax": "3.34",
+        "source_url": "https://a.storyblok.com/f/122730/x/6dec1a3882/2026-07.pdf"
+      },
+      {
+        "valid_from": "2026-07-31T15:00:00Z",
+        "valid_to": "2026-08-31T15:00:00Z",
+        "price_inc_tax": "4.13",
+        "source_url": "https://a.storyblok.com/f/122730/x/726ecca2ec/2026-08.pdf"
+      },
+      {
+        "valid_from": "2026-08-31T15:00:00Z",
+        "valid_to": "2026-09-30T15:00:00Z",
+        "price_inc_tax": "5.15",
+        "source_url": "https://a.storyblok.com/f/122730/x/7b4adc51cc/2026-09.pdf"
+      }
+    ],
+    "03": [
+      {
+        "valid_from": "2022-05-31T15:00:00Z",
+        "valid_to": "2022-06-30T15:00:00Z",
+        "price_inc_tax": "2.97",
+        "source_url": "https://a.storyblok.com/f/122730/x/2a303b4ee4/2022-06.pdf"
+      },
+      {
+        "valid_from": "2022-06-30T15:00:00Z",
+        "valid_to": "2022-07-31T15:00:00Z",
+        "price_inc_tax": "4.15",
+        "source_url": "https://a.storyblok.com/f/122730/x/e115317fc2/2022-07.pdf"
+      },
+      {
+        "valid_from": "2022-07-31T15:00:00Z",
+        "valid_to": "2022-08-31T15:00:00Z",
+        "price_inc_tax": "5.10",
+        "source_url": "https://a.storyblok.com/f/122730/x/0af4e1ab58/2022-08.pdf"
+      },
+      {
+        "valid_from": "2022-08-31T15:00:00Z",
+        "valid_to": "2022-09-30T15:00:00Z",
+        "price_inc_tax": "6.50",
+        "source_url": "https://a.storyblok.com/f/122730/x/144112c83d/2022-09.pdf"
+      },
+      {
+        "valid_from": "2022-09-30T15:00:00Z",
+        "valid_to": "2022-10-31T15:00:00Z",
+        "price_inc_tax": "8.07",
+        "source_url": "https://a.storyblok.com/f/122730/x/29eb8ac888/2022-10.pdf"
+      },
+      {
+        "valid_from": "2022-10-31T15:00:00Z",
+        "valid_to": "2022-11-30T15:00:00Z",
+        "price_inc_tax": "9.72",
+        "source_url": "https://a.storyblok.com/f/122730/x/79b562d16f/2022-11.pdf"
+      },
+      {
+        "valid_from": "2022-11-30T15:00:00Z",
+        "valid_to": "2022-12-31T15:00:00Z",
+        "price_inc_tax": "11.92",
+        "source_url": "https://a.storyblok.com/f/122730/x/d128dd7ef8/2022-12.pdf"
+      },
+      {
+        "valid_from": "2022-12-31T15:00:00Z",
+        "valid_to": "2023-01-31T15:00:00Z",
+        "price_inc_tax": "12.99",
+        "source_url": "https://a.storyblok.com/f/122730/x/b9ffa26b68/2023-01.pdf"
+      },
+      {
+        "valid_from": "2023-01-31T15:00:00Z",
+        "valid_to": "2023-02-28T15:00:00Z",
+        "price_inc_tax": "13.04",
+        "source_url": "https://a.storyblok.com/f/122730/x/448e627d60/2023-02.pdf"
+      },
+      {
+        "valid_from": "2023-02-28T15:00:00Z",
+        "valid_to": "2023-03-31T15:00:00Z",
+        "price_inc_tax": "11.69",
+        "source_url": "https://a.storyblok.com/f/122730/x/9121a7cc9c/2023-03.pdf"
+      },
+      {
+        "valid_from": "2023-03-31T15:00:00Z",
+        "valid_to": "2023-04-30T15:00:00Z",
+        "price_inc_tax": "10.25",
+        "source_url": "https://a.storyblok.com/f/122730/x/749cb84b6d/2023-04.pdf"
+      },
+      {
+        "valid_from": "2023-04-30T15:00:00Z",
+        "valid_to": "2023-05-31T15:00:00Z",
+        "price_inc_tax": "9.21",
+        "source_url": "https://a.storyblok.com/f/122730/x/cee07f2aed/2023-05.pdf"
+      },
+      {
+        "valid_from": "2023-05-31T15:00:00Z",
+        "valid_to": "2023-06-30T15:00:00Z",
+        "price_inc_tax": "7.91",
+        "source_url": "https://a.storyblok.com/f/122730/x/15e1a91f55/2023-06.pdf"
+      },
+      {
+        "valid_from": "2023-06-30T15:00:00Z",
+        "valid_to": "2023-07-31T15:00:00Z",
+        "price_inc_tax": "6.54",
+        "source_url": "https://a.storyblok.com/f/122730/x/cad8969478/2023-07.pdf"
+      },
+      {
+        "valid_from": "2023-07-31T15:00:00Z",
+        "valid_to": "2023-08-31T15:00:00Z",
+        "price_inc_tax": "5.22",
+        "source_url": "https://a.storyblok.com/f/122730/x/439f2eac1f/2023-08.pdf"
+      },
+      {
+        "valid_from": "2023-08-31T15:00:00Z",
+        "valid_to": "2023-09-30T15:00:00Z",
+        "price_inc_tax": "4.29",
+        "source_url": "https://a.storyblok.com/f/122730/x/ac8a2ff774/2023-09.pdf"
+      },
+      {
+        "valid_from": "2023-09-30T15:00:00Z",
+        "valid_to": "2023-10-31T15:00:00Z",
+        "price_inc_tax": "3.99",
+        "source_url": "https://a.storyblok.com/f/122730/x/9d213e4a34/2023-10.pdf"
+      },
+      {
+        "valid_from": "2023-10-31T15:00:00Z",
+        "valid_to": "2023-11-30T15:00:00Z",
+        "price_inc_tax": "3.85",
+        "source_url": "https://a.storyblok.com/f/122730/x/af24789961/2023-11.pdf"
+      },
+      {
+        "valid_from": "2023-11-30T15:00:00Z",
+        "valid_to": "2023-12-31T15:00:00Z",
+        "price_inc_tax": "3.87",
+        "source_url": "https://a.storyblok.com/f/122730/x/0beee28e3d/2023-12.pdf"
+      },
+      {
+        "valid_from": "2023-12-31T15:00:00Z",
+        "valid_to": "2024-01-31T15:00:00Z",
+        "price_inc_tax": "4.15",
+        "source_url": "https://a.storyblok.com/f/122730/x/b7930b886c/2024-01.pdf"
+      },
+      {
+        "valid_from": "2024-01-31T15:00:00Z",
+        "valid_to": "2024-02-29T15:00:00Z",
+        "price_inc_tax": "4.55",
+        "source_url": "https://a.storyblok.com/f/122730/x/3cd9d97e19/2024-02.pdf"
+      },
+      {
+        "valid_from": "2024-02-29T15:00:00Z",
+        "valid_to": "2024-03-31T15:00:00Z",
+        "price_inc_tax": "5.08",
+        "source_url": "https://a.storyblok.com/f/122730/x/df48ab0c14/2024-03.pdf"
+      },
+      {
+        "valid_from": "2024-03-31T15:00:00Z",
+        "valid_to": "2024-04-30T15:00:00Z",
+        "price_inc_tax": "5.20",
+        "source_url": "https://a.storyblok.com/f/122730/x/206f4d6688/2024-04.pdf"
+      },
+      {
+        "valid_from": "2024-04-30T15:00:00Z",
+        "valid_to": "2024-05-31T15:00:00Z",
+        "price_inc_tax": "5.20",
+        "source_url": "https://a.storyblok.com/f/122730/x/7e7772644e/2024-05.pdf"
+      },
+      {
+        "valid_from": "2024-05-31T15:00:00Z",
+        "valid_to": "2024-06-30T15:00:00Z",
+        "price_inc_tax": "4.92",
+        "source_url": "https://a.storyblok.com/f/122730/x/d9b10bd607/2024-06.pdf"
+      },
+      {
+        "valid_from": "2024-06-30T15:00:00Z",
+        "valid_to": "2024-07-31T15:00:00Z",
+        "price_inc_tax": "4.55",
+        "source_url": "https://a.storyblok.com/f/122730/x/3babf3d648/2024-07.pdf"
+      },
+      {
+        "valid_from": "2024-07-31T15:00:00Z",
+        "valid_to": "2024-08-31T15:00:00Z",
+        "price_inc_tax": "4.38",
+        "source_url": "https://a.storyblok.com/f/122730/x/b69265a701/2024-08.pdf"
+      },
+      {
+        "valid_from": "2024-08-31T15:00:00Z",
+        "valid_to": "2024-09-30T15:00:00Z",
+        "price_inc_tax": "4.43",
+        "source_url": "https://a.storyblok.com/f/122730/x/9fbebe3c2f/2024-09.pdf"
+      },
+      {
+        "valid_from": "2024-09-30T15:00:00Z",
+        "valid_to": "2024-10-31T15:00:00Z",
+        "price_inc_tax": "4.80",
+        "source_url": "https://a.storyblok.com/f/122730/x/495286a146/2024-10.pdf"
+      },
+      {
+        "valid_from": "2024-10-31T15:00:00Z",
+        "valid_to": "2024-11-30T15:00:00Z",
+        "price_inc_tax": "4.80",
+        "source_url": "https://a.storyblok.com/f/122730/x/dccc261587/2024-11.pdf"
+      },
+      {
+        "valid_from": "2024-11-30T15:00:00Z",
+        "valid_to": "2024-12-31T15:00:00Z",
+        "price_inc_tax": "4.48",
+        "source_url": "https://a.storyblok.com/f/122730/x/a312c556c8/2024-12.pdf"
+      },
+      {
+        "valid_from": "2024-12-31T15:00:00Z",
+        "valid_to": "2025-01-31T15:00:00Z",
+        "price_inc_tax": "4.06",
+        "source_url": "https://a.storyblok.com/f/122730/x/c467330a4f/2025-01.pdf"
+      },
+      {
+        "valid_from": "2025-01-31T15:00:00Z",
+        "valid_to": "2025-02-28T15:00:00Z",
+        "price_inc_tax": "3.97",
+        "source_url": "https://a.storyblok.com/f/122730/x/63043fc8b9/2025-02.pdf"
+      },
+      {
+        "valid_from": "2025-02-28T15:00:00Z",
+        "valid_to": "2025-03-31T15:00:00Z",
+        "price_inc_tax": "4.13",
+        "source_url": "https://a.storyblok.com/f/122730/x/b81360d4af/2025-03.pdf"
+      },
+      {
+        "valid_from": "2025-03-31T15:00:00Z",
+        "valid_to": "2025-04-30T15:00:00Z",
+        "price_inc_tax": "4.50",
+        "source_url": "https://a.storyblok.com/f/122730/x/f2d4d20771/2025-04.pdf"
+      },
+      {
+        "valid_from": "2025-04-30T15:00:00Z",
+        "valid_to": "2025-05-31T15:00:00Z",
+        "price_inc_tax": "4.45",
+        "source_url": "https://a.storyblok.com/f/122730/x/1f98d9f34a/2025-05.pdf"
+      },
+      {
+        "valid_from": "2025-05-31T15:00:00Z",
+        "valid_to": "2025-06-30T15:00:00Z",
+        "price_inc_tax": "4.34",
+        "source_url": "https://a.storyblok.com/f/122730/x/9d3f5aa62a/2025-06.pdf"
+      },
+      {
+        "valid_from": "2025-06-30T15:00:00Z",
+        "valid_to": "2025-07-31T15:00:00Z",
+        "price_inc_tax": "3.76",
+        "source_url": "https://a.storyblok.com/f/122730/x/e6370c5d9a/2025-07.pdf"
+      },
+      {
+        "valid_from": "2025-07-31T15:00:00Z",
+        "valid_to": "2025-08-31T15:00:00Z",
+        "price_inc_tax": "3.25",
+        "source_url": "https://a.storyblok.com/f/122730/x/90c66abb12/2025-08.pdf"
+      },
+      {
+        "valid_from": "2025-08-31T15:00:00Z",
+        "valid_to": "2025-09-30T15:00:00Z",
+        "price_inc_tax": "2.85",
+        "source_url": "https://a.storyblok.com/f/122730/x/7ec4950a48/2025-09.pdf"
+      },
+      {
+        "valid_from": "2025-09-30T15:00:00Z",
+        "valid_to": "2025-10-31T15:00:00Z",
+        "price_inc_tax": "2.55",
+        "source_url": "https://a.storyblok.com/f/122730/x/11a3d017a6/2025-10.pdf"
+      },
+      {
+        "valid_from": "2025-10-31T15:00:00Z",
+        "valid_to": "2025-11-30T15:00:00Z",
+        "price_inc_tax": "2.48",
+        "source_url": "https://a.storyblok.com/f/122730/x/a22c538499/2025-11.pdf"
+      },
+      {
+        "valid_from": "2025-11-30T15:00:00Z",
+        "valid_to": "2025-12-31T15:00:00Z",
+        "price_inc_tax": "2.46",
+        "source_url": "https://a.storyblok.com/f/122730/x/21fdec1b6f/2025-12.pdf"
+      },
+      {
+        "valid_from": "2025-12-31T15:00:00Z",
+        "valid_to": "2026-01-31T15:00:00Z",
+        "price_inc_tax": "2.44",
+        "source_url": "https://a.storyblok.com/f/122730/x/974a938672/2026-01.pdf"
+      },
+      {
+        "valid_from": "2026-01-31T15:00:00Z",
+        "valid_to": "2026-02-28T15:00:00Z",
+        "price_inc_tax": "2.46",
+        "source_url": "https://a.storyblok.com/f/122730/x/71ce79fc2d/2026-02.pdf"
+      },
+      {
+        "valid_from": "2026-02-28T15:00:00Z",
+        "valid_to": "2026-03-31T15:00:00Z",
+        "price_inc_tax": "2.60",
+        "source_url": "https://a.storyblok.com/f/122730/x/165ab8bdf7/2026-03.pdf"
+      },
+      {
+        "valid_from": "2026-03-31T15:00:00Z",
+        "valid_to": "2026-04-30T15:00:00Z",
+        "price_inc_tax": "2.76",
+        "source_url": "https://a.storyblok.com/f/122730/x/f29cdaf163/2026-04.pdf"
+      },
+      {
+        "valid_from": "2026-04-30T15:00:00Z",
+        "valid_to": "2026-05-31T15:00:00Z",
+        "price_inc_tax": "2.76",
+        "source_url": "https://a.storyblok.com/f/122730/x/4a6017231e/2026-05.pdf"
+      },
+      {
+        "valid_from": "2026-05-31T15:00:00Z",
+        "valid_to": "2026-06-30T15:00:00Z",
+        "price_inc_tax": "2.83",
+        "source_url": "https://a.storyblok.com/f/122730/x/b29470d82f/2026-06.pdf"
+      },
+      {
+        "valid_from": "2026-06-30T15:00:00Z",
+        "valid_to": "2026-07-31T15:00:00Z",
+        "price_inc_tax": "3.18",
+        "source_url": "https://a.storyblok.com/f/122730/x/6dec1a3882/2026-07.pdf"
+      },
+      {
+        "valid_from": "2026-07-31T15:00:00Z",
+        "valid_to": "2026-08-31T15:00:00Z",
+        "price_inc_tax": "4.32",
+        "source_url": "https://a.storyblok.com/f/122730/x/726ecca2ec/2026-08.pdf"
+      },
+      {
+        "valid_from": "2026-08-31T15:00:00Z",
+        "valid_to": "2026-09-30T15:00:00Z",
+        "price_inc_tax": "5.78",
+        "source_url": "https://a.storyblok.com/f/122730/x/7b4adc51cc/2026-09.pdf"
+      }
+    ],
+    "04": [
+      {
+        "valid_from": "2022-05-31T15:00:00Z",
+        "valid_to": "2022-06-30T15:00:00Z",
+        "price_inc_tax": "1.77",
+        "source_url": "https://a.storyblok.com/f/122730/x/2a303b4ee4/2022-06.pdf"
+      },
+      {
+        "valid_from": "2022-06-30T15:00:00Z",
+        "valid_to": "2022-07-31T15:00:00Z",
+        "price_inc_tax": "2.77",
+        "source_url": "https://a.storyblok.com/f/122730/x/e115317fc2/2022-07.pdf"
+      },
+      {
+        "valid_from": "2022-07-31T15:00:00Z",
+        "valid_to": "2022-08-31T15:00:00Z",
+        "price_inc_tax": "3.66",
+        "source_url": "https://a.storyblok.com/f/122730/x/0af4e1ab58/2022-08.pdf"
+      },
+      {
+        "valid_from": "2022-08-31T15:00:00Z",
+        "valid_to": "2022-09-30T15:00:00Z",
+        "price_inc_tax": "5.06",
+        "source_url": "https://a.storyblok.com/f/122730/x/144112c83d/2022-09.pdf"
+      },
+      {
+        "valid_from": "2022-09-30T15:00:00Z",
+        "valid_to": "2022-10-31T15:00:00Z",
+        "price_inc_tax": "6.76",
+        "source_url": "https://a.storyblok.com/f/122730/x/29eb8ac888/2022-10.pdf"
+      },
+      {
+        "valid_from": "2022-10-31T15:00:00Z",
+        "valid_to": "2022-11-30T15:00:00Z",
+        "price_inc_tax": "8.60",
+        "source_url": "https://a.storyblok.com/f/122730/x/79b562d16f/2022-11.pdf"
+      },
+      {
+        "valid_from": "2022-11-30T15:00:00Z",
+        "valid_to": "2022-12-31T15:00:00Z",
+        "price_inc_tax": "11.04",
+        "source_url": "https://a.storyblok.com/f/122730/x/d128dd7ef8/2022-12.pdf"
+      },
+      {
+        "valid_from": "2022-12-31T15:00:00Z",
+        "valid_to": "2023-01-31T15:00:00Z",
+        "price_inc_tax": "12.30",
+        "source_url": "https://a.storyblok.com/f/122730/x/b9ffa26b68/2023-01.pdf"
+      },
+      {
+        "valid_from": "2023-01-31T15:00:00Z",
+        "valid_to": "2023-02-28T15:00:00Z",
+        "price_inc_tax": "12.51",
+        "source_url": "https://a.storyblok.com/f/122730/x/448e627d60/2023-02.pdf"
+      },
+      {
+        "valid_from": "2023-02-28T15:00:00Z",
+        "valid_to": "2023-03-31T15:00:00Z",
+        "price_inc_tax": "11.28",
+        "source_url": "https://a.storyblok.com/f/122730/x/9121a7cc9c/2023-03.pdf"
+      },
+      {
+        "valid_from": "2023-03-31T15:00:00Z",
+        "valid_to": "2023-04-30T15:00:00Z",
+        "price_inc_tax": "9.93",
+        "source_url": "https://a.storyblok.com/f/122730/x/749cb84b6d/2023-04.pdf"
+      },
+      {
+        "valid_from": "2023-04-30T15:00:00Z",
+        "valid_to": "2023-05-31T15:00:00Z",
+        "price_inc_tax": "8.95",
+        "source_url": "https://a.storyblok.com/f/122730/x/cee07f2aed/2023-05.pdf"
+      },
+      {
+        "valid_from": "2023-05-31T15:00:00Z",
+        "valid_to": "2023-06-30T15:00:00Z",
+        "price_inc_tax": "7.60",
+        "source_url": "https://a.storyblok.com/f/122730/x/15e1a91f55/2023-06.pdf"
+      },
+      {
+        "valid_from": "2023-06-30T15:00:00Z",
+        "valid_to": "2023-07-31T15:00:00Z",
+        "price_inc_tax": "6.06",
+        "source_url": "https://a.storyblok.com/f/122730/x/cad8969478/2023-07.pdf"
+      },
+      {
+        "valid_from": "2023-07-31T15:00:00Z",
+        "valid_to": "2023-08-31T15:00:00Z",
+        "price_inc_tax": "4.43",
+        "source_url": "https://a.storyblok.com/f/122730/x/439f2eac1f/2023-08.pdf"
+      },
+      {
+        "valid_from": "2023-08-31T15:00:00Z",
+        "valid_to": "2023-09-30T15:00:00Z",
+        "price_inc_tax": "3.26",
+        "source_url": "https://a.storyblok.com/f/122730/x/ac8a2ff774/2023-09.pdf"
+      },
+      {
+        "valid_from": "2023-09-30T15:00:00Z",
+        "valid_to": "2023-10-31T15:00:00Z",
+        "price_inc_tax": "2.77",
+        "source_url": "https://a.storyblok.com/f/122730/x/9d213e4a34/2023-10.pdf"
+      },
+      {
+        "valid_from": "2023-10-31T15:00:00Z",
+        "valid_to": "2023-11-30T15:00:00Z",
+        "price_inc_tax": "2.54",
+        "source_url": "https://a.storyblok.com/f/122730/x/af24789961/2023-11.pdf"
+      },
+      {
+        "valid_from": "2023-11-30T15:00:00Z",
+        "valid_to": "2023-12-31T15:00:00Z",
+        "price_inc_tax": "2.40",
+        "source_url": "https://a.storyblok.com/f/122730/x/0beee28e3d/2023-12.pdf"
+      },
+      {
+        "valid_from": "2023-12-31T15:00:00Z",
+        "valid_to": "2024-01-31T15:00:00Z",
+        "price_inc_tax": "2.49",
+        "source_url": "https://a.storyblok.com/f/122730/x/b7930b886c/2024-01.pdf"
+      },
+      {
+        "valid_from": "2024-01-31T15:00:00Z",
+        "valid_to": "2024-02-29T15:00:00Z",
+        "price_inc_tax": "2.68",
+        "source_url": "https://a.storyblok.com/f/122730/x/3cd9d97e19/2024-02.pdf"
+      },
+      {
+        "valid_from": "2024-02-29T15:00:00Z",
+        "valid_to": "2024-03-31T15:00:00Z",
+        "price_inc_tax": "3.19",
+        "source_url": "https://a.storyblok.com/f/122730/x/df48ab0c14/2024-03.pdf"
+      },
+      {
+        "valid_from": "2024-03-31T15:00:00Z",
+        "valid_to": "2024-04-30T15:00:00Z",
+        "price_inc_tax": "3.40",
+        "source_url": "https://a.storyblok.com/f/122730/x/206f4d6688/2024-04.pdf"
+      },
+      {
+        "valid_from": "2024-04-30T15:00:00Z",
+        "valid_to": "2024-05-31T15:00:00Z",
+        "price_inc_tax": "3.54",
+        "source_url": "https://a.storyblok.com/f/122730/x/7e7772644e/2024-05.pdf"
+      },
+      {
+        "valid_from": "2024-05-31T15:00:00Z",
+        "valid_to": "2024-06-30T15:00:00Z",
+        "price_inc_tax": "3.31",
+        "source_url": "https://a.storyblok.com/f/122730/x/d9b10bd607/2024-06.pdf"
+      },
+      {
+        "valid_from": "2024-06-30T15:00:00Z",
+        "valid_to": "2024-07-31T15:00:00Z",
+        "price_inc_tax": "2.84",
+        "source_url": "https://a.storyblok.com/f/122730/x/3babf3d648/2024-07.pdf"
+      },
+      {
+        "valid_from": "2024-07-31T15:00:00Z",
+        "valid_to": "2024-08-31T15:00:00Z",
+        "price_inc_tax": "2.54",
+        "source_url": "https://a.storyblok.com/f/122730/x/b69265a701/2024-08.pdf"
+      },
+      {
+        "valid_from": "2024-08-31T15:00:00Z",
+        "valid_to": "2024-09-30T15:00:00Z",
+        "price_inc_tax": "2.45",
+        "source_url": "https://a.storyblok.com/f/122730/x/9fbebe3c2f/2024-09.pdf"
+      },
+      {
+        "valid_from": "2024-09-30T15:00:00Z",
+        "valid_to": "2024-10-31T15:00:00Z",
+        "price_inc_tax": "2.75",
+        "source_url": "https://a.storyblok.com/f/122730/x/495286a146/2024-10.pdf"
+      },
+      {
+        "valid_from": "2024-10-31T15:00:00Z",
+        "valid_to": "2024-11-30T15:00:00Z",
+        "price_inc_tax": "2.80",
+        "source_url": "https://a.storyblok.com/f/122730/x/dccc261587/2024-11.pdf"
+      },
+      {
+        "valid_from": "2024-11-30T15:00:00Z",
+        "valid_to": "2024-12-31T15:00:00Z",
+        "price_inc_tax": "2.59",
+        "source_url": "https://a.storyblok.com/f/122730/x/a312c556c8/2024-12.pdf"
+      },
+      {
+        "valid_from": "2024-12-31T15:00:00Z",
+        "valid_to": "2025-01-31T15:00:00Z",
+        "price_inc_tax": "2.33",
+        "source_url": "https://a.storyblok.com/f/122730/x/c467330a4f/2025-01.pdf"
+      },
+      {
+        "valid_from": "2025-01-31T15:00:00Z",
+        "valid_to": "2025-02-28T15:00:00Z",
+        "price_inc_tax": "2.35",
+        "source_url": "https://a.storyblok.com/f/122730/x/63043fc8b9/2025-02.pdf"
+      },
+      {
+        "valid_from": "2025-02-28T15:00:00Z",
+        "valid_to": "2025-03-31T15:00:00Z",
+        "price_inc_tax": "2.56",
+        "source_url": "https://a.storyblok.com/f/122730/x/b81360d4af/2025-03.pdf"
+      },
+      {
+        "valid_from": "2025-03-31T15:00:00Z",
+        "valid_to": "2025-04-30T15:00:00Z",
+        "price_inc_tax": "2.94",
+        "source_url": "https://a.storyblok.com/f/122730/x/f2d4d20771/2025-04.pdf"
+      },
+      {
+        "valid_from": "2025-04-30T15:00:00Z",
+        "valid_to": "2025-05-31T15:00:00Z",
+        "price_inc_tax": "2.84",
+        "source_url": "https://a.storyblok.com/f/122730/x/1f98d9f34a/2025-05.pdf"
+      },
+      {
+        "valid_from": "2025-05-31T15:00:00Z",
+        "valid_to": "2025-06-30T15:00:00Z",
+        "price_inc_tax": "2.63",
+        "source_url": "https://a.storyblok.com/f/122730/x/9d3f5aa62a/2025-06.pdf"
+      },
+      {
+        "valid_from": "2025-06-30T15:00:00Z",
+        "valid_to": "2025-07-31T15:00:00Z",
+        "price_inc_tax": "1.98",
+        "source_url": "https://a.storyblok.com/f/122730/x/e6370c5d9a/2025-07.pdf"
+      },
+      {
+        "valid_from": "2025-07-31T15:00:00Z",
+        "valid_to": "2025-08-31T15:00:00Z",
+        "price_inc_tax": "1.51",
+        "source_url": "https://a.storyblok.com/f/122730/x/90c66abb12/2025-08.pdf"
+      },
+      {
+        "valid_from": "2025-08-31T15:00:00Z",
+        "valid_to": "2025-09-30T15:00:00Z",
+        "price_inc_tax": "1.19",
+        "source_url": "https://a.storyblok.com/f/122730/x/7ec4950a48/2025-09.pdf"
+      },
+      {
+        "valid_from": "2025-09-30T15:00:00Z",
+        "valid_to": "2025-10-31T15:00:00Z",
+        "price_inc_tax": "0.98",
+        "source_url": "https://a.storyblok.com/f/122730/x/11a3d017a6/2025-10.pdf"
+      },
+      {
+        "valid_from": "2025-10-31T15:00:00Z",
+        "valid_to": "2025-11-30T15:00:00Z",
+        "price_inc_tax": "0.93",
+        "source_url": "https://a.storyblok.com/f/122730/x/a22c538499/2025-11.pdf"
+      },
+      {
+        "valid_from": "2025-11-30T15:00:00Z",
+        "valid_to": "2025-12-31T15:00:00Z",
+        "price_inc_tax": "0.86",
+        "source_url": "https://a.storyblok.com/f/122730/x/21fdec1b6f/2025-12.pdf"
+      },
+      {
+        "valid_from": "2025-12-31T15:00:00Z",
+        "valid_to": "2026-01-31T15:00:00Z",
+        "price_inc_tax": "0.79",
+        "source_url": "https://a.storyblok.com/f/122730/x/974a938672/2026-01.pdf"
+      },
+      {
+        "valid_from": "2026-01-31T15:00:00Z",
+        "valid_to": "2026-02-28T15:00:00Z",
+        "price_inc_tax": "0.77",
+        "source_url": "https://a.storyblok.com/f/122730/x/71ce79fc2d/2026-02.pdf"
+      },
+      {
+        "valid_from": "2026-02-28T15:00:00Z",
+        "valid_to": "2026-03-31T15:00:00Z",
+        "price_inc_tax": "0.96",
+        "source_url": "https://a.storyblok.com/f/122730/x/165ab8bdf7/2026-03.pdf"
+      },
+      {
+        "valid_from": "2026-03-31T15:00:00Z",
+        "valid_to": "2026-04-30T15:00:00Z",
+        "price_inc_tax": "1.19",
+        "source_url": "https://a.storyblok.com/f/122730/x/f29cdaf163/2026-04.pdf"
+      },
+      {
+        "valid_from": "2026-04-30T15:00:00Z",
+        "valid_to": "2026-05-31T15:00:00Z",
+        "price_inc_tax": "1.26",
+        "source_url": "https://a.storyblok.com/f/122730/x/4a6017231e/2026-05.pdf"
+      },
+      {
+        "valid_from": "2026-05-31T15:00:00Z",
+        "valid_to": "2026-06-30T15:00:00Z",
+        "price_inc_tax": "1.35",
+        "source_url": "https://a.storyblok.com/f/122730/x/b29470d82f/2026-06.pdf"
+      },
+      {
+        "valid_from": "2026-06-30T15:00:00Z",
+        "valid_to": "2026-07-31T15:00:00Z",
+        "price_inc_tax": "1.49",
+        "source_url": "https://a.storyblok.com/f/122730/x/6dec1a3882/2026-07.pdf"
+      },
+      {
+        "valid_from": "2026-07-31T15:00:00Z",
+        "valid_to": "2026-08-31T15:00:00Z",
+        "price_inc_tax": "2.14",
+        "source_url": "https://a.storyblok.com/f/122730/x/726ecca2ec/2026-08.pdf"
+      },
+      {
+        "valid_from": "2026-08-31T15:00:00Z",
+        "valid_to": "2026-09-30T15:00:00Z",
+        "price_inc_tax": "2.63",
+        "source_url": "https://a.storyblok.com/f/122730/x/7b4adc51cc/2026-09.pdf"
+      }
+    ],
+    "05": [
+      {
+        "valid_from": "2022-05-31T15:00:00Z",
+        "valid_to": "2022-06-30T15:00:00Z",
+        "price_inc_tax": "2.91",
+        "source_url": "https://a.storyblok.com/f/122730/x/2a303b4ee4/2022-06.pdf"
+      },
+      {
+        "valid_from": "2022-06-30T15:00:00Z",
+        "valid_to": "2022-07-31T15:00:00Z",
+        "price_inc_tax": "3.80",
+        "source_url": "https://a.storyblok.com/f/122730/x/e115317fc2/2022-07.pdf"
+      },
+      {
+        "valid_from": "2022-07-31T15:00:00Z",
+        "valid_to": "2022-08-31T15:00:00Z",
+        "price_inc_tax": "5.02",
+        "source_url": "https://a.storyblok.com/f/122730/x/0af4e1ab58/2022-08.pdf"
+      },
+      {
+        "valid_from": "2022-08-31T15:00:00Z",
+        "valid_to": "2022-09-30T15:00:00Z",
+        "price_inc_tax": "6.81",
+        "source_url": "https://a.storyblok.com/f/122730/x/144112c83d/2022-09.pdf"
+      },
+      {
+        "valid_from": "2022-09-30T15:00:00Z",
+        "valid_to": "2022-10-31T15:00:00Z",
+        "price_inc_tax": "8.28",
+        "source_url": "https://a.storyblok.com/f/122730/x/29eb8ac888/2022-10.pdf"
+      },
+      {
+        "valid_from": "2022-10-31T15:00:00Z",
+        "valid_to": "2022-11-30T15:00:00Z",
+        "price_inc_tax": "9.18",
+        "source_url": "https://a.storyblok.com/f/122730/x/79b562d16f/2022-11.pdf"
+      },
+      {
+        "valid_from": "2022-11-30T15:00:00Z",
+        "valid_to": "2022-12-31T15:00:00Z",
+        "price_inc_tax": "9.64",
+        "source_url": "https://a.storyblok.com/f/122730/x/d128dd7ef8/2022-12.pdf"
+      },
+      {
+        "valid_from": "2022-12-31T15:00:00Z",
+        "valid_to": "2023-01-31T15:00:00Z",
+        "price_inc_tax": "9.90",
+        "source_url": "https://a.storyblok.com/f/122730/x/b9ffa26b68/2023-01.pdf"
+      },
+      {
+        "valid_from": "2023-01-31T15:00:00Z",
+        "valid_to": "2023-02-28T15:00:00Z",
+        "price_inc_tax": "10.40",
+        "source_url": "https://a.storyblok.com/f/122730/x/448e627d60/2023-02.pdf"
+      },
+      {
+        "valid_from": "2023-02-28T15:00:00Z",
+        "valid_to": "2023-03-31T15:00:00Z",
+        "price_inc_tax": "10.13",
+        "source_url": "https://a.storyblok.com/f/122730/x/9121a7cc9c/2023-03.pdf"
+      },
+      {
+        "valid_from": "2023-03-31T15:00:00Z",
+        "valid_to": "2023-04-30T15:00:00Z",
+        "price_inc_tax": "9.34",
+        "source_url": "https://a.storyblok.com/f/122730/x/749cb84b6d/2023-04.pdf"
+      },
+      {
+        "valid_from": "2023-04-30T15:00:00Z",
+        "valid_to": "2023-05-31T15:00:00Z",
+        "price_inc_tax": "8.45",
+        "source_url": "https://a.storyblok.com/f/122730/x/cee07f2aed/2023-05.pdf"
+      },
+      {
+        "valid_from": "2023-05-31T15:00:00Z",
+        "valid_to": "2023-06-30T15:00:00Z",
+        "price_inc_tax": "7.82",
+        "source_url": "https://a.storyblok.com/f/122730/x/15e1a91f55/2023-06.pdf"
+      },
+      {
+        "valid_from": "2023-06-30T15:00:00Z",
+        "valid_to": "2023-07-31T15:00:00Z",
+        "price_inc_tax": "7.18",
+        "source_url": "https://a.storyblok.com/f/122730/x/cad8969478/2023-07.pdf"
+      },
+      {
+        "valid_from": "2023-07-31T15:00:00Z",
+        "valid_to": "2023-08-31T15:00:00Z",
+        "price_inc_tax": "6.38",
+        "source_url": "https://a.storyblok.com/f/122730/x/439f2eac1f/2023-08.pdf"
+      },
+      {
+        "valid_from": "2023-08-31T15:00:00Z",
+        "valid_to": "2023-09-30T15:00:00Z",
+        "price_inc_tax": "5.52",
+        "source_url": "https://a.storyblok.com/f/122730/x/ac8a2ff774/2023-09.pdf"
+      },
+      {
+        "valid_from": "2023-09-30T15:00:00Z",
+        "valid_to": "2023-10-31T15:00:00Z",
+        "price_inc_tax": "4.93",
+        "source_url": "https://a.storyblok.com/f/122730/x/9d213e4a34/2023-10.pdf"
+      },
+      {
+        "valid_from": "2023-10-31T15:00:00Z",
+        "valid_to": "2023-11-30T15:00:00Z",
+        "price_inc_tax": "4.59",
+        "source_url": "https://a.storyblok.com/f/122730/x/af24789961/2023-11.pdf"
+      },
+      {
+        "valid_from": "2023-11-30T15:00:00Z",
+        "valid_to": "2023-12-31T15:00:00Z",
+        "price_inc_tax": "4.36",
+        "source_url": "https://a.storyblok.com/f/122730/x/0beee28e3d/2023-12.pdf"
+      },
+      {
+        "valid_from": "2023-12-31T15:00:00Z",
+        "valid_to": "2024-01-31T15:00:00Z",
+        "price_inc_tax": "4.46",
+        "source_url": "https://a.storyblok.com/f/122730/x/b7930b886c/2024-01.pdf"
+      },
+      {
+        "valid_from": "2024-01-31T15:00:00Z",
+        "valid_to": "2024-02-29T15:00:00Z",
+        "price_inc_tax": "4.62",
+        "source_url": "https://a.storyblok.com/f/122730/x/3cd9d97e19/2024-02.pdf"
+      },
+      {
+        "valid_from": "2024-02-29T15:00:00Z",
+        "valid_to": "2024-03-31T15:00:00Z",
+        "price_inc_tax": "4.57",
+        "source_url": "https://a.storyblok.com/f/122730/x/df48ab0c14/2024-03.pdf"
+      },
+      {
+        "valid_from": "2024-03-31T15:00:00Z",
+        "valid_to": "2024-04-30T15:00:00Z",
+        "price_inc_tax": "4.22",
+        "source_url": "https://a.storyblok.com/f/122730/x/206f4d6688/2024-04.pdf"
+      },
+      {
+        "valid_from": "2024-04-30T15:00:00Z",
+        "valid_to": "2024-05-31T15:00:00Z",
+        "price_inc_tax": "4.01",
+        "source_url": "https://a.storyblok.com/f/122730/x/7e7772644e/2024-05.pdf"
+      },
+      {
+        "valid_from": "2024-05-31T15:00:00Z",
+        "valid_to": "2024-06-30T15:00:00Z",
+        "price_inc_tax": "3.86",
+        "source_url": "https://a.storyblok.com/f/122730/x/d9b10bd607/2024-06.pdf"
+      },
+      {
+        "valid_from": "2024-06-30T15:00:00Z",
+        "valid_to": "2024-07-31T15:00:00Z",
+        "price_inc_tax": "3.93",
+        "source_url": "https://a.storyblok.com/f/122730/x/3babf3d648/2024-07.pdf"
+      },
+      {
+        "valid_from": "2024-07-31T15:00:00Z",
+        "valid_to": "2024-08-31T15:00:00Z",
+        "price_inc_tax": "3.96",
+        "source_url": "https://a.storyblok.com/f/122730/x/b69265a701/2024-08.pdf"
+      },
+      {
+        "valid_from": "2024-08-31T15:00:00Z",
+        "valid_to": "2024-09-30T15:00:00Z",
+        "price_inc_tax": "4.09",
+        "source_url": "https://a.storyblok.com/f/122730/x/9fbebe3c2f/2024-09.pdf"
+      },
+      {
+        "valid_from": "2024-09-30T15:00:00Z",
+        "valid_to": "2024-10-31T15:00:00Z",
+        "price_inc_tax": "4.17",
+        "source_url": "https://a.storyblok.com/f/122730/x/495286a146/2024-10.pdf"
+      },
+      {
+        "valid_from": "2024-10-31T15:00:00Z",
+        "valid_to": "2024-11-30T15:00:00Z",
+        "price_inc_tax": "4.07",
+        "source_url": "https://a.storyblok.com/f/122730/x/dccc261587/2024-11.pdf"
+      },
+      {
+        "valid_from": "2024-11-30T15:00:00Z",
+        "valid_to": "2024-12-31T15:00:00Z",
+        "price_inc_tax": "3.78",
+        "source_url": "https://a.storyblok.com/f/122730/x/a312c556c8/2024-12.pdf"
+      },
+      {
+        "valid_from": "2024-12-31T15:00:00Z",
+        "valid_to": "2025-01-31T15:00:00Z",
+        "price_inc_tax": "3.49",
+        "source_url": "https://a.storyblok.com/f/122730/x/c467330a4f/2025-01.pdf"
+      },
+      {
+        "valid_from": "2025-01-31T15:00:00Z",
+        "valid_to": "2025-02-28T15:00:00Z",
+        "price_inc_tax": "3.41",
+        "source_url": "https://a.storyblok.com/f/122730/x/63043fc8b9/2025-02.pdf"
+      },
+      {
+        "valid_from": "2025-02-28T15:00:00Z",
+        "valid_to": "2025-03-31T15:00:00Z",
+        "price_inc_tax": "3.48",
+        "source_url": "https://a.storyblok.com/f/122730/x/b81360d4af/2025-03.pdf"
+      },
+      {
+        "valid_from": "2025-03-31T15:00:00Z",
+        "valid_to": "2025-04-30T15:00:00Z",
+        "price_inc_tax": "3.54",
+        "source_url": "https://a.storyblok.com/f/122730/x/f2d4d20771/2025-04.pdf"
+      },
+      {
+        "valid_from": "2025-04-30T15:00:00Z",
+        "valid_to": "2025-05-31T15:00:00Z",
+        "price_inc_tax": "3.48",
+        "source_url": "https://a.storyblok.com/f/122730/x/1f98d9f34a/2025-05.pdf"
+      },
+      {
+        "valid_from": "2025-05-31T15:00:00Z",
+        "valid_to": "2025-06-30T15:00:00Z",
+        "price_inc_tax": "3.30",
+        "source_url": "https://a.storyblok.com/f/122730/x/9d3f5aa62a/2025-06.pdf"
+      },
+      {
+        "valid_from": "2025-06-30T15:00:00Z",
+        "valid_to": "2025-07-31T15:00:00Z",
+        "price_inc_tax": "2.93",
+        "source_url": "https://a.storyblok.com/f/122730/x/e6370c5d9a/2025-07.pdf"
+      },
+      {
+        "valid_from": "2025-07-31T15:00:00Z",
+        "valid_to": "2025-08-31T15:00:00Z",
+        "price_inc_tax": "2.54",
+        "source_url": "https://a.storyblok.com/f/122730/x/90c66abb12/2025-08.pdf"
+      },
+      {
+        "valid_from": "2025-08-31T15:00:00Z",
+        "valid_to": "2025-09-30T15:00:00Z",
+        "price_inc_tax": "2.25",
+        "source_url": "https://a.storyblok.com/f/122730/x/7ec4950a48/2025-09.pdf"
+      },
+      {
+        "valid_from": "2025-09-30T15:00:00Z",
+        "valid_to": "2025-10-31T15:00:00Z",
+        "price_inc_tax": "2.04",
+        "source_url": "https://a.storyblok.com/f/122730/x/11a3d017a6/2025-10.pdf"
+      },
+      {
+        "valid_from": "2025-10-31T15:00:00Z",
+        "valid_to": "2025-11-30T15:00:00Z",
+        "price_inc_tax": "2.09",
+        "source_url": "https://a.storyblok.com/f/122730/x/a22c538499/2025-11.pdf"
+      },
+      {
+        "valid_from": "2025-11-30T15:00:00Z",
+        "valid_to": "2025-12-31T15:00:00Z",
+        "price_inc_tax": "2.17",
+        "source_url": "https://a.storyblok.com/f/122730/x/21fdec1b6f/2025-12.pdf"
+      },
+      {
+        "valid_from": "2025-12-31T15:00:00Z",
+        "valid_to": "2026-01-31T15:00:00Z",
+        "price_inc_tax": "2.33",
+        "source_url": "https://a.storyblok.com/f/122730/x/974a938672/2026-01.pdf"
+      },
+      {
+        "valid_from": "2026-01-31T15:00:00Z",
+        "valid_to": "2026-02-28T15:00:00Z",
+        "price_inc_tax": "2.35",
+        "source_url": "https://a.storyblok.com/f/122730/x/71ce79fc2d/2026-02.pdf"
+      },
+      {
+        "valid_from": "2026-02-28T15:00:00Z",
+        "valid_to": "2026-03-31T15:00:00Z",
+        "price_inc_tax": "2.42",
+        "source_url": "https://a.storyblok.com/f/122730/x/165ab8bdf7/2026-03.pdf"
+      },
+      {
+        "valid_from": "2026-03-31T15:00:00Z",
+        "valid_to": "2026-04-30T15:00:00Z",
+        "price_inc_tax": "2.42",
+        "source_url": "https://a.storyblok.com/f/122730/x/f29cdaf163/2026-04.pdf"
+      },
+      {
+        "valid_from": "2026-04-30T15:00:00Z",
+        "valid_to": "2026-05-31T15:00:00Z",
+        "price_inc_tax": "2.43",
+        "source_url": "https://a.storyblok.com/f/122730/x/4a6017231e/2026-05.pdf"
+      },
+      {
+        "valid_from": "2026-05-31T15:00:00Z",
+        "valid_to": "2026-06-30T15:00:00Z",
+        "price_inc_tax": "2.45",
+        "source_url": "https://a.storyblok.com/f/122730/x/b29470d82f/2026-06.pdf"
+      },
+      {
+        "valid_from": "2026-06-30T15:00:00Z",
+        "valid_to": "2026-07-31T15:00:00Z",
+        "price_inc_tax": "2.75",
+        "source_url": "https://a.storyblok.com/f/122730/x/6dec1a3882/2026-07.pdf"
+      },
+      {
+        "valid_from": "2026-07-31T15:00:00Z",
+        "valid_to": "2026-08-31T15:00:00Z",
+        "price_inc_tax": "3.51",
+        "source_url": "https://a.storyblok.com/f/122730/x/726ecca2ec/2026-08.pdf"
+      },
+      {
+        "valid_from": "2026-08-31T15:00:00Z",
+        "valid_to": "2026-09-30T15:00:00Z",
+        "price_inc_tax": "4.75",
+        "source_url": "https://a.storyblok.com/f/122730/x/7b4adc51cc/2026-09.pdf"
+      }
+    ],
+    "06": [
+      {
+        "valid_from": "2022-05-31T15:00:00Z",
+        "valid_to": "2022-06-30T15:00:00Z",
+        "price_inc_tax": "3.42",
+        "source_url": "https://a.storyblok.com/f/122730/x/2a303b4ee4/2022-06.pdf"
+      },
+      {
+        "valid_from": "2022-06-30T15:00:00Z",
+        "valid_to": "2022-07-31T15:00:00Z",
+        "price_inc_tax": "4.13",
+        "source_url": "https://a.storyblok.com/f/122730/x/e115317fc2/2022-07.pdf"
+      },
+      {
+        "valid_from": "2022-07-31T15:00:00Z",
+        "valid_to": "2022-08-31T15:00:00Z",
+        "price_inc_tax": "4.90",
+        "source_url": "https://a.storyblok.com/f/122730/x/0af4e1ab58/2022-08.pdf"
+      },
+      {
+        "valid_from": "2022-08-31T15:00:00Z",
+        "valid_to": "2022-09-30T15:00:00Z",
+        "price_inc_tax": "6.14",
+        "source_url": "https://a.storyblok.com/f/122730/x/144112c83d/2022-09.pdf"
+      },
+      {
+        "valid_from": "2022-09-30T15:00:00Z",
+        "valid_to": "2022-10-31T15:00:00Z",
+        "price_inc_tax": "7.47",
+        "source_url": "https://a.storyblok.com/f/122730/x/29eb8ac888/2022-10.pdf"
+      },
+      {
+        "valid_from": "2022-10-31T15:00:00Z",
+        "valid_to": "2022-11-30T15:00:00Z",
+        "price_inc_tax": "8.71",
+        "source_url": "https://a.storyblok.com/f/122730/x/79b562d16f/2022-11.pdf"
+      },
+      {
+        "valid_from": "2022-11-30T15:00:00Z",
+        "valid_to": "2022-12-31T15:00:00Z",
+        "price_inc_tax": "10.15",
+        "source_url": "https://a.storyblok.com/f/122730/x/d128dd7ef8/2022-12.pdf"
+      },
+      {
+        "valid_from": "2022-12-31T15:00:00Z",
+        "valid_to": "2023-01-31T15:00:00Z",
+        "price_inc_tax": "10.91",
+        "source_url": "https://a.storyblok.com/f/122730/x/b9ffa26b68/2023-01.pdf"
+      },
+      {
+        "valid_from": "2023-01-31T15:00:00Z",
+        "valid_to": "2023-02-28T15:00:00Z",
+        "price_inc_tax": "11.20",
+        "source_url": "https://a.storyblok.com/f/122730/x/448e627d60/2023-02.pdf"
+      },
+      {
+        "valid_from": "2023-02-28T15:00:00Z",
+        "valid_to": "2023-03-31T15:00:00Z",
+        "price_inc_tax": "10.54",
+        "source_url": "https://a.storyblok.com/f/122730/x/9121a7cc9c/2023-03.pdf"
+      },
+      {
+        "valid_from": "2023-03-31T15:00:00Z",
+        "valid_to": "2023-04-30T15:00:00Z",
+        "price_inc_tax": "9.67",
+        "source_url": "https://a.storyblok.com/f/122730/x/749cb84b6d/2023-04.pdf"
+      },
+      {
+        "valid_from": "2023-04-30T15:00:00Z",
+        "valid_to": "2023-05-31T15:00:00Z",
+        "price_inc_tax": "8.94",
+        "source_url": "https://a.storyblok.com/f/122730/x/cee07f2aed/2023-05.pdf"
+      },
+      {
+        "valid_from": "2023-05-31T15:00:00Z",
+        "valid_to": "2023-06-30T15:00:00Z",
+        "price_inc_tax": "8.07",
+        "source_url": "https://a.storyblok.com/f/122730/x/15e1a91f55/2023-06.pdf"
+      },
+      {
+        "valid_from": "2023-06-30T15:00:00Z",
+        "valid_to": "2023-07-31T15:00:00Z",
+        "price_inc_tax": "7.05",
+        "source_url": "https://a.storyblok.com/f/122730/x/cad8969478/2023-07.pdf"
+      },
+      {
+        "valid_from": "2023-07-31T15:00:00Z",
+        "valid_to": "2023-08-31T15:00:00Z",
+        "price_inc_tax": "5.92",
+        "source_url": "https://a.storyblok.com/f/122730/x/439f2eac1f/2023-08.pdf"
+      },
+      {
+        "valid_from": "2023-08-31T15:00:00Z",
+        "valid_to": "2023-09-30T15:00:00Z",
+        "price_inc_tax": "5.00",
+        "source_url": "https://a.storyblok.com/f/122730/x/ac8a2ff774/2023-09.pdf"
+      },
+      {
+        "valid_from": "2023-09-30T15:00:00Z",
+        "valid_to": "2023-10-31T15:00:00Z",
+        "price_inc_tax": "4.52",
+        "source_url": "https://a.storyblok.com/f/122730/x/9d213e4a34/2023-10.pdf"
+      },
+      {
+        "valid_from": "2023-10-31T15:00:00Z",
+        "valid_to": "2023-11-30T15:00:00Z",
+        "price_inc_tax": "4.27",
+        "source_url": "https://a.storyblok.com/f/122730/x/af24789961/2023-11.pdf"
+      },
+      {
+        "valid_from": "2023-11-30T15:00:00Z",
+        "valid_to": "2023-12-31T15:00:00Z",
+        "price_inc_tax": "4.08",
+        "source_url": "https://a.storyblok.com/f/122730/x/0beee28e3d/2023-12.pdf"
+      },
+      {
+        "valid_from": "2023-12-31T15:00:00Z",
+        "valid_to": "2024-01-31T15:00:00Z",
+        "price_inc_tax": "4.09",
+        "source_url": "https://a.storyblok.com/f/122730/x/b7930b886c/2024-01.pdf"
+      },
+      {
+        "valid_from": "2024-01-31T15:00:00Z",
+        "valid_to": "2024-02-29T15:00:00Z",
+        "price_inc_tax": "4.17",
+        "source_url": "https://a.storyblok.com/f/122730/x/3cd9d97e19/2024-02.pdf"
+      },
+      {
+        "valid_from": "2024-02-29T15:00:00Z",
+        "valid_to": "2024-03-31T15:00:00Z",
+        "price_inc_tax": "4.39",
+        "source_url": "https://a.storyblok.com/f/122730/x/df48ab0c14/2024-03.pdf"
+      },
+      {
+        "valid_from": "2024-03-31T15:00:00Z",
+        "valid_to": "2024-04-30T15:00:00Z",
+        "price_inc_tax": "4.42",
+        "source_url": "https://a.storyblok.com/f/122730/x/206f4d6688/2024-04.pdf"
+      },
+      {
+        "valid_from": "2024-04-30T15:00:00Z",
+        "valid_to": "2024-05-31T15:00:00Z",
+        "price_inc_tax": "4.46",
+        "source_url": "https://a.storyblok.com/f/122730/x/7e7772644e/2024-05.pdf"
+      },
+      {
+        "valid_from": "2024-05-31T15:00:00Z",
+        "valid_to": "2024-06-30T15:00:00Z",
+        "price_inc_tax": "4.32",
+        "source_url": "https://a.storyblok.com/f/122730/x/d9b10bd607/2024-06.pdf"
+      },
+      {
+        "valid_from": "2024-06-30T15:00:00Z",
+        "valid_to": "2024-07-31T15:00:00Z",
+        "price_inc_tax": "4.08",
+        "source_url": "https://a.storyblok.com/f/122730/x/3babf3d648/2024-07.pdf"
+      },
+      {
+        "valid_from": "2024-07-31T15:00:00Z",
+        "valid_to": "2024-08-31T15:00:00Z",
+        "price_inc_tax": "3.89",
+        "source_url": "https://a.storyblok.com/f/122730/x/b69265a701/2024-08.pdf"
+      },
+      {
+        "valid_from": "2024-08-31T15:00:00Z",
+        "valid_to": "2024-09-30T15:00:00Z",
+        "price_inc_tax": "3.86",
+        "source_url": "https://a.storyblok.com/f/122730/x/9fbebe3c2f/2024-09.pdf"
+      },
+      {
+        "valid_from": "2024-09-30T15:00:00Z",
+        "valid_to": "2024-10-31T15:00:00Z",
+        "price_inc_tax": "4.01",
+        "source_url": "https://a.storyblok.com/f/122730/x/495286a146/2024-10.pdf"
+      },
+      {
+        "valid_from": "2024-10-31T15:00:00Z",
+        "valid_to": "2024-11-30T15:00:00Z",
+        "price_inc_tax": "4.03",
+        "source_url": "https://a.storyblok.com/f/122730/x/dccc261587/2024-11.pdf"
+      },
+      {
+        "valid_from": "2024-11-30T15:00:00Z",
+        "valid_to": "2024-12-31T15:00:00Z",
+        "price_inc_tax": "3.86",
+        "source_url": "https://a.storyblok.com/f/122730/x/a312c556c8/2024-12.pdf"
+      },
+      {
+        "valid_from": "2024-12-31T15:00:00Z",
+        "valid_to": "2025-01-31T15:00:00Z",
+        "price_inc_tax": "3.70",
+        "source_url": "https://a.storyblok.com/f/122730/x/c467330a4f/2025-01.pdf"
+      },
+      {
+        "valid_from": "2025-01-31T15:00:00Z",
+        "valid_to": "2025-02-28T15:00:00Z",
+        "price_inc_tax": "3.71",
+        "source_url": "https://a.storyblok.com/f/122730/x/63043fc8b9/2025-02.pdf"
+      },
+      {
+        "valid_from": "2025-02-28T15:00:00Z",
+        "valid_to": "2025-03-31T15:00:00Z",
+        "price_inc_tax": "3.86",
+        "source_url": "https://a.storyblok.com/f/122730/x/b81360d4af/2025-03.pdf"
+      },
+      {
+        "valid_from": "2025-03-31T15:00:00Z",
+        "valid_to": "2025-04-30T15:00:00Z",
+        "price_inc_tax": "4.06",
+        "source_url": "https://a.storyblok.com/f/122730/x/f2d4d20771/2025-04.pdf"
+      },
+      {
+        "valid_from": "2025-04-30T15:00:00Z",
+        "valid_to": "2025-05-31T15:00:00Z",
+        "price_inc_tax": "3.96",
+        "source_url": "https://a.storyblok.com/f/122730/x/1f98d9f34a/2025-05.pdf"
+      },
+      {
+        "valid_from": "2025-05-31T15:00:00Z",
+        "valid_to": "2025-06-30T15:00:00Z",
+        "price_inc_tax": "3.78",
+        "source_url": "https://a.storyblok.com/f/122730/x/9d3f5aa62a/2025-06.pdf"
+      },
+      {
+        "valid_from": "2025-06-30T15:00:00Z",
+        "valid_to": "2025-07-31T15:00:00Z",
+        "price_inc_tax": "3.33",
+        "source_url": "https://a.storyblok.com/f/122730/x/e6370c5d9a/2025-07.pdf"
+      },
+      {
+        "valid_from": "2025-07-31T15:00:00Z",
+        "valid_to": "2025-08-31T15:00:00Z",
+        "price_inc_tax": "3.00",
+        "source_url": "https://a.storyblok.com/f/122730/x/90c66abb12/2025-08.pdf"
+      },
+      {
+        "valid_from": "2025-08-31T15:00:00Z",
+        "valid_to": "2025-09-30T15:00:00Z",
+        "price_inc_tax": "2.77",
+        "source_url": "https://a.storyblok.com/f/122730/x/7ec4950a48/2025-09.pdf"
+      },
+      {
+        "valid_from": "2025-09-30T15:00:00Z",
+        "valid_to": "2025-10-31T15:00:00Z",
+        "price_inc_tax": "2.64",
+        "source_url": "https://a.storyblok.com/f/122730/x/11a3d017a6/2025-10.pdf"
+      },
+      {
+        "valid_from": "2025-10-31T15:00:00Z",
+        "valid_to": "2025-11-30T15:00:00Z",
+        "price_inc_tax": "2.62",
+        "source_url": "https://a.storyblok.com/f/122730/x/a22c538499/2025-11.pdf"
+      },
+      {
+        "valid_from": "2025-11-30T15:00:00Z",
+        "valid_to": "2025-12-31T15:00:00Z",
+        "price_inc_tax": "2.61",
+        "source_url": "https://a.storyblok.com/f/122730/x/21fdec1b6f/2025-12.pdf"
+      },
+      {
+        "valid_from": "2025-12-31T15:00:00Z",
+        "valid_to": "2026-01-31T15:00:00Z",
+        "price_inc_tax": "2.61",
+        "source_url": "https://a.storyblok.com/f/122730/x/974a938672/2026-01.pdf"
+      },
+      {
+        "valid_from": "2026-01-31T15:00:00Z",
+        "valid_to": "2026-02-28T15:00:00Z",
+        "price_inc_tax": "2.59",
+        "source_url": "https://a.storyblok.com/f/122730/x/71ce79fc2d/2026-02.pdf"
+      },
+      {
+        "valid_from": "2026-02-28T15:00:00Z",
+        "valid_to": "2026-03-31T15:00:00Z",
+        "price_inc_tax": "2.71",
+        "source_url": "https://a.storyblok.com/f/122730/x/165ab8bdf7/2026-03.pdf"
+      },
+      {
+        "valid_from": "2026-03-31T15:00:00Z",
+        "valid_to": "2026-04-30T15:00:00Z",
+        "price_inc_tax": "2.85",
+        "source_url": "https://a.storyblok.com/f/122730/x/f29cdaf163/2026-04.pdf"
+      },
+      {
+        "valid_from": "2026-04-30T15:00:00Z",
+        "valid_to": "2026-05-31T15:00:00Z",
+        "price_inc_tax": "2.90",
+        "source_url": "https://a.storyblok.com/f/122730/x/4a6017231e/2026-05.pdf"
+      },
+      {
+        "valid_from": "2026-05-31T15:00:00Z",
+        "valid_to": "2026-06-30T15:00:00Z",
+        "price_inc_tax": "2.97",
+        "source_url": "https://a.storyblok.com/f/122730/x/b29470d82f/2026-06.pdf"
+      },
+      {
+        "valid_from": "2026-06-30T15:00:00Z",
+        "valid_to": "2026-07-31T15:00:00Z",
+        "price_inc_tax": "3.07",
+        "source_url": "https://a.storyblok.com/f/122730/x/6dec1a3882/2026-07.pdf"
+      },
+      {
+        "valid_from": "2026-07-31T15:00:00Z",
+        "valid_to": "2026-08-31T15:00:00Z",
+        "price_inc_tax": "3.47",
+        "source_url": "https://a.storyblok.com/f/122730/x/726ecca2ec/2026-08.pdf"
+      },
+      {
+        "valid_from": "2026-08-31T15:00:00Z",
+        "valid_to": "2026-09-30T15:00:00Z",
+        "price_inc_tax": "3.80",
+        "source_url": "https://a.storyblok.com/f/122730/x/7b4adc51cc/2026-09.pdf"
+      }
+    ],
+    "07": [
+      {
+        "valid_from": "2022-05-31T15:00:00Z",
+        "valid_to": "2022-06-30T15:00:00Z",
+        "price_inc_tax": "4.21",
+        "source_url": "https://a.storyblok.com/f/122730/x/2a303b4ee4/2022-06.pdf"
+      },
+      {
+        "valid_from": "2022-06-30T15:00:00Z",
+        "valid_to": "2022-07-31T15:00:00Z",
+        "price_inc_tax": "5.46",
+        "source_url": "https://a.storyblok.com/f/122730/x/e115317fc2/2022-07.pdf"
+      },
+      {
+        "valid_from": "2022-07-31T15:00:00Z",
+        "valid_to": "2022-08-31T15:00:00Z",
+        "price_inc_tax": "7.03",
+        "source_url": "https://a.storyblok.com/f/122730/x/0af4e1ab58/2022-08.pdf"
+      },
+      {
+        "valid_from": "2022-08-31T15:00:00Z",
+        "valid_to": "2022-09-30T15:00:00Z",
+        "price_inc_tax": "9.43",
+        "source_url": "https://a.storyblok.com/f/122730/x/144112c83d/2022-09.pdf"
+      },
+      {
+        "valid_from": "2022-09-30T15:00:00Z",
+        "valid_to": "2022-10-31T15:00:00Z",
+        "price_inc_tax": "11.56",
+        "source_url": "https://a.storyblok.com/f/122730/x/29eb8ac888/2022-10.pdf"
+      },
+      {
+        "valid_from": "2022-10-31T15:00:00Z",
+        "valid_to": "2022-11-30T15:00:00Z",
+        "price_inc_tax": "13.11",
+        "source_url": "https://a.storyblok.com/f/122730/x/79b562d16f/2022-11.pdf"
+      },
+      {
+        "valid_from": "2022-11-30T15:00:00Z",
+        "valid_to": "2022-12-31T15:00:00Z",
+        "price_inc_tax": "14.36",
+        "source_url": "https://a.storyblok.com/f/122730/x/d128dd7ef8/2022-12.pdf"
+      },
+      {
+        "valid_from": "2022-12-31T15:00:00Z",
+        "valid_to": "2023-01-31T15:00:00Z",
+        "price_inc_tax": "15.02",
+        "source_url": "https://a.storyblok.com/f/122730/x/b9ffa26b68/2023-01.pdf"
+      },
+      {
+        "valid_from": "2023-01-31T15:00:00Z",
+        "valid_to": "2023-02-28T15:00:00Z",
+        "price_inc_tax": "15.63",
+        "source_url": "https://a.storyblok.com/f/122730/x/448e627d60/2023-02.pdf"
+      },
+      {
+        "valid_from": "2023-02-28T15:00:00Z",
+        "valid_to": "2023-03-31T15:00:00Z",
+        "price_inc_tax": "14.99",
+        "source_url": "https://a.storyblok.com/f/122730/x/9121a7cc9c/2023-03.pdf"
+      },
+      {
+        "valid_from": "2023-03-31T15:00:00Z",
+        "valid_to": "2023-04-30T15:00:00Z",
+        "price_inc_tax": "13.77",
+        "source_url": "https://a.storyblok.com/f/122730/x/749cb84b6d/2023-04.pdf"
+      },
+      {
+        "valid_from": "2023-04-30T15:00:00Z",
+        "valid_to": "2023-05-31T15:00:00Z",
+        "price_inc_tax": "12.50",
+        "source_url": "https://a.storyblok.com/f/122730/x/cee07f2aed/2023-05.pdf"
+      },
+      {
+        "valid_from": "2023-05-31T15:00:00Z",
+        "valid_to": "2023-06-30T15:00:00Z",
+        "price_inc_tax": "11.44",
+        "source_url": "https://a.storyblok.com/f/122730/x/15e1a91f55/2023-06.pdf"
+      },
+      {
+        "valid_from": "2023-06-30T15:00:00Z",
+        "valid_to": "2023-07-31T15:00:00Z",
+        "price_inc_tax": "10.24",
+        "source_url": "https://a.storyblok.com/f/122730/x/cad8969478/2023-07.pdf"
+      },
+      {
+        "valid_from": "2023-07-31T15:00:00Z",
+        "valid_to": "2023-08-31T15:00:00Z",
+        "price_inc_tax": "8.87",
+        "source_url": "https://a.storyblok.com/f/122730/x/439f2eac1f/2023-08.pdf"
+      },
+      {
+        "valid_from": "2023-08-31T15:00:00Z",
+        "valid_to": "2023-09-30T15:00:00Z",
+        "price_inc_tax": "7.55",
+        "source_url": "https://a.storyblok.com/f/122730/x/ac8a2ff774/2023-09.pdf"
+      },
+      {
+        "valid_from": "2023-09-30T15:00:00Z",
+        "valid_to": "2023-10-31T15:00:00Z",
+        "price_inc_tax": "6.71",
+        "source_url": "https://a.storyblok.com/f/122730/x/9d213e4a34/2023-10.pdf"
+      },
+      {
+        "valid_from": "2023-10-31T15:00:00Z",
+        "valid_to": "2023-11-30T15:00:00Z",
+        "price_inc_tax": "6.27",
+        "source_url": "https://a.storyblok.com/f/122730/x/af24789961/2023-11.pdf"
+      },
+      {
+        "valid_from": "2023-11-30T15:00:00Z",
+        "valid_to": "2023-12-31T15:00:00Z",
+        "price_inc_tax": "5.95",
+        "source_url": "https://a.storyblok.com/f/122730/x/0beee28e3d/2023-12.pdf"
+      },
+      {
+        "valid_from": "2023-12-31T15:00:00Z",
+        "valid_to": "2024-01-31T15:00:00Z",
+        "price_inc_tax": "6.05",
+        "source_url": "https://a.storyblok.com/f/122730/x/b7930b886c/2024-01.pdf"
+      },
+      {
+        "valid_from": "2024-01-31T15:00:00Z",
+        "valid_to": "2024-02-29T15:00:00Z",
+        "price_inc_tax": "6.27",
+        "source_url": "https://a.storyblok.com/f/122730/x/3cd9d97e19/2024-02.pdf"
+      },
+      {
+        "valid_from": "2024-02-29T15:00:00Z",
+        "valid_to": "2024-03-31T15:00:00Z",
+        "price_inc_tax": "6.35",
+        "source_url": "https://a.storyblok.com/f/122730/x/df48ab0c14/2024-03.pdf"
+      },
+      {
+        "valid_from": "2024-03-31T15:00:00Z",
+        "valid_to": "2024-04-30T15:00:00Z",
+        "price_inc_tax": "6.03",
+        "source_url": "https://a.storyblok.com/f/122730/x/206f4d6688/2024-04.pdf"
+      },
+      {
+        "valid_from": "2024-04-30T15:00:00Z",
+        "valid_to": "2024-05-31T15:00:00Z",
+        "price_inc_tax": "5.86",
+        "source_url": "https://a.storyblok.com/f/122730/x/7e7772644e/2024-05.pdf"
+      },
+      {
+        "valid_from": "2024-05-31T15:00:00Z",
+        "valid_to": "2024-06-30T15:00:00Z",
+        "price_inc_tax": "5.64",
+        "source_url": "https://a.storyblok.com/f/122730/x/d9b10bd607/2024-06.pdf"
+      },
+      {
+        "valid_from": "2024-06-30T15:00:00Z",
+        "valid_to": "2024-07-31T15:00:00Z",
+        "price_inc_tax": "5.56",
+        "source_url": "https://a.storyblok.com/f/122730/x/3babf3d648/2024-07.pdf"
+      },
+      {
+        "valid_from": "2024-07-31T15:00:00Z",
+        "valid_to": "2024-08-31T15:00:00Z",
+        "price_inc_tax": "5.49",
+        "source_url": "https://a.storyblok.com/f/122730/x/b69265a701/2024-08.pdf"
+      },
+      {
+        "valid_from": "2024-08-31T15:00:00Z",
+        "valid_to": "2024-09-30T15:00:00Z",
+        "price_inc_tax": "5.59",
+        "source_url": "https://a.storyblok.com/f/122730/x/9fbebe3c2f/2024-09.pdf"
+      },
+      {
+        "valid_from": "2024-09-30T15:00:00Z",
+        "valid_to": "2024-10-31T15:00:00Z",
+        "price_inc_tax": "5.76",
+        "source_url": "https://a.storyblok.com/f/122730/x/495286a146/2024-10.pdf"
+      },
+      {
+        "valid_from": "2024-10-31T15:00:00Z",
+        "valid_to": "2024-11-30T15:00:00Z",
+        "price_inc_tax": "5.66",
+        "source_url": "https://a.storyblok.com/f/122730/x/dccc261587/2024-11.pdf"
+      },
+      {
+        "valid_from": "2024-11-30T15:00:00Z",
+        "valid_to": "2024-12-31T15:00:00Z",
+        "price_inc_tax": "5.32",
+        "source_url": "https://a.storyblok.com/f/122730/x/a312c556c8/2024-12.pdf"
+      },
+      {
+        "valid_from": "2024-12-31T15:00:00Z",
+        "valid_to": "2025-01-31T15:00:00Z",
+        "price_inc_tax": "4.92",
+        "source_url": "https://a.storyblok.com/f/122730/x/c467330a4f/2025-01.pdf"
+      },
+      {
+        "valid_from": "2025-01-31T15:00:00Z",
+        "valid_to": "2025-02-28T15:00:00Z",
+        "price_inc_tax": "4.88",
+        "source_url": "https://a.storyblok.com/f/122730/x/63043fc8b9/2025-02.pdf"
+      },
+      {
+        "valid_from": "2025-02-28T15:00:00Z",
+        "valid_to": "2025-03-31T15:00:00Z",
+        "price_inc_tax": "5.00",
+        "source_url": "https://a.storyblok.com/f/122730/x/b81360d4af/2025-03.pdf"
+      },
+      {
+        "valid_from": "2025-03-31T15:00:00Z",
+        "valid_to": "2025-04-30T15:00:00Z",
+        "price_inc_tax": "5.19",
+        "source_url": "https://a.storyblok.com/f/122730/x/f2d4d20771/2025-04.pdf"
+      },
+      {
+        "valid_from": "2025-04-30T15:00:00Z",
+        "valid_to": "2025-05-31T15:00:00Z",
+        "price_inc_tax": "5.07",
+        "source_url": "https://a.storyblok.com/f/122730/x/1f98d9f34a/2025-05.pdf"
+      },
+      {
+        "valid_from": "2025-05-31T15:00:00Z",
+        "valid_to": "2025-06-30T15:00:00Z",
+        "price_inc_tax": "4.80",
+        "source_url": "https://a.storyblok.com/f/122730/x/9d3f5aa62a/2025-06.pdf"
+      },
+      {
+        "valid_from": "2025-06-30T15:00:00Z",
+        "valid_to": "2025-07-31T15:00:00Z",
+        "price_inc_tax": "4.19",
+        "source_url": "https://a.storyblok.com/f/122730/x/e6370c5d9a/2025-07.pdf"
+      },
+      {
+        "valid_from": "2025-07-31T15:00:00Z",
+        "valid_to": "2025-08-31T15:00:00Z",
+        "price_inc_tax": "3.65",
+        "source_url": "https://a.storyblok.com/f/122730/x/90c66abb12/2025-08.pdf"
+      },
+      {
+        "valid_from": "2025-08-31T15:00:00Z",
+        "valid_to": "2025-09-30T15:00:00Z",
+        "price_inc_tax": "3.23",
+        "source_url": "https://a.storyblok.com/f/122730/x/7ec4950a48/2025-09.pdf"
+      },
+      {
+        "valid_from": "2025-09-30T15:00:00Z",
+        "valid_to": "2025-10-31T15:00:00Z",
+        "price_inc_tax": "2.96",
+        "source_url": "https://a.storyblok.com/f/122730/x/11a3d017a6/2025-10.pdf"
+      },
+      {
+        "valid_from": "2025-10-31T15:00:00Z",
+        "valid_to": "2025-11-30T15:00:00Z",
+        "price_inc_tax": "2.99",
+        "source_url": "https://a.storyblok.com/f/122730/x/a22c538499/2025-11.pdf"
+      },
+      {
+        "valid_from": "2025-11-30T15:00:00Z",
+        "valid_to": "2025-12-31T15:00:00Z",
+        "price_inc_tax": "3.06",
+        "source_url": "https://a.storyblok.com/f/122730/x/21fdec1b6f/2025-12.pdf"
+      },
+      {
+        "valid_from": "2025-12-31T15:00:00Z",
+        "valid_to": "2026-01-31T15:00:00Z",
+        "price_inc_tax": "3.21",
+        "source_url": "https://a.storyblok.com/f/122730/x/974a938672/2026-01.pdf"
+      },
+      {
+        "valid_from": "2026-01-31T15:00:00Z",
+        "valid_to": "2026-02-28T15:00:00Z",
+        "price_inc_tax": "3.23",
+        "source_url": "https://a.storyblok.com/f/122730/x/71ce79fc2d/2026-02.pdf"
+      },
+      {
+        "valid_from": "2026-02-28T15:00:00Z",
+        "valid_to": "2026-03-31T15:00:00Z",
+        "price_inc_tax": "3.36",
+        "source_url": "https://a.storyblok.com/f/122730/x/165ab8bdf7/2026-03.pdf"
+      },
+      {
+        "valid_from": "2026-03-31T15:00:00Z",
+        "valid_to": "2026-04-30T15:00:00Z",
+        "price_inc_tax": "3.43",
+        "source_url": "https://a.storyblok.com/f/122730/x/f29cdaf163/2026-04.pdf"
+      },
+      {
+        "valid_from": "2026-04-30T15:00:00Z",
+        "valid_to": "2026-05-31T15:00:00Z",
+        "price_inc_tax": "3.48",
+        "source_url": "https://a.storyblok.com/f/122730/x/4a6017231e/2026-05.pdf"
+      },
+      {
+        "valid_from": "2026-05-31T15:00:00Z",
+        "valid_to": "2026-06-30T15:00:00Z",
+        "price_inc_tax": "3.53",
+        "source_url": "https://a.storyblok.com/f/122730/x/b29470d82f/2026-06.pdf"
+      },
+      {
+        "valid_from": "2026-06-30T15:00:00Z",
+        "valid_to": "2026-07-31T15:00:00Z",
+        "price_inc_tax": "3.87",
+        "source_url": "https://a.storyblok.com/f/122730/x/6dec1a3882/2026-07.pdf"
+      },
+      {
+        "valid_from": "2026-07-31T15:00:00Z",
+        "valid_to": "2026-08-31T15:00:00Z",
+        "price_inc_tax": "4.83",
+        "source_url": "https://a.storyblok.com/f/122730/x/726ecca2ec/2026-08.pdf"
+      },
+      {
+        "valid_from": "2026-08-31T15:00:00Z",
+        "valid_to": "2026-09-30T15:00:00Z",
+        "price_inc_tax": "6.22",
+        "source_url": "https://a.storyblok.com/f/122730/x/7b4adc51cc/2026-09.pdf"
+      }
+    ],
+    "08": [
+      {
+        "valid_from": "2022-05-31T15:00:00Z",
+        "valid_to": "2022-06-30T15:00:00Z",
+        "price_inc_tax": "3.06",
+        "source_url": "https://a.storyblok.com/f/122730/x/2a303b4ee4/2022-06.pdf"
+      },
+      {
+        "valid_from": "2022-06-30T15:00:00Z",
+        "valid_to": "2022-07-31T15:00:00Z",
+        "price_inc_tax": "4.12",
+        "source_url": "https://a.storyblok.com/f/122730/x/e115317fc2/2022-07.pdf"
+      },
+      {
+        "valid_from": "2022-07-31T15:00:00Z",
+        "valid_to": "2022-08-31T15:00:00Z",
+        "price_inc_tax": "5.51",
+        "source_url": "https://a.storyblok.com/f/122730/x/0af4e1ab58/2022-08.pdf"
+      },
+      {
+        "valid_from": "2022-08-31T15:00:00Z",
+        "valid_to": "2022-09-30T15:00:00Z",
+        "price_inc_tax": "7.57",
+        "source_url": "https://a.storyblok.com/f/122730/x/144112c83d/2022-09.pdf"
+      },
+      {
+        "valid_from": "2022-09-30T15:00:00Z",
+        "valid_to": "2022-10-31T15:00:00Z",
+        "price_inc_tax": "9.31",
+        "source_url": "https://a.storyblok.com/f/122730/x/29eb8ac888/2022-10.pdf"
+      },
+      {
+        "valid_from": "2022-10-31T15:00:00Z",
+        "valid_to": "2022-11-30T15:00:00Z",
+        "price_inc_tax": "10.47",
+        "source_url": "https://a.storyblok.com/f/122730/x/79b562d16f/2022-11.pdf"
+      },
+      {
+        "valid_from": "2022-11-30T15:00:00Z",
+        "valid_to": "2022-12-31T15:00:00Z",
+        "price_inc_tax": "11.21",
+        "source_url": "https://a.storyblok.com/f/122730/x/d128dd7ef8/2022-12.pdf"
+      },
+      {
+        "valid_from": "2022-12-31T15:00:00Z",
+        "valid_to": "2023-01-31T15:00:00Z",
+        "price_inc_tax": "11.60",
+        "source_url": "https://a.storyblok.com/f/122730/x/b9ffa26b68/2023-01.pdf"
+      },
+      {
+        "valid_from": "2023-01-31T15:00:00Z",
+        "valid_to": "2023-02-28T15:00:00Z",
+        "price_inc_tax": "12.15",
+        "source_url": "https://a.storyblok.com/f/122730/x/448e627d60/2023-02.pdf"
+      },
+      {
+        "valid_from": "2023-02-28T15:00:00Z",
+        "valid_to": "2023-03-31T15:00:00Z",
+        "price_inc_tax": "11.74",
+        "source_url": "https://a.storyblok.com/f/122730/x/9121a7cc9c/2023-03.pdf"
+      },
+      {
+        "valid_from": "2023-03-31T15:00:00Z",
+        "valid_to": "2023-04-30T15:00:00Z",
+        "price_inc_tax": "10.76",
+        "source_url": "https://a.storyblok.com/f/122730/x/749cb84b6d/2023-04.pdf"
+      },
+      {
+        "valid_from": "2023-04-30T15:00:00Z",
+        "valid_to": "2023-05-31T15:00:00Z",
+        "price_inc_tax": "9.70",
+        "source_url": "https://a.storyblok.com/f/122730/x/cee07f2aed/2023-05.pdf"
+      },
+      {
+        "valid_from": "2023-05-31T15:00:00Z",
+        "valid_to": "2023-06-30T15:00:00Z",
+        "price_inc_tax": "8.90",
+        "source_url": "https://a.storyblok.com/f/122730/x/15e1a91f55/2023-06.pdf"
+      },
+      {
+        "valid_from": "2023-06-30T15:00:00Z",
+        "valid_to": "2023-07-31T15:00:00Z",
+        "price_inc_tax": "8.06",
+        "source_url": "https://a.storyblok.com/f/122730/x/cad8969478/2023-07.pdf"
+      },
+      {
+        "valid_from": "2023-07-31T15:00:00Z",
+        "valid_to": "2023-08-31T15:00:00Z",
+        "price_inc_tax": "7.04",
+        "source_url": "https://a.storyblok.com/f/122730/x/439f2eac1f/2023-08.pdf"
+      },
+      {
+        "valid_from": "2023-08-31T15:00:00Z",
+        "valid_to": "2023-09-30T15:00:00Z",
+        "price_inc_tax": "6.00",
+        "source_url": "https://a.storyblok.com/f/122730/x/ac8a2ff774/2023-09.pdf"
+      },
+      {
+        "valid_from": "2023-09-30T15:00:00Z",
+        "valid_to": "2023-10-31T15:00:00Z",
+        "price_inc_tax": "5.33",
+        "source_url": "https://a.storyblok.com/f/122730/x/9d213e4a34/2023-10.pdf"
+      },
+      {
+        "valid_from": "2023-10-31T15:00:00Z",
+        "valid_to": "2023-11-30T15:00:00Z",
+        "price_inc_tax": "4.94",
+        "source_url": "https://a.storyblok.com/f/122730/x/af24789961/2023-11.pdf"
+      },
+      {
+        "valid_from": "2023-11-30T15:00:00Z",
+        "valid_to": "2023-12-31T15:00:00Z",
+        "price_inc_tax": "4.68",
+        "source_url": "https://a.storyblok.com/f/122730/x/0beee28e3d/2023-12.pdf"
+      },
+      {
+        "valid_from": "2023-12-31T15:00:00Z",
+        "valid_to": "2024-01-31T15:00:00Z",
+        "price_inc_tax": "4.80",
+        "source_url": "https://a.storyblok.com/f/122730/x/b7930b886c/2024-01.pdf"
+      },
+      {
+        "valid_from": "2024-01-31T15:00:00Z",
+        "valid_to": "2024-02-29T15:00:00Z",
+        "price_inc_tax": "5.00",
+        "source_url": "https://a.storyblok.com/f/122730/x/3cd9d97e19/2024-02.pdf"
+      },
+      {
+        "valid_from": "2024-02-29T15:00:00Z",
+        "valid_to": "2024-03-31T15:00:00Z",
+        "price_inc_tax": "5.00",
+        "source_url": "https://a.storyblok.com/f/122730/x/df48ab0c14/2024-03.pdf"
+      },
+      {
+        "valid_from": "2024-03-31T15:00:00Z",
+        "valid_to": "2024-04-30T15:00:00Z",
+        "price_inc_tax": "4.65",
+        "source_url": "https://a.storyblok.com/f/122730/x/206f4d6688/2024-04.pdf"
+      },
+      {
+        "valid_from": "2024-04-30T15:00:00Z",
+        "valid_to": "2024-05-31T15:00:00Z",
+        "price_inc_tax": "4.41",
+        "source_url": "https://a.storyblok.com/f/122730/x/7e7772644e/2024-05.pdf"
+      },
+      {
+        "valid_from": "2024-05-31T15:00:00Z",
+        "valid_to": "2024-06-30T15:00:00Z",
+        "price_inc_tax": "4.23",
+        "source_url": "https://a.storyblok.com/f/122730/x/d9b10bd607/2024-06.pdf"
+      },
+      {
+        "valid_from": "2024-06-30T15:00:00Z",
+        "valid_to": "2024-07-31T15:00:00Z",
+        "price_inc_tax": "4.25",
+        "source_url": "https://a.storyblok.com/f/122730/x/3babf3d648/2024-07.pdf"
+      },
+      {
+        "valid_from": "2024-07-31T15:00:00Z",
+        "valid_to": "2024-08-31T15:00:00Z",
+        "price_inc_tax": "4.27",
+        "source_url": "https://a.storyblok.com/f/122730/x/b69265a701/2024-08.pdf"
+      },
+      {
+        "valid_from": "2024-08-31T15:00:00Z",
+        "valid_to": "2024-09-30T15:00:00Z",
+        "price_inc_tax": "4.41",
+        "source_url": "https://a.storyblok.com/f/122730/x/9fbebe3c2f/2024-09.pdf"
+      },
+      {
+        "valid_from": "2024-09-30T15:00:00Z",
+        "valid_to": "2024-10-31T15:00:00Z",
+        "price_inc_tax": "4.53",
+        "source_url": "https://a.storyblok.com/f/122730/x/495286a146/2024-10.pdf"
+      },
+      {
+        "valid_from": "2024-10-31T15:00:00Z",
+        "valid_to": "2024-11-30T15:00:00Z",
+        "price_inc_tax": "4.41",
+        "source_url": "https://a.storyblok.com/f/122730/x/dccc261587/2024-11.pdf"
+      },
+      {
+        "valid_from": "2024-11-30T15:00:00Z",
+        "valid_to": "2024-12-31T15:00:00Z",
+        "price_inc_tax": "4.10",
+        "source_url": "https://a.storyblok.com/f/122730/x/a312c556c8/2024-12.pdf"
+      },
+      {
+        "valid_from": "2024-12-31T15:00:00Z",
+        "valid_to": "2025-01-31T15:00:00Z",
+        "price_inc_tax": "3.74",
+        "source_url": "https://a.storyblok.com/f/122730/x/c467330a4f/2025-01.pdf"
+      },
+      {
+        "valid_from": "2025-01-31T15:00:00Z",
+        "valid_to": "2025-02-28T15:00:00Z",
+        "price_inc_tax": "3.67",
+        "source_url": "https://a.storyblok.com/f/122730/x/63043fc8b9/2025-02.pdf"
+      },
+      {
+        "valid_from": "2025-02-28T15:00:00Z",
+        "valid_to": "2025-03-31T15:00:00Z",
+        "price_inc_tax": "3.76",
+        "source_url": "https://a.storyblok.com/f/122730/x/b81360d4af/2025-03.pdf"
+      },
+      {
+        "valid_from": "2025-03-31T15:00:00Z",
+        "valid_to": "2025-04-30T15:00:00Z",
+        "price_inc_tax": "3.86",
+        "source_url": "https://a.storyblok.com/f/122730/x/f2d4d20771/2025-04.pdf"
+      },
+      {
+        "valid_from": "2025-04-30T15:00:00Z",
+        "valid_to": "2025-05-31T15:00:00Z",
+        "price_inc_tax": "3.76",
+        "source_url": "https://a.storyblok.com/f/122730/x/1f98d9f34a/2025-05.pdf"
+      },
+      {
+        "valid_from": "2025-05-31T15:00:00Z",
+        "valid_to": "2025-06-30T15:00:00Z",
+        "price_inc_tax": "3.57",
+        "source_url": "https://a.storyblok.com/f/122730/x/9d3f5aa62a/2025-06.pdf"
+      },
+      {
+        "valid_from": "2025-06-30T15:00:00Z",
+        "valid_to": "2025-07-31T15:00:00Z",
+        "price_inc_tax": "3.12",
+        "source_url": "https://a.storyblok.com/f/122730/x/e6370c5d9a/2025-07.pdf"
+      },
+      {
+        "valid_from": "2025-07-31T15:00:00Z",
+        "valid_to": "2025-08-31T15:00:00Z",
+        "price_inc_tax": "2.65",
+        "source_url": "https://a.storyblok.com/f/122730/x/90c66abb12/2025-08.pdf"
+      },
+      {
+        "valid_from": "2025-08-31T15:00:00Z",
+        "valid_to": "2025-09-30T15:00:00Z",
+        "price_inc_tax": "2.29",
+        "source_url": "https://a.storyblok.com/f/122730/x/7ec4950a48/2025-09.pdf"
+      },
+      {
+        "valid_from": "2025-09-30T15:00:00Z",
+        "valid_to": "2025-10-31T15:00:00Z",
+        "price_inc_tax": "2.06",
+        "source_url": "https://a.storyblok.com/f/122730/x/11a3d017a6/2025-10.pdf"
+      },
+      {
+        "valid_from": "2025-10-31T15:00:00Z",
+        "valid_to": "2025-11-30T15:00:00Z",
+        "price_inc_tax": "2.10",
+        "source_url": "https://a.storyblok.com/f/122730/x/a22c538499/2025-11.pdf"
+      },
+      {
+        "valid_from": "2025-11-30T15:00:00Z",
+        "valid_to": "2025-12-31T15:00:00Z",
+        "price_inc_tax": "2.20",
+        "source_url": "https://a.storyblok.com/f/122730/x/21fdec1b6f/2025-12.pdf"
+      },
+      {
+        "valid_from": "2025-12-31T15:00:00Z",
+        "valid_to": "2026-01-31T15:00:00Z",
+        "price_inc_tax": "2.33",
+        "source_url": "https://a.storyblok.com/f/122730/x/974a938672/2026-01.pdf"
+      },
+      {
+        "valid_from": "2026-01-31T15:00:00Z",
+        "valid_to": "2026-02-28T15:00:00Z",
+        "price_inc_tax": "2.37",
+        "source_url": "https://a.storyblok.com/f/122730/x/71ce79fc2d/2026-02.pdf"
+      },
+      {
+        "valid_from": "2026-02-28T15:00:00Z",
+        "valid_to": "2026-03-31T15:00:00Z",
+        "price_inc_tax": "2.45",
+        "source_url": "https://a.storyblok.com/f/122730/x/165ab8bdf7/2026-03.pdf"
+      },
+      {
+        "valid_from": "2026-03-31T15:00:00Z",
+        "valid_to": "2026-04-30T15:00:00Z",
+        "price_inc_tax": "2.47",
+        "source_url": "https://a.storyblok.com/f/122730/x/f29cdaf163/2026-04.pdf"
+      },
+      {
+        "valid_from": "2026-04-30T15:00:00Z",
+        "valid_to": "2026-05-31T15:00:00Z",
+        "price_inc_tax": "2.49",
+        "source_url": "https://a.storyblok.com/f/122730/x/4a6017231e/2026-05.pdf"
+      },
+      {
+        "valid_from": "2026-05-31T15:00:00Z",
+        "valid_to": "2026-06-30T15:00:00Z",
+        "price_inc_tax": "2.53",
+        "source_url": "https://a.storyblok.com/f/122730/x/b29470d82f/2026-06.pdf"
+      },
+      {
+        "valid_from": "2026-06-30T15:00:00Z",
+        "valid_to": "2026-07-31T15:00:00Z",
+        "price_inc_tax": "2.88",
+        "source_url": "https://a.storyblok.com/f/122730/x/6dec1a3882/2026-07.pdf"
+      },
+      {
+        "valid_from": "2026-07-31T15:00:00Z",
+        "valid_to": "2026-08-31T15:00:00Z",
+        "price_inc_tax": "3.74",
+        "source_url": "https://a.storyblok.com/f/122730/x/726ecca2ec/2026-08.pdf"
+      },
+      {
+        "valid_from": "2026-08-31T15:00:00Z",
+        "valid_to": "2026-09-30T15:00:00Z",
+        "price_inc_tax": "5.15",
+        "source_url": "https://a.storyblok.com/f/122730/x/7b4adc51cc/2026-09.pdf"
+      }
+    ],
+    "09": [
+      {
+        "valid_from": "2022-05-31T15:00:00Z",
+        "valid_to": "2022-06-30T15:00:00Z",
+        "price_inc_tax": "1.85",
+        "source_url": "https://a.storyblok.com/f/122730/x/2a303b4ee4/2022-06.pdf"
+      },
+      {
+        "valid_from": "2022-06-30T15:00:00Z",
+        "valid_to": "2022-07-31T15:00:00Z",
+        "price_inc_tax": "2.48",
+        "source_url": "https://a.storyblok.com/f/122730/x/e115317fc2/2022-07.pdf"
+      },
+      {
+        "valid_from": "2022-07-31T15:00:00Z",
+        "valid_to": "2022-08-31T15:00:00Z",
+        "price_inc_tax": "3.32",
+        "source_url": "https://a.storyblok.com/f/122730/x/0af4e1ab58/2022-08.pdf"
+      },
+      {
+        "valid_from": "2022-08-31T15:00:00Z",
+        "valid_to": "2022-09-30T15:00:00Z",
+        "price_inc_tax": "4.61",
+        "source_url": "https://a.storyblok.com/f/122730/x/144112c83d/2022-09.pdf"
+      },
+      {
+        "valid_from": "2022-09-30T15:00:00Z",
+        "valid_to": "2022-10-31T15:00:00Z",
+        "price_inc_tax": "5.87",
+        "source_url": "https://a.storyblok.com/f/122730/x/29eb8ac888/2022-10.pdf"
+      },
+      {
+        "valid_from": "2022-10-31T15:00:00Z",
+        "valid_to": "2022-11-30T15:00:00Z",
+        "price_inc_tax": "6.82",
+        "source_url": "https://a.storyblok.com/f/122730/x/79b562d16f/2022-11.pdf"
+      },
+      {
+        "valid_from": "2022-11-30T15:00:00Z",
+        "valid_to": "2022-12-31T15:00:00Z",
+        "price_inc_tax": "7.69",
+        "source_url": "https://a.storyblok.com/f/122730/x/d128dd7ef8/2022-12.pdf"
+      },
+      {
+        "valid_from": "2022-12-31T15:00:00Z",
+        "valid_to": "2023-01-31T15:00:00Z",
+        "price_inc_tax": "8.17",
+        "source_url": "https://a.storyblok.com/f/122730/x/b9ffa26b68/2023-01.pdf"
+      },
+      {
+        "valid_from": "2023-01-31T15:00:00Z",
+        "valid_to": "2023-02-28T15:00:00Z",
+        "price_inc_tax": "8.56",
+        "source_url": "https://a.storyblok.com/f/122730/x/448e627d60/2023-02.pdf"
+      },
+      {
+        "valid_from": "2023-02-28T15:00:00Z",
+        "valid_to": "2023-03-31T15:00:00Z",
+        "price_inc_tax": "8.22",
+        "source_url": "https://a.storyblok.com/f/122730/x/9121a7cc9c/2023-03.pdf"
+      },
+      {
+        "valid_from": "2023-03-31T15:00:00Z",
+        "valid_to": "2023-04-30T15:00:00Z",
+        "price_inc_tax": "7.56",
+        "source_url": "https://a.storyblok.com/f/122730/x/749cb84b6d/2023-04.pdf"
+      },
+      {
+        "valid_from": "2023-04-30T15:00:00Z",
+        "valid_to": "2023-05-31T15:00:00Z",
+        "price_inc_tax": "6.88",
+        "source_url": "https://a.storyblok.com/f/122730/x/cee07f2aed/2023-05.pdf"
+      },
+      {
+        "valid_from": "2023-05-31T15:00:00Z",
+        "valid_to": "2023-06-30T15:00:00Z",
+        "price_inc_tax": "6.25",
+        "source_url": "https://a.storyblok.com/f/122730/x/15e1a91f55/2023-06.pdf"
+      },
+      {
+        "valid_from": "2023-06-30T15:00:00Z",
+        "valid_to": "2023-07-31T15:00:00Z",
+        "price_inc_tax": "5.49",
+        "source_url": "https://a.storyblok.com/f/122730/x/cad8969478/2023-07.pdf"
+      },
+      {
+        "valid_from": "2023-07-31T15:00:00Z",
+        "valid_to": "2023-08-31T15:00:00Z",
+        "price_inc_tax": "4.58",
+        "source_url": "https://a.storyblok.com/f/122730/x/439f2eac1f/2023-08.pdf"
+      },
+      {
+        "valid_from": "2023-08-31T15:00:00Z",
+        "valid_to": "2023-09-30T15:00:00Z",
+        "price_inc_tax": "3.73",
+        "source_url": "https://a.storyblok.com/f/122730/x/ac8a2ff774/2023-09.pdf"
+      },
+      {
+        "valid_from": "2023-09-30T15:00:00Z",
+        "valid_to": "2023-10-31T15:00:00Z",
+        "price_inc_tax": "3.20",
+        "source_url": "https://a.storyblok.com/f/122730/x/9d213e4a34/2023-10.pdf"
+      },
+      {
+        "valid_from": "2023-10-31T15:00:00Z",
+        "valid_to": "2023-11-30T15:00:00Z",
+        "price_inc_tax": "2.93",
+        "source_url": "https://a.storyblok.com/f/122730/x/af24789961/2023-11.pdf"
+      },
+      {
+        "valid_from": "2023-11-30T15:00:00Z",
+        "valid_to": "2023-12-31T15:00:00Z",
+        "price_inc_tax": "2.68",
+        "source_url": "https://a.storyblok.com/f/122730/x/0beee28e3d/2023-12.pdf"
+      },
+      {
+        "valid_from": "2023-12-31T15:00:00Z",
+        "valid_to": "2024-01-31T15:00:00Z",
+        "price_inc_tax": "2.66",
+        "source_url": "https://a.storyblok.com/f/122730/x/b7930b886c/2024-01.pdf"
+      },
+      {
+        "valid_from": "2024-01-31T15:00:00Z",
+        "valid_to": "2024-02-29T15:00:00Z",
+        "price_inc_tax": "2.70",
+        "source_url": "https://a.storyblok.com/f/122730/x/3cd9d97e19/2024-02.pdf"
+      },
+      {
+        "valid_from": "2024-02-29T15:00:00Z",
+        "valid_to": "2024-03-31T15:00:00Z",
+        "price_inc_tax": "2.75",
+        "source_url": "https://a.storyblok.com/f/122730/x/df48ab0c14/2024-03.pdf"
+      },
+      {
+        "valid_from": "2024-03-31T15:00:00Z",
+        "valid_to": "2024-04-30T15:00:00Z",
+        "price_inc_tax": "2.62",
+        "source_url": "https://a.storyblok.com/f/122730/x/206f4d6688/2024-04.pdf"
+      },
+      {
+        "valid_from": "2024-04-30T15:00:00Z",
+        "valid_to": "2024-05-31T15:00:00Z",
+        "price_inc_tax": "2.58",
+        "source_url": "https://a.storyblok.com/f/122730/x/7e7772644e/2024-05.pdf"
+      },
+      {
+        "valid_from": "2024-05-31T15:00:00Z",
+        "valid_to": "2024-06-30T15:00:00Z",
+        "price_inc_tax": "2.49",
+        "source_url": "https://a.storyblok.com/f/122730/x/d9b10bd607/2024-06.pdf"
+      },
+      {
+        "valid_from": "2024-06-30T15:00:00Z",
+        "valid_to": "2024-07-31T15:00:00Z",
+        "price_inc_tax": "2.39",
+        "source_url": "https://a.storyblok.com/f/122730/x/3babf3d648/2024-07.pdf"
+      },
+      {
+        "valid_from": "2024-07-31T15:00:00Z",
+        "valid_to": "2024-08-31T15:00:00Z",
+        "price_inc_tax": "2.28",
+        "source_url": "https://a.storyblok.com/f/122730/x/b69265a701/2024-08.pdf"
+      },
+      {
+        "valid_from": "2024-08-31T15:00:00Z",
+        "valid_to": "2024-09-30T15:00:00Z",
+        "price_inc_tax": "2.29",
+        "source_url": "https://a.storyblok.com/f/122730/x/9fbebe3c2f/2024-09.pdf"
+      },
+      {
+        "valid_from": "2024-09-30T15:00:00Z",
+        "valid_to": "2024-10-31T15:00:00Z",
+        "price_inc_tax": "2.36",
+        "source_url": "https://a.storyblok.com/f/122730/x/495286a146/2024-10.pdf"
+      },
+      {
+        "valid_from": "2024-10-31T15:00:00Z",
+        "valid_to": "2024-11-30T15:00:00Z",
+        "price_inc_tax": "2.33",
+        "source_url": "https://a.storyblok.com/f/122730/x/dccc261587/2024-11.pdf"
+      },
+      {
+        "valid_from": "2024-11-30T15:00:00Z",
+        "valid_to": "2024-12-31T15:00:00Z",
+        "price_inc_tax": "2.18",
+        "source_url": "https://a.storyblok.com/f/122730/x/a312c556c8/2024-12.pdf"
+      },
+      {
+        "valid_from": "2024-12-31T15:00:00Z",
+        "valid_to": "2025-01-31T15:00:00Z",
+        "price_inc_tax": "2.04",
+        "source_url": "https://a.storyblok.com/f/122730/x/c467330a4f/2025-01.pdf"
+      },
+      {
+        "valid_from": "2025-01-31T15:00:00Z",
+        "valid_to": "2025-02-28T15:00:00Z",
+        "price_inc_tax": "2.06",
+        "source_url": "https://a.storyblok.com/f/122730/x/63043fc8b9/2025-02.pdf"
+      },
+      {
+        "valid_from": "2025-02-28T15:00:00Z",
+        "valid_to": "2025-03-31T15:00:00Z",
+        "price_inc_tax": "2.15",
+        "source_url": "https://a.storyblok.com/f/122730/x/b81360d4af/2025-03.pdf"
+      },
+      {
+        "valid_from": "2025-03-31T15:00:00Z",
+        "valid_to": "2025-04-30T15:00:00Z",
+        "price_inc_tax": "2.27",
+        "source_url": "https://a.storyblok.com/f/122730/x/f2d4d20771/2025-04.pdf"
+      },
+      {
+        "valid_from": "2025-04-30T15:00:00Z",
+        "valid_to": "2025-05-31T15:00:00Z",
+        "price_inc_tax": "2.18",
+        "source_url": "https://a.storyblok.com/f/122730/x/1f98d9f34a/2025-05.pdf"
+      },
+      {
+        "valid_from": "2025-05-31T15:00:00Z",
+        "valid_to": "2025-06-30T15:00:00Z",
+        "price_inc_tax": "1.99",
+        "source_url": "https://a.storyblok.com/f/122730/x/9d3f5aa62a/2025-06.pdf"
+      },
+      {
+        "valid_from": "2025-06-30T15:00:00Z",
+        "valid_to": "2025-07-31T15:00:00Z",
+        "price_inc_tax": "1.62",
+        "source_url": "https://a.storyblok.com/f/122730/x/e6370c5d9a/2025-07.pdf"
+      },
+      {
+        "valid_from": "2025-07-31T15:00:00Z",
+        "valid_to": "2025-08-31T15:00:00Z",
+        "price_inc_tax": "1.34",
+        "source_url": "https://a.storyblok.com/f/122730/x/90c66abb12/2025-08.pdf"
+      },
+      {
+        "valid_from": "2025-08-31T15:00:00Z",
+        "valid_to": "2025-09-30T15:00:00Z",
+        "price_inc_tax": "1.14",
+        "source_url": "https://a.storyblok.com/f/122730/x/7ec4950a48/2025-09.pdf"
+      },
+      {
+        "valid_from": "2025-09-30T15:00:00Z",
+        "valid_to": "2025-10-31T15:00:00Z",
+        "price_inc_tax": "1.02",
+        "source_url": "https://a.storyblok.com/f/122730/x/11a3d017a6/2025-10.pdf"
+      },
+      {
+        "valid_from": "2025-10-31T15:00:00Z",
+        "valid_to": "2025-11-30T15:00:00Z",
+        "price_inc_tax": "1.05",
+        "source_url": "https://a.storyblok.com/f/122730/x/a22c538499/2025-11.pdf"
+      },
+      {
+        "valid_from": "2025-11-30T15:00:00Z",
+        "valid_to": "2025-12-31T15:00:00Z",
+        "price_inc_tax": "1.06",
+        "source_url": "https://a.storyblok.com/f/122730/x/21fdec1b6f/2025-12.pdf"
+      },
+      {
+        "valid_from": "2025-12-31T15:00:00Z",
+        "valid_to": "2026-01-31T15:00:00Z",
+        "price_inc_tax": "1.11",
+        "source_url": "https://a.storyblok.com/f/122730/x/974a938672/2026-01.pdf"
+      },
+      {
+        "valid_from": "2026-01-31T15:00:00Z",
+        "valid_to": "2026-02-28T15:00:00Z",
+        "price_inc_tax": "1.11",
+        "source_url": "https://a.storyblok.com/f/122730/x/71ce79fc2d/2026-02.pdf"
+      },
+      {
+        "valid_from": "2026-02-28T15:00:00Z",
+        "valid_to": "2026-03-31T15:00:00Z",
+        "price_inc_tax": "1.19",
+        "source_url": "https://a.storyblok.com/f/122730/x/165ab8bdf7/2026-03.pdf"
+      },
+      {
+        "valid_from": "2026-03-31T15:00:00Z",
+        "valid_to": "2026-04-30T15:00:00Z",
+        "price_inc_tax": "1.29",
+        "source_url": "https://a.storyblok.com/f/122730/x/f29cdaf163/2026-04.pdf"
+      },
+      {
+        "valid_from": "2026-04-30T15:00:00Z",
+        "valid_to": "2026-05-31T15:00:00Z",
+        "price_inc_tax": "1.32",
+        "source_url": "https://a.storyblok.com/f/122730/x/4a6017231e/2026-05.pdf"
+      },
+      {
+        "valid_from": "2026-05-31T15:00:00Z",
+        "valid_to": "2026-06-30T15:00:00Z",
+        "price_inc_tax": "1.37",
+        "source_url": "https://a.storyblok.com/f/122730/x/b29470d82f/2026-06.pdf"
+      },
+      {
+        "valid_from": "2026-06-30T15:00:00Z",
+        "valid_to": "2026-07-31T15:00:00Z",
+        "price_inc_tax": "1.47",
+        "source_url": "https://a.storyblok.com/f/122730/x/6dec1a3882/2026-07.pdf"
+      },
+      {
+        "valid_from": "2026-07-31T15:00:00Z",
+        "valid_to": "2026-08-31T15:00:00Z",
+        "price_inc_tax": "1.80",
+        "source_url": "https://a.storyblok.com/f/122730/x/726ecca2ec/2026-08.pdf"
+      },
+      {
+        "valid_from": "2026-08-31T15:00:00Z",
+        "valid_to": "2026-09-30T15:00:00Z",
+        "price_inc_tax": "2.14",
+        "source_url": "https://a.storyblok.com/f/122730/x/7b4adc51cc/2026-09.pdf"
+      }
+    ]
+  },
+  "fuel_cost_adjustment_area_names": {
+    "01": "Hokkaido",
+    "02": "Tohoku",
+    "03": "Tokyo",
+    "04": "Chubu",
+    "05": "Hokuriku",
+    "06": "Kansai",
+    "07": "Chugoku",
+    "08": "Shikoku",
+    "09": "Kyushu"
+  },
+  "fuel_cost_adjustment_excluded_products": [
+    "simple_octopus",
+    "shikatako_simple"
+  ]
+}

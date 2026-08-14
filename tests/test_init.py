@@ -14,6 +14,7 @@ from custom_components.octopus_energy_japan import (
     async_setup_entry,
     async_unload_entry,
 )
+from custom_components.octopus_energy_japan.adder_baseline import AdderBaselineError
 from custom_components.octopus_energy_japan.aggregation import AggregationSnapshot
 from custom_components.octopus_energy_japan.api import (
     Capability,
@@ -211,6 +212,87 @@ async def test_setup_entry_creates_auth_runtime_and_forwards_platforms(
     # picker shows that name and nothing else. Optional commercial operations stay last
     # so they never delay setup, entity creation, or the first consumption refresh.
     assert events == ["devices", "refresh", "platforms", "background", "commercial"]
+
+
+async def test_a_broken_adder_baseline_degrades_setup_instead_of_failing_it(
+    hass: HomeAssistant,
+) -> None:
+    """A shipped-file bug must not behave worse than a corrupt per-account archive.
+
+    A corrupt per-account archive is quarantined, not fatal (`tariff_history_store.py`). The
+    shipped baseline warm-up should fail the same soft way: setup still succeeds, and every
+    `adder_lookup` call afterwards prices from the account's own archive alone, exactly as if
+    the baseline had never shipped.
+    """
+    entry = _entry()
+    implementation = AsyncMock()
+    auth = AsyncMock()
+    auth.async_get_authorization_header.return_value = "Bearer access"
+    coordinator = AsyncMock()
+    coordinator.async_add_listener = Mock(return_value=Mock())
+    coordinator.data = _empty_coordinator_data()
+    commercial_coordinator = AsyncMock()
+    commercial_coordinator.async_add_listener = Mock(return_value=Mock())
+    commercial_coordinator.set_accounts = Mock()
+    commercial_coordinator.data = None
+    statistics_projector = AsyncMock()
+
+    with (
+        patch(
+            "homeassistant.helpers.config_entry_oauth2_flow.async_get_config_entry_implementation",
+            AsyncMock(return_value=implementation),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.oauth_metadata.require_oauth_metadata",
+            return_value=METADATA,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.oauth.OejpPkceAuthSession",
+            return_value=auth,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_discover_resources",
+            AsyncMock(return_value=()),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_discover_supply_starts",
+            AsyncMock(return_value={}),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.api.async_detect_capabilities",
+            AsyncMock(return_value=CapabilitySnapshot()),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.identity.async_get_identity_secret",
+            AsyncMock(return_value="01" * 32),
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.coordinator.OejpDataUpdateCoordinator",
+            return_value=coordinator,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.commercial_coordinator.OejpCommercialCoordinator",
+            return_value=commercial_coordinator,
+        ),
+        patch(
+            "custom_components.octopus_energy_japan.statistics_runtime.HomeAssistantStatisticsProjector",
+            return_value=statistics_projector,
+        ) as projector_factory,
+        patch("custom_components.octopus_energy_japan.runtime.async_project_discovered_devices"),
+        patch.object(hass.config_entries, "async_forward_entry_setups", AsyncMock()),
+        patch(
+            "custom_components.octopus_energy_japan.adder_baseline.baseline_generated_at",
+            side_effect=AdderBaselineError("the shipped file is broken"),
+        ),
+    ):
+        assert await async_setup_entry(hass, entry)
+
+    adder_lookup = projector_factory.call_args.kwargs["adder_lookup"]
+    assert callable(adder_lookup)
+    # No account was ever observed either, so this is an empty schedule either way — the
+    # point is that reaching it at all didn't re-raise the same read failure a second time.
+    schedule = adder_lookup("PRIVATE-ACCOUNT", "PRIVATE-SPIN")
+    assert schedule.records == ()
 
 
 async def test_discovery_queries_generic_topology_sequentially() -> None:

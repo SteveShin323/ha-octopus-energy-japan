@@ -397,6 +397,20 @@ async def test_diagnostics_report_extrapolated_adder_hours(hass: HomeAssistant) 
     assert ACCOUNT_NUMBER not in str(report["extrapolated_adder_hours"])
 
 
+async def test_diagnostics_report_baseline_adder_hours(hass: HomeAssistant) -> None:
+    """How many priced hours came from the shipped baseline rather than this account's own."""
+    entry = _entry(hass)
+    entry.runtime_data.coordinator.baseline_adder_hours = Mock(
+        return_value=[{"supply_point": "point-hmac", "baseline_adder_hours": 7}]
+    )
+
+    report = await async_get_config_entry_diagnostics(hass, entry)
+
+    (reported,) = report["baseline_adder_hours"]
+    assert reported["baseline_adder_hours"] == 7
+    assert ACCOUNT_NUMBER not in str(report["baseline_adder_hours"])
+
+
 async def test_diagnostics_report_the_billing_anchor_and_what_said_so(
     hass: HomeAssistant,
 ) -> None:

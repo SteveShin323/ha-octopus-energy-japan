@@ -1,0 +1,80 @@
+name: Refresh adder baseline
+
+# The first scheduled workflow in this repository with write access. It never merges anything
+# itself: `scripts/refresh_adder_baseline.py` only ever adds a window it does not already have
+# (see docs/ADDER_BASELINE.md), and this workflow only ever proposes the result as a pull
+# request for a human to review — a parsing regression or an unexpected diff is caught there,
+# not published straight to main.
+
+on:
+  schedule:
+    # Monthly, a few days after OEJP typically posts the new month's notice.
+    - cron: "30 3 5 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refresh-adder-baseline
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[baseline-refresh,test]"
+      - run: python scripts/refresh_adder_baseline.py
+      # A parsing regression (a scrambled row, an overlapping window, an implausible
+      # month-over-month jump) fails the job here, before a bad file ever reaches a pull
+      # request — see tests/test_adder_baseline.py.
+      - run: pytest tests/test_adder_baseline.py
+      - id: diff
+        run: |
+          if git diff --quiet -- custom_components/octopus_energy_japan/data/adder_baseline.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          commit-message: "Refresh adder baseline"
+          title: "Refresh adder baseline"
+          body: >-
+            Automated refresh of `data/adder_baseline.json` from
+            https://octopusenergy.co.jp/terms, run by
+            `scripts/refresh_adder_baseline.py` on schedule.
+
+
+            This only ever adds a window the file did not already have — see
+            `docs/ADDER_BASELINE.md` for what the script will and will not touch.
+            A month the script could not parse (broken PDF font encoding, or an
+            unrecognised layout) is reported in the job log rather than guessed at,
+            and needs a human to add by hand the same way the existing hand-transcribed
+            months were.
+
+
+            Review the diff for plausibility before merging. The script checks a new
+            month's row order against its own label when the PDF's newer layout
+            provides one, but an older, unlabelled layout still relies on position
+            alone — `tests/test_adder_baseline.py::test_no_area_has_an_implausible_month_over_month_jump`
+            only catches a gross error there (wrong order of magnitude, a sign flip,
+            a systematic area swap across several months), not a same-month scramble
+            between areas whose current values happen to be close together.
+          branch: refresh-adder-baseline
+          delete-branch: true
+          add-paths: custom_components/octopus_energy_japan/data/adder_baseline.json
+          # GITHUB_TOKEN-authored pull requests do not trigger other workflows (a GitHub
+          # anti-recursion rule), so Validate's own pull_request checks will not run on this
+          # PR automatically — re-run them manually, or give this step a repo-owned PAT via
+          # a `token:` input if that gap should close.

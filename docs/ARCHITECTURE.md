@@ -31,7 +31,7 @@ Grouped by responsibility. This is not a strict layering — see the dependency 
 | Transport | `api/client.py`, `api/auth.py`, `api/errors.py` | one GraphQL POST, error classification, retries |
 | Operations | `api/discovery.py`, `api/readings.py`, `api/commercial.py`, `api/tariff.py`, `api/rate_limit.py`, `api/operations.py` | query documents and parsers, returning typed models |
 | Ledger | `ledger.py`, `ledger_store.py` | store every interval, keyed so a correction replaces it |
-| Tariff history | `tariff_history.py`, `tariff_history_store.py` | archive the rate adjustments the API stops serving |
+| Tariff history | `tariff_history.py`, `tariff_history_store.py`, `adder_baseline.py` | archive the rate adjustments the API stops serving, and the shipped baseline for what no account has ever observed |
 | Aggregation | `aggregation.py` | Asia/Tokyo calendar totals over the ledger |
 | Statistics | `statistics.py`, `statistics_runtime.py`, `tariff_cost.py`, `billing_period.py` | external long-term statistics, energy and cost |
 | Coordination | `coordinator.py`, `commercial_coordinator.py`, `sync.py`, `sync_runtime.py`, `sync_store.py`, `background_sync.py` | the poll, the background worker, checkpoints |
@@ -218,6 +218,16 @@ An archive that fails to load is put into **read-only quarantine**: the file is 
 it is, pricing falls back to the live tariff, and a repair issue says so. The ledger recovers
 from a corrupt partition by saving an empty one over it, which costs a re-fetch; doing that here
 would cost the only copy.
+
+**A shipped baseline fills what no account has ever observed.** Both adjustments are public
+record independent of any one customer — the levy is a single government-set nationwide rate,
+and the provider itself publishes the fuel cost adjustment monthly, per grid area, at
+`https://octopusenergy.co.jp/terms`. `data/adder_baseline.json` ships one verified copy of both,
+and `adders_for` (`__init__.py`) folds it in wherever the account's own archive has nothing for
+a window — an observed record is the provider's own statement about this account and always
+wins over the baseline for the same window (`tariff_history.with_baseline`). Nothing is
+written to the per-account archive file for this; it is recomputed on every read. See
+`docs/ADDER_BASELINE.md` for where the table came from and how it is kept current.
 
 **A price arriving provokes a statistics pass.** The tariff is read on a twelve-hour cadence
 and a cost series is only ever written by a pass, which runs every thirty minutes; the two
