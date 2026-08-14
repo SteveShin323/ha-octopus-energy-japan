@@ -10,6 +10,11 @@ individual customers.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-08-13
+
+Verified against a real account whose only consumption agreement had already ended before
+this shipped — the account this issue was raised from.
+
 ### Added
 
 - **A supply point whose consumption agreement has already ended can now be priced.** Its
