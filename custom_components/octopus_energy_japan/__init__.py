@@ -75,6 +75,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from homeassistant.helpers.aiohttp_client import async_get_clientsession
     from homeassistant.util import dt as dt_util
 
+    from .adder_baseline import AdderBaselineError, baseline_generated_at, baseline_schedule
     from .api import (
         AuthenticatedGraphQLClient,
         AuthSession,
@@ -103,6 +104,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .password_auth import OejpPasswordAuthError, OejpPasswordAuthSession
     from .runtime import OejpRuntimeData, async_project_discovered_devices
     from .statistics_runtime import HomeAssistantStatisticsProjector
+    from .tariff_history import AdderSchedule, with_baseline
     from .tariff_history_store import TariffHistoryArchive
 
     client = OejpGraphQLClient(async_get_clientsession(hass))
@@ -263,13 +265,54 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         data = commercial_coordinator.data
         return data.tariff(account_id, supply_point_id) if data is not None else None
 
-    def adders_for(account_id: str, supply_point_id: str) -> Any:
+    # `adder_baseline._load()` reads and parses `data/adder_baseline.json` once and caches it.
+    # Warming that cache here, through the executor, means every later call from `adders_for`
+    # below — which can run from inside a statistics pass directly on the event loop — hits
+    # memory only, never a blocking file read off the loop.
+    #
+    # A shipped file that fails to parse is this integration's own bug, not the account's or
+    # the archive's — but it must not turn into a setup failure any more than a corrupt
+    # per-account archive does (that is quarantined, not fatal; see tariff_history_store.py).
+    # `functools.lru_cache` does not cache a raised exception, so a broken file would otherwise
+    # be re-read, and re-fail, on the loop on every single `adders_for` call; `baseline_ok`
+    # remembers the outcome once so a broken baseline degrades to "no baseline" instead.
+    baseline_ok = True
+    try:
+        await hass.async_add_executor_job(baseline_generated_at)
+    except AdderBaselineError:
+        baseline_ok = False
+        _LOGGER.warning(
+            "The shipped Octopus Energy Japan adder baseline could not be read. Hours with "
+            "nothing in this account's own archive will be priced from the rate the provider "
+            "reports now, as if the baseline did not exist"
+        )
+
+    def adders_for(account_id: str, supply_point_id: str) -> AdderSchedule:
         """Look up every rate adjustment archived for one supply point.
 
-        Empty until the first commercial refresh has filed one, which prices those hours from
-        nothing — the same as before the archive existed. It fills on the first refresh.
+        Filled from the shipped baseline (`adder_baseline.py`) before the first commercial
+        refresh has ever run, and folded in around the account's own archive after — an
+        observed window is the provider's own statement and always wins over the baseline.
+
+        The fuel cost adjustment baseline is withheld once the live tariff has confirmed the
+        product carries none at all (some products, such as シンプルオクトパス, are billed with
+        no fuel cost adjustment whatsoever) — applying an area's baseline there would invent a
+        charge the customer does not owe. Before the first refresh this cannot yet be told
+        apart from "not observed yet", so the baseline is offered until proven otherwise.
         """
-        return tariff_archive.schedule(account_id, supply_point_id)
+        observed = tariff_archive.schedule(account_id, supply_point_id)
+        tariff = tariff_for(account_id, supply_point_id)
+        if not baseline_ok:
+            return observed
+        grid_operator_code = tariff.grid_operator_code if tariff is not None else None
+        fuel_adjustment_confirmed_absent = (
+            tariff is not None and tariff.fuel_cost_adjustment is None
+        )
+        baseline = baseline_schedule(
+            grid_operator_code,
+            include_fuel_cost_adjustment=not fuel_adjustment_confirmed_absent,
+        )
+        return AdderSchedule(with_baseline(observed.records, baseline.records))
 
     coordinator = OejpDataUpdateCoordinator(
         hass,

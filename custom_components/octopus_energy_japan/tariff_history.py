@@ -192,6 +192,44 @@ def merge_observed(
     return tuple(sorted(by_window.values())) if changed else None
 
 
+def with_baseline(
+    observed: tuple[ArchivedAdder, ...],
+    baseline: tuple[ArchivedAdder, ...],
+) -> tuple[ArchivedAdder, ...]:
+    """Fill windows the archive has never observed with the shipped baseline.
+
+    An observed window is the provider's own statement about this account and always wins;
+    the baseline (`adder_baseline.py`) only ever covers a window the archive has nothing
+    for. Unlike `merge_observed`, this never runs twice on the same inputs and so has no
+    revision to track — it is recomputed fresh by the caller on every read.
+    """
+    by_window = {record.window: record for record in baseline}
+    by_window.update({record.window: record for record in observed})
+    return tuple(sorted(by_window.values()))
+
+
+def baseline_covered_hours(
+    hours: Iterable[datetime],
+    schedule: AdderSchedule,
+    baseline_generated_at: datetime,
+) -> int:
+    """Count hours priced only because the shipped baseline covered them.
+
+    A baseline record is unmistakable without adding a field to `ArchivedAdder`: every one
+    of them carries the exact same `first_observed_at`, stamped once when the baseline was
+    last regenerated, which no observed record — each stamped when its own account was
+    actually read — could coincidentally share.
+    """
+    return sum(
+        1
+        for hour in hours
+        if any(
+            record.applies_at(hour) and record.first_observed_at == baseline_generated_at
+            for record in schedule.records
+        )
+    )
+
+
 def serialize_adders(records: Sequence[ArchivedAdder]) -> dict[str, Any]:
     """Return a deterministic payload for one supply point's archive."""
     return {

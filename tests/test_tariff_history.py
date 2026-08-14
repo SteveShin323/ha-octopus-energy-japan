@@ -18,12 +18,14 @@ from custom_components.octopus_energy_japan.tariff_history import (
     AdderSchedule,
     ArchivedAdder,
     TariffHistoryError,
+    baseline_covered_hours,
     deserialize_adders,
     live_schedule,
     merge_observed,
     migrate_tariff_history_payload,
     observed_adders,
     serialize_adders,
+    with_baseline,
 )
 
 NOW = datetime(2026, 8, 4, 12, tzinfo=UTC)
@@ -204,6 +206,55 @@ def test_an_adjustment_with_no_period_is_not_filed() -> None:
     )
 
     assert merged is None
+
+
+def test_an_observed_window_always_wins_over_the_baseline() -> None:
+    observed = (_record(AUGUST, "5.00"),)
+    baseline = (_record(AUGUST, "1.23", kind=AdderKind.FUEL_COST_ADJUSTMENT),)
+
+    merged = with_baseline(observed, baseline)
+
+    assert merged == (observed[0],)
+
+
+def test_the_baseline_fills_a_window_the_archive_has_never_observed() -> None:
+    observed = (_record(AUGUST, "5.00"),)
+    baseline = (_record(JULY, "1.23"),)
+
+    merged = with_baseline(observed, baseline)
+
+    assert set(merged) == {observed[0], baseline[0]}
+
+
+def test_a_baseline_covered_hour_is_not_extrapolated() -> None:
+    baseline = (_record(JULY, "1.23"),)
+
+    merged = with_baseline((), baseline)
+    rate = AdderSchedule(merged).rate_at(JULY[0])
+
+    assert rate.total == Decimal("1.23")
+    assert rate.extrapolated is False
+
+
+def test_baseline_covered_hours_counts_only_the_baseline_s_own_stamp() -> None:
+    generated_at = datetime(2026, 8, 1, tzinfo=UTC)
+    baseline_record = ArchivedAdder(
+        kind=AdderKind.FUEL_COST_ADJUSTMENT,
+        valid_from=JULY[0],
+        valid_to=JULY[1],
+        price_inc_tax=Decimal("1.23"),
+        first_observed_at=generated_at,
+    )
+    observed_record = _record(AUGUST, "5.00")
+    schedule = AdderSchedule((baseline_record, observed_record))
+
+    count = baseline_covered_hours(
+        [JULY[0], datetime(2026, 7, 15, tzinfo=UTC), AUGUST[0]],
+        schedule,
+        generated_at,
+    )
+
+    assert count == 2
 
 
 def test_the_live_schedule_holds_only_what_the_provider_states_now() -> None:

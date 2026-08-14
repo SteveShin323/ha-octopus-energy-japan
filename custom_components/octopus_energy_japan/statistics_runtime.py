@@ -23,6 +23,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.recorder import get_instance
 from homeassistant.util.unit_conversion import EnergyConverter
 
+from .adder_baseline import baseline_generated_at
 from .api import ReadingDirection
 from .api.tariff import SupplyPointTariff
 from .billing_period import BillingPeriodCalendar
@@ -36,7 +37,7 @@ from .statistics import (
     project_hourly_statistics,
 )
 from .tariff_cost import project_hourly_cost
-from .tariff_history import AdderSchedule, live_schedule
+from .tariff_history import AdderSchedule, baseline_covered_hours, live_schedule
 
 type StatisticsPublisher = Callable[
     [HomeAssistant, StatisticMetaData, tuple[StatisticData, ...]],
@@ -154,6 +155,9 @@ class StatisticsProjector(Protocol):
     def extrapolated_adder_hours(self, account_id: str, supply_point_id: str) -> int | None:
         """Return how many of the most recently priced hours needed an extrapolated adder."""
 
+    def baseline_adder_hours(self, account_id: str, supply_point_id: str) -> int | None:
+        """Return how many of the most recently priced hours came from the shipped baseline."""
+
 
 class HomeAssistantStatisticsProjector:
     """Publish correction-safe hourly rows through the recorder public API."""
@@ -192,6 +196,7 @@ class HomeAssistantStatisticsProjector:
         # computes the whole history at once and nothing changes it again, so this stays
         # exact. For a live one it settles down as the archive fills, which is the point of it.
         self._extrapolated_adder_hours: dict[tuple[str, str], int] = {}
+        self._baseline_adder_hours: dict[tuple[str, str], int] = {}
 
     async def async_project_supply_point(
         self,
@@ -452,6 +457,15 @@ class HomeAssistantStatisticsProjector:
         """
         return self._extrapolated_adder_hours.get((account_id, supply_point_id))
 
+    def baseline_adder_hours(self, account_id: str, supply_point_id: str) -> int | None:
+        """Return how many of the most recently priced hours came from the shipped baseline.
+
+        Distinct from `extrapolated_adder_hours`: a baseline-covered hour has a real published
+        rate behind it (`adder_baseline.py`), it just did not come from this account's own
+        archive. `None` means no cost has been computed for this supply point in this run yet.
+        """
+        return self._baseline_adder_hours.get((account_id, supply_point_id))
+
     def _publish_tariff_cost(
         self,
         account_id: str,
@@ -478,6 +492,7 @@ class HomeAssistantStatisticsProjector:
         tariff, schedule = priced
         totals: list[tuple[str, tuple[tuple[datetime, Decimal], ...]]] = []
         extrapolated_hours = 0
+        baseline_hours = 0
         for energy in series:
             if energy.key.kind is not StatisticKind.ENERGY:
                 continue
@@ -494,6 +509,9 @@ class HomeAssistantStatisticsProjector:
             if not costs:
                 continue
             extrapolated_hours += sum(1 for cost in costs if cost.adders_extrapolated)
+            baseline_hours += baseline_covered_hours(
+                (cost.start for cost in costs), schedule, baseline_generated_at()
+            )
             cost_series = StatisticsSeriesProjection(
                 key=replace(energy.key, kind=StatisticKind.TARIFF_COST),
                 statistics=(),
@@ -527,6 +545,7 @@ class HomeAssistantStatisticsProjector:
                 tuple(rows),
             )
         self._extrapolated_adder_hours[(account_id, supply_point_id)] = extrapolated_hours
+        self._baseline_adder_hours[(account_id, supply_point_id)] = baseline_hours
         return tuple(totals)
 
     def _clear_directions(

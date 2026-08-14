@@ -309,6 +309,10 @@ async def async_get_config_entry_diagnostics(
     # nearest archived value rather than one that actually covered them. What makes an
     # `is_estimate` tariff's cost an estimate rather than a bill, made visible instead of assumed.
     report["extrapolated_adder_hours"] = coordinator.extrapolated_adder_hours()
+    # How many of each supply point's priced hours came from the shipped baseline
+    # (`adder_baseline.py`) rather than this account's own archive — a real published
+    # rate, just not one this installation observed itself.
+    report["baseline_adder_hours"] = coordinator.baseline_adder_hours()
     archive = runtime.tariff_archive
     report["tariff_history"] = {
         "schema_version": TARIFF_HISTORY_SCHEMA_VERSION,

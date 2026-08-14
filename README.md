@@ -233,19 +233,23 @@ the total differ from your bill:
 
 - Price steps restart on the day your meter is read. The provider publishes no time of day
   for the read, so each boundary can be a few hours out.
-- Octopus Energy Japan only publishes the current month's fuel-cost adjustment. The
-  integration keeps every one it sees, so accuracy improves the longer it runs. Until an
-  hour's own adjustment has been collected, the nearest one is used.
+- Octopus Energy Japan's API only publishes the current month's fuel-cost adjustment. The
+  integration keeps every one it sees, and also ships a maintained copy of the provider's own
+  public monthly notices going back to when it started operating (see
+  [docs/ADDER_BASELINE.md](docs/ADDER_BASELINE.md)), so most history before you connected your
+  account is priced correctly rather than approximated. Only a small number of months the
+  provider itself never published a per-area figure for still fall back to the nearest known
+  value. Your diagnostics file counts how many hours came from that fallback
+  (`extrapolated_adder_hours`) separately from how many came from the shipped baseline rather
+  than your own account (`baseline_adder_hours`).
 - Whether the standing charge already accounts for your contracted amperage is not
   confirmed. Your diagnostics file records what the provider calls it.
 - If your agreement has already ended — a plan switch, or a move-out with the account still
   open — the cost is priced from that agreement and is more of an estimate than a live
   tariff's. Energy and the standing charge are exact; the fuel-cost adjustment and the
-  renewable levy can only be read from whatever the integration's own archive holds, so an
-  hour it was never running to observe live is priced with the nearest value it does have.
-  Your diagnostics file counts how many hours that affected — except a supply point whose
-  archive never once recorded one of the two adders before the agreement ended, which prices
-  that one at zero without counting it, because there is no archived value to fall back to.
+  renewable levy are read from the shipped baseline and whatever the integration's own
+  archive holds, so an hour neither ever covers is priced with the nearest value available
+  instead. Your diagnostics file counts how many hours that affected.
 
 ### Plans priced by time of day
 

@@ -3252,6 +3252,41 @@ async def test_extrapolated_adder_hours_is_empty_without_a_statistics_projector(
     assert coordinator.extrapolated_adder_hours() == []
 
 
+async def test_baseline_adder_hours_is_reported_per_supply_point(hass: HomeAssistant) -> None:
+    """An hour priced from the shipped baseline must be visible, not indistinguishable from a bill."""
+    coordinator = _coordinator(hass)
+    point = _point()
+    _install_state(coordinator, point, router=AsyncMock())
+    coordinator._statistics_projector = Mock(baseline_adder_hours=Mock(return_value=5))
+
+    (reported,) = coordinator.baseline_adder_hours()
+
+    assert reported["baseline_adder_hours"] == 5
+    assert SUPPLY_POINT_ID not in reported["supply_point"]
+
+
+async def test_a_supply_point_with_no_baseline_adder_hours_is_not_reported(
+    hass: HomeAssistant,
+) -> None:
+    """A tariff priced entirely from this account's own archive has nothing to explain."""
+    coordinator = _coordinator(hass)
+    point = _point()
+    _install_state(coordinator, point, router=AsyncMock())
+    coordinator._statistics_projector = Mock(baseline_adder_hours=Mock(return_value=0))
+
+    assert coordinator.baseline_adder_hours() == []
+
+
+async def test_baseline_adder_hours_is_empty_without_a_statistics_projector(
+    hass: HomeAssistant,
+) -> None:
+    """Nothing has been priced at all, which is not the same as nothing being baseline-priced."""
+    coordinator = _coordinator(hass)
+    _install_state(coordinator, _point(), router=AsyncMock())
+
+    assert coordinator.baseline_adder_hours() == []
+
+
 async def test_the_legacy_path_is_not_taken_as_the_provider_having_nothing(
     hass: HomeAssistant,
 ) -> None:
