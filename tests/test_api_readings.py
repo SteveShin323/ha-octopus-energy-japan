@@ -605,6 +605,46 @@ def test_exact_generic_duplicate_is_deduplicated_and_conflict_is_rejected() -> N
         )
 
 
+def test_reading_with_a_span_shorter_than_its_granularity_is_dropped_not_raised() -> None:
+    """A malformed interval must not cost the whole fetch, or the other 1,499 with it.
+
+    Observed on a real account on 2026-08-24: a half-hourly reading arrived with `intervalEnd`
+    a few minutes after `intervalStart` instead of the usual thirty. Its own `start_at` matched
+    an already-correct 30-minute reading exactly, so `_deduplicate_readings` saw two different
+    intervals rather than one restated — and kept both, doubling that half hour. Raising here
+    would fail `DirectionErrorClass.INVALID_RESPONSE` at `_FailureScope.POINT`, which stops
+    every other reading in the same fetch, not just this one — a worse outcome than the
+    original silent double-count. The malformed reading must be dropped and logged instead.
+    """
+    correct = _generic_node(end="2026-07-01T00:30:00Z", value="0.5")
+    malformed = _generic_node(end="2026-07-01T00:06:51.518601Z", value="0.5")
+    page = parse_generic_readings_page(
+        _generic_payload([correct, malformed]),
+        supply_point=_point(),
+        external_identifier="spin-id",
+        target=GenericReadingTarget(),
+        direction=ReadingDirection.IMPORT,
+        fetched_at=FETCHED,
+        include_quality=False,
+    )
+    assert len(page.items) == 1
+    assert page.items[0].end_at == START + timedelta(minutes=30)
+
+
+def test_a_lone_malformed_reading_is_dropped_without_a_correct_counterpart() -> None:
+    malformed = _generic_node(end="2026-07-01T00:06:51.518601Z")
+    page = parse_generic_readings_page(
+        _generic_payload([malformed]),
+        supply_point=_point(),
+        external_identifier="spin-id",
+        target=GenericReadingTarget(),
+        direction=ReadingDirection.IMPORT,
+        fetched_at=FETCHED,
+        include_quality=False,
+    )
+    assert page.items == ()
+
+
 @pytest.mark.parametrize(
     "mutation",
     [

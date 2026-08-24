@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import Any, Final, Protocol
 
 from .auth import AuthenticatedGraphQLClient
 from .discovery import ConnectionPage, async_paginate
@@ -33,11 +34,23 @@ from .models import (
     ReadingSource,
 )
 
+_LOGGER = logging.getLogger(__name__)
+
 GENERIC_PAGE_SIZE = MAX_PAGE_SIZE
 GENERIC_READING_TYPE = "INTERVAL"
 GENERIC_TIME_GRANULARITY = "THIRTY_MIN"
 GENERIC_TIMEZONE = "UTC"
 GENERIC_ENERGY_UNITS = ("WATT_HOURS", "KILOWATT_HOURS", "MEGAWATT_HOURS")
+
+# Durations with a fixed length. `WEEK`/`MONTH`/`QUARTER`/`YEAR` are excluded because their
+# span depends on the calendar, so a reading in one of them cannot be checked this way.
+_FIXED_GRANULARITY_SPAN: Final[Mapping[ReadingGranularity, timedelta]] = {
+    ReadingGranularity.FIVE_MIN: timedelta(minutes=5),
+    ReadingGranularity.FIFTEEN_MIN: timedelta(minutes=15),
+    ReadingGranularity.THIRTY_MIN: timedelta(minutes=30),
+    ReadingGranularity.HOUR: timedelta(hours=1),
+    ReadingGranularity.DAY: timedelta(days=1),
+}
 
 LEGACY_HALF_HOURLY_QUERY = """
 query LegacyHalfHourlyReadings(
@@ -1001,12 +1014,45 @@ def _find_single_filtered_node(
     return matches[0]
 
 
+def _is_self_consistent(reading: EnergyReading) -> bool:
+    """Report whether a reading's own span matches the granularity it declares.
+
+    A malformed provider response was observed on a real account on 2026-08-24: five
+    otherwise-ordinary half-hourly readings, weeks apart, each arrived with `endAt` a few
+    minutes after `startAt` instead of the usual thirty — internally inconsistent with their
+    own `granularity: "30min"`. Nothing upstream validates that, so `_deduplicate_readings`
+    saw it as a *different* interval from the correct one already on file (same `start_at`,
+    different `end_at`) rather than the same slot restated, and kept both — silently doubling
+    that half hour's energy and cost.
+
+    Raising here would be the usual policy, but this method's failure is scoped to the whole
+    supply point (`DirectionErrorClass.INVALID_RESPONSE` / `_FailureScope.POINT` in
+    `coordinator.py`), which would stop every other reading in the same fetch too. One bad
+    interval is a rounding error; refusing the other 1,499 next to it is not a proportionate
+    response. The caller drops it and logs instead, and the next reconciliation pass — which
+    reproduced a clean value when this was investigated — fills it in normally.
+    """
+    expected = _FIXED_GRANULARITY_SPAN.get(reading.granularity) if reading.granularity else None
+    return expected is None or reading.end_at - reading.start_at == expected
+
+
 def _deduplicate_readings(readings: list[EnergyReading]) -> tuple[EnergyReading, ...]:
     by_interval: dict[
         tuple[ReadingSeriesKey, datetime, datetime],
         EnergyReading,
     ] = {}
     for reading in readings:
+        if not _is_self_consistent(reading):
+            _LOGGER.warning(
+                "Discarding a %s reading for %s whose span (%s) does not match its own "
+                "granularity; %s to %s",
+                reading.granularity,
+                reading.supply_point_id,
+                reading.end_at - reading.start_at,
+                reading.start_at.isoformat(),
+                reading.end_at.isoformat(),
+            )
+            continue
         key = (
             ReadingSeriesKey.from_reading(reading),
             reading.start_at,
