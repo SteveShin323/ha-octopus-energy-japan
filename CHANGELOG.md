@@ -10,6 +10,21 @@ individual customers.
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-08-24
+
+### Fixed
+
+- **A malformed reading from the provider could silently double-count energy and cost for one
+  half hour.** Observed on a real account: several half-hourly readings arrived with `endAt`
+  a few minutes after `startAt` instead of the usual thirty, internally inconsistent with
+  their own declared granularity. The ledger and the reading parser both key an interval on
+  its exact `(start_at, end_at)` pair, so a reading like this was never recognised as a
+  restatement of the correct one already on file — it was kept alongside it instead,
+  inflating that half hour's energy, cost, and every later cumulative total. Re-querying the
+  same interval afterward returned a clean value, so this looks like a transient upstream
+  fault rather than something this integration produces on its own. A reading whose span
+  contradicts its own granularity is now discarded and logged instead of kept.
+
 ## [1.4.0] - 2026-08-14
 
 ### Added
