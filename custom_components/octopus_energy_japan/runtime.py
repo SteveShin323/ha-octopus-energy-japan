@@ -139,7 +139,10 @@ def async_project_discovered_devices(
             account.lifecycle is ResourceLifecycle.HISTORICAL and not account_selected
         )
         account_identifiers = {(DOMAIN, account_identity)}
-        existing_account = registry.async_get_device(identifiers=account_identifiers)
+        existing_account = registry.async_get_device_by_identifier(
+            (DOMAIN, account_identity),
+            entry.entry_id,
+        )
         account_device = registry.async_get_or_create(
             config_entry_id=entry.entry_id,
             disabled_by=(
@@ -182,7 +185,10 @@ def async_project_discovered_devices(
                 and supply_point_identity not in selected
             )
             supply_point_identifiers = {(DOMAIN, supply_point_identity)}
-            existing_supply_point = registry.async_get_device(identifiers=supply_point_identifiers)
+            existing_supply_point = registry.async_get_device_by_identifier(
+                (DOMAIN, supply_point_identity),
+                entry.entry_id,
+            )
             supply_point_device = registry.async_get_or_create(
                 config_entry_id=entry.entry_id,
                 disabled_by=(
@@ -199,7 +205,7 @@ def async_project_discovered_devices(
                 # contract. `spin` is the customer-facing one; the internal id is the
                 # fallback when the provider omits it.
                 serial_number=supply_point.spin or supply_point.id,
-                via_device=(DOMAIN, account_identity),
+                via_device_id=account_device.id,
             )
             _sync_device_disabled(
                 registry,

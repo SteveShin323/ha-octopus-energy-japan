@@ -557,9 +557,7 @@ async def test_diagnostics_do_not_carry_the_device_serial_numbers(
     async_project_discovered_devices(hass, entry, runtime)
 
     serials = {
-        device.serial_number
-        for device in dr.async_get(hass).devices.values()
-        if device.serial_number
+        device.serial_number for device in dr.async_get(hass).devices if device.serial_number
     }
     assert serials, "the device page must carry an identifier for this test to mean anything"
 
