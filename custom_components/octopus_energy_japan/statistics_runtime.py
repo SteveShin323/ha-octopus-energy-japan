@@ -613,7 +613,12 @@ def _statistic_name(
     telling them apart everywhere else — measured on an installation with two logins.
     """
     direction = series.key.direction.value.title()
-    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, supply_point_identity)})
+    # Unscoped on purpose: this projector is not built with a config entry, and the
+    # identity is already HMAC'd per entry, so at most one device can carry it.
+    devices = dr.async_get(hass).async_get_devices(
+        identifiers={(DOMAIN, supply_point_identity)},
+    )
+    device = devices[0] if devices else None
     label = (device.name_by_user or device.name) if device is not None else None
     label = label or None
     if label is None:

@@ -115,7 +115,7 @@ async def test_device_projection_hides_provider_ids_and_disables_history(
     async_project_discovered_devices(hass, entry, runtime)
 
     registry = dr.async_get(hass)
-    devices = list(registry.devices.values())
+    devices = list(registry.devices)
     assert len(devices) == 5
     provider_ids = (
         "ACTIVE-ACCOUNT",
@@ -135,19 +135,18 @@ async def test_device_projection_hides_provider_ids_and_disables_history(
     # Assistant's device page is where a serial belongs.
     assert {device.serial_number for device in devices} >= {"ACTIVE-ACCOUNT", "ACTIVE-SPIN"}
 
-    active_account = registry.async_get_device(
-        identifiers={(DOMAIN, stable_account_identity(SECRET, "ACTIVE-ACCOUNT"))}
+    active_account = registry.async_get_device_by_identifier(
+        (DOMAIN, stable_account_identity(SECRET, "ACTIVE-ACCOUNT")), entry.entry_id
     )
-    historical_account = registry.async_get_device(
-        identifiers={(DOMAIN, stable_account_identity(SECRET, "OLD-ACCOUNT"))}
+    historical_account = registry.async_get_device_by_identifier(
+        (DOMAIN, stable_account_identity(SECRET, "OLD-ACCOUNT")), entry.entry_id
     )
-    active_supply_point = registry.async_get_device(
-        identifiers={
-            (DOMAIN, stable_supply_point_identity(SECRET, "ACTIVE-ACCOUNT", "ACTIVE-SPIN"))
-        }
+    active_supply_point = registry.async_get_device_by_identifier(
+        (DOMAIN, stable_supply_point_identity(SECRET, "ACTIVE-ACCOUNT", "ACTIVE-SPIN")),
+        entry.entry_id,
     )
-    historical_supply_point = registry.async_get_device(
-        identifiers={(DOMAIN, stable_supply_point_identity(SECRET, "ACTIVE-ACCOUNT", "OLD-SPIN"))}
+    historical_supply_point = registry.async_get_device_by_identifier(
+        (DOMAIN, stable_supply_point_identity(SECRET, "ACTIVE-ACCOUNT", "OLD-SPIN")), entry.entry_id
     )
 
     assert active_account is not None and active_account.disabled_by is None
@@ -158,6 +157,40 @@ async def test_device_projection_hides_provider_ids_and_disables_history(
     assert historical_supply_point is not None
     assert historical_supply_point.disabled_by is not None
     assert historical_supply_point.disabled_by.value == "integration"
+
+
+async def test_each_supply_point_hangs_off_the_account_that_owns_it(
+    hass: HomeAssistant,
+) -> None:
+    """The device page's hierarchy is the only place the account/point relation shows.
+
+    Nothing else asserts it, and the link is set by id rather than by identifier, so a
+    parent pointed at the wrong account — or at nothing — would leave every device
+    looking correct on its own while the tree silently flattened.
+    """
+    entry = MockConfigEntry(domain=DOMAIN)
+    entry.add_to_hass(hass)
+
+    async_project_discovered_devices(hass, entry, _runtime())
+
+    registry = dr.async_get(hass)
+
+    def device(identity: str) -> dr.DeviceEntry:
+        found = registry.async_get_device_by_identifier((DOMAIN, identity), entry.entry_id)
+        assert found is not None
+        return found
+
+    for account_number, supply_point_ids in (
+        ("ACTIVE-ACCOUNT", ("ACTIVE-SPIN", "OLD-SPIN")),
+        ("OLD-ACCOUNT", ("OLD-ACCOUNT-SPIN",)),
+    ):
+        account = device(stable_account_identity(SECRET, account_number))
+        assert account.via_device_id is None
+        for supply_point_id in supply_point_ids:
+            supply_point = device(
+                stable_supply_point_identity(SECRET, account_number, supply_point_id)
+            )
+            assert supply_point.via_device_id == account.id
 
 
 async def test_selected_historical_resources_are_enabled(hass: HomeAssistant) -> None:
@@ -181,17 +214,18 @@ async def test_selected_historical_resources_are_enabled(hass: HomeAssistant) ->
     async_project_discovered_devices(hass, entry, _runtime())
 
     registry = dr.async_get(hass)
-    historical_account = registry.async_get_device(identifiers={(DOMAIN, historical_account_id)})
-    historical_supply_point = registry.async_get_device(
-        identifiers={(DOMAIN, historical_supply_point_id)}
+    historical_account = registry.async_get_device_by_identifier(
+        (DOMAIN, historical_account_id), entry.entry_id
     )
-    account_child = registry.async_get_device(
-        identifiers={
-            (
-                DOMAIN,
-                stable_supply_point_identity(SECRET, "OLD-ACCOUNT", "OLD-ACCOUNT-SPIN"),
-            )
-        }
+    historical_supply_point = registry.async_get_device_by_identifier(
+        (DOMAIN, historical_supply_point_id), entry.entry_id
+    )
+    account_child = registry.async_get_device_by_identifier(
+        (
+            DOMAIN,
+            stable_supply_point_identity(SECRET, "OLD-ACCOUNT", "OLD-ACCOUNT-SPIN"),
+        ),
+        entry.entry_id,
     )
     assert historical_account is not None and historical_account.disabled_by is None
     assert historical_supply_point is not None
@@ -238,18 +272,18 @@ async def test_missing_devices_are_disabled_and_reappearance_reuses_identity(
         "ACTIVE-ACCOUNT",
         "ACTIVE-SPIN",
     )
-    original = registry.async_get_device(identifiers={(DOMAIN, active_identity)})
+    original = registry.async_get_device_by_identifier((DOMAIN, active_identity), entry.entry_id)
     assert original is not None
 
     runtime.accounts = ()
     async_project_discovered_devices(hass, entry, runtime)
-    missing = registry.async_get_device(identifiers={(DOMAIN, active_identity)})
+    missing = registry.async_get_device_by_identifier((DOMAIN, active_identity), entry.entry_id)
     assert missing is not None and missing.disabled_by is not None
     assert missing.disabled_by.value == "integration"
 
     runtime.accounts = _runtime().accounts
     async_project_discovered_devices(hass, entry, runtime)
-    reappeared = registry.async_get_device(identifiers={(DOMAIN, active_identity)})
+    reappeared = registry.async_get_device_by_identifier((DOMAIN, active_identity), entry.entry_id)
     assert reappeared is not None
     assert reappeared.id == original.id
     assert reappeared.disabled_by is None
@@ -270,8 +304,12 @@ async def test_active_account_transition_to_selected_history_then_deselection(
     runtime = _runtime()
     async_project_discovered_devices(hass, entry, runtime)
     registry = dr.async_get(hass)
-    original_account = registry.async_get_device(identifiers={(DOMAIN, account_identity)})
-    original_point = registry.async_get_device(identifiers={(DOMAIN, supply_point_identity)})
+    original_account = registry.async_get_device_by_identifier(
+        (DOMAIN, account_identity), entry.entry_id
+    )
+    original_point = registry.async_get_device_by_identifier(
+        (DOMAIN, supply_point_identity), entry.entry_id
+    )
     assert original_account is not None
     assert original_point is not None
 
@@ -299,8 +337,12 @@ async def test_active_account_transition_to_selected_history_then_deselection(
     )
     async_project_discovered_devices(hass, entry, runtime)
 
-    selected_account = registry.async_get_device(identifiers={(DOMAIN, account_identity)})
-    selected_point = registry.async_get_device(identifiers={(DOMAIN, supply_point_identity)})
+    selected_account = registry.async_get_device_by_identifier(
+        (DOMAIN, account_identity), entry.entry_id
+    )
+    selected_point = registry.async_get_device_by_identifier(
+        (DOMAIN, supply_point_identity), entry.entry_id
+    )
     assert selected_account is not None and selected_account.id == original_account.id
     assert selected_point is not None and selected_point.id == original_point.id
     assert selected_account.disabled_by is None
@@ -312,8 +354,12 @@ async def test_active_account_transition_to_selected_history_then_deselection(
     )
     async_project_discovered_devices(hass, entry, runtime)
 
-    deselected_account = registry.async_get_device(identifiers={(DOMAIN, account_identity)})
-    deselected_point = registry.async_get_device(identifiers={(DOMAIN, supply_point_identity)})
+    deselected_account = registry.async_get_device_by_identifier(
+        (DOMAIN, account_identity), entry.entry_id
+    )
+    deselected_point = registry.async_get_device_by_identifier(
+        (DOMAIN, supply_point_identity), entry.entry_id
+    )
     assert deselected_account is not None
     assert deselected_point is not None
     assert deselected_account.disabled_by is dr.DeviceEntryDisabler.INTEGRATION
@@ -333,7 +379,7 @@ async def test_lifecycle_projection_preserves_user_disabled_choice(
         "ACTIVE-ACCOUNT",
         "ACTIVE-SPIN",
     )
-    device = registry.async_get_device(identifiers={(DOMAIN, identity)})
+    device = registry.async_get_device_by_identifier((DOMAIN, identity), entry.entry_id)
     assert device is not None
     registry.async_update_device(device.id, disabled_by=dr.DeviceEntryDisabler.USER)
 
@@ -342,7 +388,7 @@ async def test_lifecycle_projection_preserves_user_disabled_choice(
     runtime.accounts = _runtime().accounts
     async_project_discovered_devices(hass, entry, runtime)
 
-    preserved = registry.async_get_device(identifiers={(DOMAIN, identity)})
+    preserved = registry.async_get_device_by_identifier((DOMAIN, identity), entry.entry_id)
     assert preserved is not None
     assert preserved.disabled_by is dr.DeviceEntryDisabler.USER
 
@@ -364,20 +410,19 @@ async def test_the_device_page_carries_the_identifier_a_bill_shows(
     async_project_discovered_devices(hass, entry, runtime)
 
     registry = dr.async_get(hass)
-    account = registry.async_get_device(
-        identifiers={(DOMAIN, stable_account_identity(runtime.identity_secret, "ACTIVE-ACCOUNT"))}
+    account = registry.async_get_device_by_identifier(
+        (DOMAIN, stable_account_identity(runtime.identity_secret, "ACTIVE-ACCOUNT")), entry.entry_id
     )
-    supply_point = registry.async_get_device(
-        identifiers={
-            (
-                DOMAIN,
-                stable_supply_point_identity(
-                    runtime.identity_secret,
-                    "ACTIVE-ACCOUNT",
-                    "ACTIVE-SPIN",
-                ),
-            )
-        }
+    supply_point = registry.async_get_device_by_identifier(
+        (
+            DOMAIN,
+            stable_supply_point_identity(
+                runtime.identity_secret,
+                "ACTIVE-ACCOUNT",
+                "ACTIVE-SPIN",
+            ),
+        ),
+        entry.entry_id,
     )
 
     assert account is not None
@@ -430,8 +475,8 @@ async def test_a_supply_point_without_a_spin_falls_back_to_its_internal_id(
 
     async_project_discovered_devices(hass, entry, runtime)
 
-    supply_point = dr.async_get(hass).async_get_device(
-        identifiers={(DOMAIN, stable_supply_point_identity(SECRET, "A-1", "INTERNAL-ONLY"))}
+    supply_point = dr.async_get(hass).async_get_device_by_identifier(
+        (DOMAIN, stable_supply_point_identity(SECRET, "A-1", "INTERNAL-ONLY")), entry.entry_id
     )
 
     assert supply_point is not None
@@ -463,8 +508,8 @@ async def test_two_logins_get_distinguishable_device_names(hass: HomeAssistant) 
         registry = dr.async_get(hass)
         names += [
             device.name
-            for device in registry.devices.values()
-            if device.config_entries == {entry.entry_id} and device.name
+            for device in dr.async_entries_for_config_entry(registry, entry.entry_id)
+            if device.name
         ]
 
     assert "OEJP home account 1" in names
@@ -488,5 +533,5 @@ async def test_no_label_keeps_the_names_an_existing_install_already_has(
 
     async_project_discovered_devices(hass, entry, _runtime())
 
-    names = {device.name for device in dr.async_get(hass).devices.values()}
+    names = {device.name for device in dr.async_get(hass).devices}
     assert "OEJP account 1" in names
