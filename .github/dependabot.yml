@@ -11,3 +11,12 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      # `init` and `analyze` are pinned to the same SHA and refuse to run against
+      # each other's version, so they have to move in one pull request.
+      codeql-action:
+        patterns:
+          # Both forms, because the dependency names carry a second slash
+          # (`github/codeql-action/init`) and `*` may not span it.
+          - "github/codeql-action*"
+          - "github/codeql-action/*"
