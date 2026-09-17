@@ -10,6 +10,27 @@ individual customers.
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-09-17
+
+### Changed
+
+- **The fuel cost adjustment baseline now covers October 2026.** All nine areas gained the
+  figure effective from 2026-10-01 through 2026-10-31 in local time, taken from the tariff
+  pages at <https://octopusenergy.co.jp/terms>. The renewable energy levy is unchanged. This
+  baseline ships as a data file inside the integration, so a refreshed figure reaches an
+  installation only through a release — the refresh itself landed on 2026-09-05 and has been
+  sitting unreleased since.
+
+### Fixed
+
+- **Home Assistant 2026.9 deprecated three device registry patterns this integration used.**
+  They warn for custom integrations now and are removed in 2027.8 and 2027.9, so the
+  integration logged a deprecation warning and would have broken outright on those releases.
+  The device lookup is now scoped to the config entry that owns the identifier instead of
+  searching every entry, and the parent link passes the account device's id rather than its
+  identifier. Both call sites already had the entry in hand, so the narrower lookup cannot
+  miss a device the old one would have found.
+
 ## [1.4.1] - 2026-08-24
 
 ### Fixed
