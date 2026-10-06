@@ -10,6 +10,16 @@ individual customers.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The type check failed against Home Assistant 2026.10.** That release types the config
+  flow's `data_schema` as a `probatio.Schema`, so `mypy` rejected the three forms built with
+  `voluptuous`. Nothing was wrong at runtime: Home Assistant 2026.9 and later alias
+  `voluptuous` to `probatio` in `sys.modules`, and the full test suite passes on 2026.10.0b0.
+  The integration cannot simply import `probatio`, because it is absent from Home Assistant
+  2026.7 and 2026.8, which this integration still supports. The forms now go through one small
+  helper that keeps `voluptuous` at runtime and type-checks identically on 2026.9 and 2026.10.
+
 ## [1.4.2] - 2026-09-17
 
 ### Changed
