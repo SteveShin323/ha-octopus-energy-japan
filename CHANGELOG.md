@@ -10,6 +10,16 @@ individual customers.
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-10-06
+
+### Changed
+
+- **The fuel cost adjustment baseline now covers November 2026.** All nine areas gained the
+  figure effective from 2026-11-01 through 2026-11-30 in local time, taken from the tariff
+  pages at <https://octopusenergy.co.jp/terms>. The renewable energy levy is unchanged. This
+  baseline ships as a data file inside the integration, so a refreshed figure reaches an
+  installation only through a release; the refresh landed on 2026-10-05.
+
 ### Fixed
 
 - **The type check failed against Home Assistant 2026.10.** That release types the config
