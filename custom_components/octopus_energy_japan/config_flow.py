@@ -73,6 +73,20 @@ _MY_HOME_ASSISTANT_DOMAIN = "my"
 _CONF_AUTH_IMPLEMENTATION = "auth_implementation"
 
 
+def _form_schema(fields: Mapping[Any, Any]) -> Any:
+    """Build the schema `async_show_form` takes.
+
+    Home Assistant 2026.10 types `data_schema` as a `probatio.Schema`, but `probatio` first
+    ships in 2026.9 and this integration still supports 2026.7, where `voluptuous` is the only
+    one that imports. Home Assistant 2026.9 and later alias `voluptuous` to `probatio` in
+    `sys.modules`, so `vol.Schema` is the right class at runtime on every supported release;
+    only the type checker, which reads the real `voluptuous` stubs, sees a mismatch. Returning
+    `Any` keeps the call sites identical across releases, which a `type: ignore` would not:
+    `warn_unused_ignores` would flag it as unused on 2026.9.
+    """
+    return vol.Schema(fields)
+
+
 class OctopusEnergyJapanConfigFlow(
     config_entry_oauth2_flow.AbstractOAuth2FlowHandler,
     domain=DOMAIN,
@@ -160,7 +174,7 @@ class OctopusEnergyJapanConfigFlow(
             if user_input is None or _CONF_AUTH_IMPLEMENTATION not in user_input:
                 return self.async_show_form(
                     step_id=AUTH_METHOD_DEVICE,
-                    data_schema=vol.Schema(
+                    data_schema=_form_schema(
                         {
                             vol.Required(_CONF_AUTH_IMPLEMENTATION): vol.In(
                                 {domain: name for domain, (_, _, name) in candidates.items()}
@@ -325,7 +339,7 @@ class OctopusEnergyJapanConfigFlow(
 
         return self.async_show_form(
             step_id=AUTH_METHOD_PASSWORD,
-            data_schema=vol.Schema(
+            data_schema=_form_schema(
                 {
                     vol.Required(CONF_EMAIL): selector.TextSelector(
                         selector.TextSelectorConfig(type=selector.TextSelectorType.EMAIL)
@@ -521,4 +535,4 @@ class OctopusEnergyJapanConfigFlow(
                     mode=selector.SelectSelectorMode.LIST,
                 )
             )
-        return self.async_show_form(step_id="reconfigure", data_schema=vol.Schema(schema))
+        return self.async_show_form(step_id="reconfigure", data_schema=_form_schema(schema))
