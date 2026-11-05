@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source": "https://octopusenergy.co.jp/terms",
-  "fetched_at": "2026-10-05T10:48:46.304455Z",
+  "fetched_at": "2026-11-05T11:26:21.792470Z",
   "renewable_energy_levy": [
     {
       "valid_from": "2024-04-30T15:00:00Z",
@@ -347,6 +347,12 @@
         "valid_to": "2026-11-30T15:00:00Z",
         "price_inc_tax": "6.72",
         "source_url": "https://a.storyblok.com/f/122730/x/b5a7243098/2026-11.pdf"
+      },
+      {
+        "valid_from": "2026-11-30T15:00:00Z",
+        "valid_to": "2026-12-31T15:00:00Z",
+        "price_inc_tax": "6.19",
+        "source_url": "https://a.storyblok.com/f/122730/x/dd17ebe620/2026-12.pdf"
       }
     ],
     "02": [
@@ -673,6 +679,12 @@
         "valid_to": "2026-11-30T15:00:00Z",
         "price_inc_tax": "6.19",
         "source_url": "https://a.storyblok.com/f/122730/x/b5a7243098/2026-11.pdf"
+      },
+      {
+        "valid_from": "2026-11-30T15:00:00Z",
+        "valid_to": "2026-12-31T15:00:00Z",
+        "price_inc_tax": "6.63",
+        "source_url": "https://a.storyblok.com/f/122730/x/dd17ebe620/2026-12.pdf"
       }
     ],
     "03": [
@@ -999,6 +1011,12 @@
         "valid_to": "2026-11-30T15:00:00Z",
         "price_inc_tax": "7.22",
         "source_url": "https://a.storyblok.com/f/122730/x/b5a7243098/2026-11.pdf"
+      },
+      {
+        "valid_from": "2026-11-30T15:00:00Z",
+        "valid_to": "2026-12-31T15:00:00Z",
+        "price_inc_tax": "8.00",
+        "source_url": "https://a.storyblok.com/f/122730/x/dd17ebe620/2026-12.pdf"
       }
     ],
     "04": [
@@ -1325,6 +1343,12 @@
         "valid_to": "2026-11-30T15:00:00Z",
         "price_inc_tax": "4.31",
         "source_url": "https://a.storyblok.com/f/122730/x/b5a7243098/2026-11.pdf"
+      },
+      {
+        "valid_from": "2026-11-30T15:00:00Z",
+        "valid_to": "2026-12-31T15:00:00Z",
+        "price_inc_tax": "5.38",
+        "source_url": "https://a.storyblok.com/f/122730/x/dd17ebe620/2026-12.pdf"
       }
     ],
     "05": [
@@ -1651,6 +1675,12 @@
         "valid_to": "2026-11-30T15:00:00Z",
         "price_inc_tax": "5.01",
         "source_url": "https://a.storyblok.com/f/122730/x/b5a7243098/2026-11.pdf"
+      },
+      {
+        "valid_from": "2026-11-30T15:00:00Z",
+        "valid_to": "2026-12-31T15:00:00Z",
+        "price_inc_tax": "4.77",
+        "source_url": "https://a.storyblok.com/f/122730/x/dd17ebe620/2026-12.pdf"
       }
     ],
     "06": [
@@ -1977,6 +2007,12 @@
         "valid_to": "2026-11-30T15:00:00Z",
         "price_inc_tax": "4.75",
         "source_url": "https://a.storyblok.com/f/122730/x/b5a7243098/2026-11.pdf"
+      },
+      {
+        "valid_from": "2026-11-30T15:00:00Z",
+        "valid_to": "2026-12-31T15:00:00Z",
+        "price_inc_tax": "5.30",
+        "source_url": "https://a.storyblok.com/f/122730/x/dd17ebe620/2026-12.pdf"
       }
     ],
     "07": [
@@ -2303,6 +2339,12 @@
         "valid_to": "2026-11-30T15:00:00Z",
         "price_inc_tax": "7.01",
         "source_url": "https://a.storyblok.com/f/122730/x/b5a7243098/2026-11.pdf"
+      },
+      {
+        "valid_from": "2026-11-30T15:00:00Z",
+        "valid_to": "2026-12-31T15:00:00Z",
+        "price_inc_tax": "7.08",
+        "source_url": "https://a.storyblok.com/f/122730/x/dd17ebe620/2026-12.pdf"
       }
     ],
     "08": [
@@ -2629,6 +2671,12 @@
         "valid_to": "2026-11-30T15:00:00Z",
         "price_inc_tax": "5.59",
         "source_url": "https://a.storyblok.com/f/122730/x/b5a7243098/2026-11.pdf"
+      },
+      {
+        "valid_from": "2026-11-30T15:00:00Z",
+        "valid_to": "2026-12-31T15:00:00Z",
+        "price_inc_tax": "5.43",
+        "source_url": "https://a.storyblok.com/f/122730/x/dd17ebe620/2026-12.pdf"
       }
     ],
     "09": [
@@ -2955,6 +3003,12 @@
         "valid_to": "2026-11-30T15:00:00Z",
         "price_inc_tax": "2.71",
         "source_url": "https://a.storyblok.com/f/122730/x/b5a7243098/2026-11.pdf"
+      },
+      {
+        "valid_from": "2026-11-30T15:00:00Z",
+        "valid_to": "2026-12-31T15:00:00Z",
+        "price_inc_tax": "2.92",
+        "source_url": "https://a.storyblok.com/f/122730/x/dd17ebe620/2026-12.pdf"
       }
     ]
   },
