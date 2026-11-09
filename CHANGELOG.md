@@ -10,6 +10,20 @@ individual customers.
 
 ## [Unreleased]
 
+## [1.4.4] - 2026-11-09
+
+### Changed
+
+- **The fuel cost adjustment baseline now covers December 2026.** Added the published,
+  tax-included rates for all nine grid areas, effective 2026-12-01 through 2026-12-31
+  (Japan time), sourced from Octopus Energy Japan's December notice. Existing fuel cost
+  adjustment windows and the renewable energy levy are unchanged. This brings the
+  November 5 automated baseline refresh (#135) to HACS installations through a release.
+- **GitHub Actions maintenance.** Updated SHA-pinned CodeQL analysis actions (#130),
+  `actions/setup-python` (#133), and the Home Assistant Hassfest action (#134).
+  These changes affect repository CI only, not the Home Assistant integration's
+  runtime dependencies or behavior.
+
 ## [1.4.3] - 2026-10-06
 
 ### Changed
